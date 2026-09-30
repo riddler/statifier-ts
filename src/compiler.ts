@@ -20,9 +20,13 @@
 //
 // - A load-time error. A transition's `cond`, a `<log>`'s `expr`, an `<if>`
 //   or `<elseif>` condition, a `<foreach>`'s `array`, a `<content>`'s `expr`
-//   and a `<param>`'s value under `<donedata>` or `<invoke>`, and an
-//   `<invoke>`'s `typeexpr` and `srcexpr`: the chart does not compile, and
-//   every such error is answered, in source order.
+//   and a `<param>`'s value under `<donedata>`, `<invoke>` or `<send>`, an
+//   `<invoke>`'s `typeexpr` and `srcexpr`, a `<send>`'s `eventexpr`,
+//   `targetexpr`, `typeexpr` and `delayexpr`, and a `<cancel>`'s
+//   `sendidexpr`: the chart does not compile, and every such error is
+//   answered, in source order. A `<send>` answers at most one error for its
+//   attributes and `<content>`, the first in that order, and one for each
+//   `<param>` only when they all compiled.
 // - A deferred failure. An `<assign>`'s `expr`, a `<data>`'s `expr` and a
 //   `namelist` entry compile to an `Invalid` that fails when it runs, raising
 //   `error.execution` then, so a chart whose only defect is one of these
@@ -34,9 +38,9 @@
 // each script fails when it runs. This is a placeholder until how the port
 // runs scripts is decided.
 //
-// `<send>` and `<cancel>` take their content index here and compile to no
-// node yet: the block runner has no node for either, and they join the
-// blocks when it does.
+// A `<send>`'s literal attributes fold to literals, and its `id` and
+// `idlocation` stay as written: whether its target and type can be carried
+// is judged when it runs, not here.
 
 import {
   compile as compileExpression,
@@ -46,9 +50,10 @@ import {
   type Value,
 } from "@riddler/predicator";
 import type { ContentNode, Invalid } from "./core/content.js";
+import type { ParamNode } from "./core/send.js";
 import { type CompiledProgram, type Expr, ON_UNBOUND } from "./datamodel.js";
 import type { Content, Data, Datamodel, Donedata, Param } from "./document/data.js";
-import type { Assign, Foreach, If, Log, Script } from "./document/executable.js";
+import type { Assign, Cancel, Foreach, If, Log, Script, Send } from "./document/executable.js";
 import type { Invoke } from "./document/invoke.js";
 import type { Document, ContentNode as DocumentContentNode } from "./document/scxml.js";
 import type { Block, State, Transition } from "./document/states.js";
@@ -450,20 +455,14 @@ function assignBlocks(walk: Walk, blocks: readonly Block[]): CompiledBlock[] {
 }
 
 function compileContentList(walk: Walk, nodes: readonly DocumentContentNode[]): ContentNode[] {
-  const compiled: ContentNode[] = [];
-  for (const node of nodes) {
-    const built = compileContent(walk, node);
-    if (built !== null) compiled.push(built);
-  }
-  return compiled;
+  return nodes.map((node) => compileContent(walk, node));
 }
 
 /**
  * Compiles one content node, taking the next content index first, so a
- * container's index precedes its children's. `<send>` and `<cancel>` take
- * their index and compile to nothing yet.
+ * container's index precedes its children's.
  */
-function compileContent(walk: Walk, node: DocumentContentNode): ContentNode | null {
+function compileContent(walk: Walk, node: DocumentContentNode): ContentNode {
   const cIndex = walk.cNext++;
   switch (node.kind) {
     case "raise":
@@ -479,8 +478,9 @@ function compileContent(walk: Walk, node: DocumentContentNode): ContentNode | nu
     case "script":
       return { kind: "script", cIndex, program: scriptPlaceholder(node) };
     case "send":
+      return compileSend(walk, node, cIndex);
     case "cancel":
-      return null;
+      return compileCancel(walk, node, cIndex);
   }
 }
 
@@ -556,6 +556,101 @@ function compileForeach(walk: Walk, node: Foreach, cIndex: number): ContentNode 
     index: node.index,
     content: compileContentList(walk, node.content),
   };
+}
+
+type SendAttribute = "eventexpr" | "targetexpr" | "typeexpr" | "delayexpr" | "namelist";
+
+/**
+ * A `<send>`. Each attribute pair folds into one expression: the literal
+ * attribute wins over its `expr` twin (the validator refuses a chart that
+ * writes both), and a pair with neither written is null. `<content>` is its
+ * `expr` compiled, else its markup or text as written. The attributes and
+ * `<content>` compile in that order and the first failure stops the rest,
+ * `<param>` children included; the `<param>`s then each answer their own
+ * failure. A `namelist` entry is a location read by its own name, and its
+ * compile failure is deferred to when the send runs.
+ */
+function compileSend(walk: Walk, node: Send, cIndex: number): ContentNode {
+  const owner: ExpressionOwner = { kind: "content", cIndex };
+  const site = (attribute: SendAttribute): Site => ({
+    owner,
+    element: "send",
+    attribute,
+    location: node.attributeLocations[attribute] ?? node.location,
+  });
+  const pair = (
+    value: string | null,
+    source: string | null,
+    attribute: SendAttribute,
+  ): Compiled | null => {
+    if (value !== null) return { ok: true, expr: staticExpr(value) };
+    if (source === null) return null;
+    return compileExpr(source, site(attribute));
+  };
+
+  const namelistSite = site("namelist");
+  const namelist = node.namelist.map((name): ParamNode => {
+    const compiled = compileExpr(name, namelistSite);
+    return { name, expr: compiled.ok ? compiled.expr : invalidOf(compiled.error) };
+  });
+
+  const slots: (() => Compiled | null)[] = [
+    () => pair(node.event, node.eventexpr, "eventexpr"),
+    () => pair(node.target, node.targetexpr, "targetexpr"),
+    () => pair(node.type, node.typeexpr, "typeexpr"),
+    () => pair(node.delay, node.delayexpr, "delayexpr"),
+    () => (node.content === null ? null : contentValue(node.content, owner)),
+  ];
+  const folded: (Expr | null)[] = [];
+  for (const slot of slots) {
+    const compiled = slot();
+    if (compiled !== null && !compiled.ok) {
+      walk.contentErrors.push(compiled.error);
+      break;
+    }
+    folded.push(compiled === null ? null : compiled.expr);
+  }
+
+  const params: ParamNode[] = [];
+  if (folded.length === slots.length) {
+    for (const param of node.params) {
+      const built = compileParam(param, owner);
+      if (isCompilerError(built)) walk.contentErrors.push(built);
+      else params.push({ name: built.name, expr: built.expr });
+    }
+  }
+
+  const [event = null, target = null, type = null, delay = null, content = null] = folded;
+  return {
+    kind: "send",
+    cIndex,
+    event,
+    target,
+    type,
+    id: node.id,
+    idlocation: node.idlocation,
+    delay,
+    namelist,
+    params,
+    content,
+  };
+}
+
+/** A `<cancel>`: `sendid` as a literal, else `sendidexpr` compiled; the validator guarantees one. */
+function compileCancel(walk: Walk, node: Cancel, cIndex: number): ContentNode {
+  if (node.sendid !== null) return { kind: "cancel", cIndex, sendid: staticExpr(node.sendid) };
+  if (node.sendidexpr === null) {
+    throw new Error("the compiler met a <cancel> with neither sendid nor sendidexpr");
+  }
+  const compiled = compileExpr(node.sendidexpr, {
+    owner: { kind: "content", cIndex },
+    element: "cancel",
+    attribute: "sendidexpr",
+    location: node.attributeLocations.sendidexpr ?? node.location,
+  });
+  if (compiled.ok) return { kind: "cancel", cIndex, sendid: compiled.expr };
+  walk.contentErrors.push(compiled.error);
+  return { kind: "cancel", cIndex, sendid: invalidOf(compiled.error) };
 }
 
 // ---------------------------------------------------------------------------
