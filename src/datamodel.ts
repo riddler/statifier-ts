@@ -1,0 +1,538 @@
+// The predicator binding: how a chart's conditions and expressions reach the
+// expression language, and how a failure there becomes an event.
+//
+// Predicator is the whole datamodel, as it is for the reference. This module
+// holds that datamodel as predicator values, builds the context an
+// evaluation runs against, supplies `In()` as a host function, passes the
+// unbound policy and the protected roots the reference passes, seeds the
+// system variables, and turns an evaluation failure into the
+// `error.execution` platform event the reference raises. It is a leaf: it
+// never throws on a failed evaluation, it answers the failure as a value,
+// and only the caller decides to enqueue it.
+//
+// A context is built per evaluation site and never stored. `In()` reads the
+// configuration it was built with, which moves at every microstep, and
+// `_event` is rewritten on every internal round, so a context kept across
+// either would answer against a position the chart has already left.
+
+import {
+  execute as executeProgram,
+  fromHost,
+  type HostFunction,
+  type HostValue,
+  type ParseError,
+  type PredicatorError,
+  type Program,
+  evaluate as predicatorEvaluate,
+  toHost,
+  Undefined,
+  type Value,
+} from "@riddler/predicator";
+
+// ---------------------------------------------------------------------------
+// The datamodel and the context
+// ---------------------------------------------------------------------------
+
+/**
+ * The datamodel: predicator values under their root names.
+ *
+ * A root bound to the absence is declared and unbound: it reads as undefined.
+ * A root the map does not hold is undeclared, and under the unbound policy
+ * below reading it is an error. The two are different answers and both
+ * matter - a declared `_event` before any event reads undefined rather than
+ * failing.
+ */
+export type Datamodel = ReadonlyMap<string, Value>;
+
+/**
+ * What `In()` reads: the chart's own index for a state id, and the indexes of
+ * the states the chart is in right now.
+ */
+export interface ActiveStates {
+  /** The index of a declared state, or undefined for an id the chart never declared. */
+  readonly indexOf: (stateId: string) => number | undefined;
+  /** The indexes of the states in the current configuration. */
+  readonly configuration: ReadonlySet<number>;
+}
+
+/** One evaluation site's view: the datamodel and the configuration, as they stand. */
+export interface EvaluationContext {
+  readonly data: Datamodel;
+  readonly states: ActiveStates;
+}
+
+/**
+ * The policy for a load of a root the context does not bind.
+ *
+ * The reference evaluates with its unbound policy set to refuse, and
+ * predicator's own default is to answer the absence, so the binding names it
+ * rather than inheriting a default that differs.
+ */
+export const ON_UNBOUND = "error";
+
+/** Builds the context one evaluation site runs against. */
+export function evaluationContext(data: Datamodel, states: ActiveStates): EvaluationContext {
+  return { data, states };
+}
+
+/**
+ * Binds one root into a context, replacing what it held. The configuration
+ * carries over, so the result is safe only inside the evaluation site that
+ * built the context it came from.
+ */
+export function bind(context: EvaluationContext, root: string, value: Value): EvaluationContext {
+  const data = new Map(context.data);
+  data.set(root, value);
+  return { data, states: context.states };
+}
+
+/**
+ * `In(stateId)`: true when the id names a state in the configuration, false
+ * for an inactive state and for an id the chart never declared. An undeclared
+ * id is answered rather than refused: asking about a state the chart does not
+ * have gets the answer any inactive state gets. An id that is not a string
+ * names no state either.
+ *
+ * The function takes exactly one argument. A call with another count fails
+ * the evaluation; predicator answers what a host function throws as an
+ * evaluation error, and the message is the one the reference's evaluator
+ * gives for the same call.
+ */
+export function inState(states: ActiveStates, args: readonly Value[]): boolean {
+  if (args.length !== 1) {
+    throw new Error(`Function In() expects 1 arguments, got ${args.length}`);
+  }
+  const [stateId] = args;
+  if (typeof stateId !== "string") return false;
+  const index = states.indexOf(stateId);
+  return index !== undefined && states.configuration.has(index);
+}
+
+/** The functions every evaluation gets: `In()` over this context's configuration. */
+function functionsOf(context: EvaluationContext): Record<string, HostFunction> {
+  return { In: (args) => inState(context.states, args) };
+}
+
+/** The datamodel as the plain object predicator reads a context from. */
+function contextObject(data: Datamodel): { [root: string]: Value } {
+  return Object.fromEntries(data);
+}
+
+/**
+ * A value predicator handed back, normalized into the domain again. What
+ * predicator answers is always inside the domain, so a refusal here is a
+ * broken invariant rather than an outcome.
+ */
+function domainValue(value: HostValue): Value {
+  const normalized = fromHost(value);
+  if (!normalized.ok) {
+    throw new Error(`predicator answered a value outside the domain: ${normalized.reason}`);
+  }
+  return normalized.value;
+}
+
+// ---------------------------------------------------------------------------
+// Expressions and their failures
+// ---------------------------------------------------------------------------
+
+/**
+ * An expression a chart carries: a literal the document wrote, which needs no
+ * evaluation, or a compiled program with the source it was compiled from.
+ */
+export type Expr =
+  | { readonly kind: "static"; readonly value: Value }
+  | { readonly kind: "compiled"; readonly program: Program; readonly source: string };
+
+/**
+ * Why an evaluation or a write failed. It is the data an `error.execution`
+ * event carries.
+ *
+ * - `evaluator_error`: predicator refused the expression. `error` is its own
+ *   error value, unwrapped, and `source` the expression's text.
+ * - `non_boolean_cond`: a condition evaluated to something other than true or
+ *   false, which the specification treats exactly as an evaluation error.
+ * - `system_variable`: a write reached a root beginning with an underscore.
+ */
+export type ExecutionReason =
+  | {
+      readonly kind: "evaluator_error";
+      readonly source: string;
+      readonly error: PredicatorError | ParseError;
+    }
+  | { readonly kind: "non_boolean_cond"; readonly value: Value }
+  | { readonly kind: "system_variable"; readonly root: string };
+
+function evaluatorError(source: string, error: PredicatorError | ParseError): ExecutionReason {
+  return { kind: "evaluator_error", source, error };
+}
+
+/** What evaluating an expression answered. */
+export type EvaluateOutcome =
+  | { readonly ok: true; readonly value: Value }
+  | { readonly ok: false; readonly reason: ExecutionReason };
+
+/**
+ * Evaluates an expression against a context. A literal comes back as the
+ * document wrote it; a compiled program runs under the binding's functions
+ * and unbound policy. A failure is answered, never thrown.
+ */
+export function evaluate(context: EvaluationContext, expr: Expr): EvaluateOutcome {
+  if (expr.kind === "static") return { ok: true, value: expr.value };
+  const result = predicatorEvaluate(expr.program, contextObject(context.data), {
+    functions: functionsOf(context),
+    onUnbound: ON_UNBOUND,
+  });
+  if (!result.ok) return { ok: false, reason: evaluatorError(expr.source, result.error) };
+  return { ok: true, value: domainValue(result.value) };
+}
+
+/** What evaluating a transition's condition answered. */
+export type CondOutcome =
+  | { readonly ok: true; readonly value: boolean }
+  | { readonly ok: false; readonly reason: ExecutionReason };
+
+/**
+ * Evaluates a transition's condition. No condition always passes. A condition
+ * that fails to evaluate, or evaluates to something other than a boolean,
+ * answers the failure: the specification treats both as false and requires
+ * `error.execution` for both, so the failure carries the reason the event
+ * will carry.
+ */
+export function evaluateCond(context: EvaluationContext, cond: Expr | undefined): CondOutcome {
+  if (cond === undefined) return { ok: true, value: true };
+  const outcome = evaluate(context, cond);
+  if (!outcome.ok) return outcome;
+  if (typeof outcome.value === "boolean") return { ok: true, value: outcome.value };
+  return { ok: false, reason: { kind: "non_boolean_cond", value: outcome.value } };
+}
+
+/** Whether a condition's outcome enables its transition: only a true does. */
+export function condEnables(outcome: CondOutcome): boolean {
+  return outcome.ok && outcome.value;
+}
+
+// ---------------------------------------------------------------------------
+// Events raised about a failure
+// ---------------------------------------------------------------------------
+
+/** Where an event came from. `external` events arrived from outside the chart. */
+export type EventType = "external" | "internal" | "platform";
+
+/** Which node the platform raised an event about: here, a transition's condition. */
+export type Origin = { readonly kind: "transition"; readonly tIndex: number };
+
+/** Why an internally raised event exists: its origin and the counters at the raise. */
+export interface Cause {
+  readonly origin: Origin;
+  readonly macrostep: number;
+  readonly microstep: number;
+  readonly round: number;
+}
+
+/** The counters an event's cause is stamped from. */
+export interface Counters {
+  readonly macrostep: number;
+  readonly microstep: number;
+  readonly round: number;
+}
+
+/**
+ * An event, with the fields `_event` exposes. An `error.execution` the
+ * platform raised about a failure also carries the failure whole as `reason`,
+ * and its data is that reason as a datamodel value, which is what `_event.data`
+ * reads.
+ */
+export interface Event {
+  readonly name: string;
+  readonly type: EventType;
+  readonly data: Value;
+  readonly reason?: ExecutionReason;
+  readonly cause?: Cause;
+  readonly sendid?: string;
+  readonly origin?: string;
+  readonly origintype?: string;
+  readonly invokeid?: string;
+}
+
+/**
+ * Builds the `error.execution` platform event for a failure, with its cause
+ * stamped from the counters as they stand at the raise.
+ */
+export function executionError(origin: Origin, counters: Counters, reason: ExecutionReason): Event {
+  const cause: Cause = {
+    origin,
+    macrostep: counters.macrostep,
+    microstep: counters.microstep,
+    round: counters.round,
+  };
+  return { name: "error.execution", type: "platform", data: reasonValue(reason), reason, cause };
+}
+
+/**
+ * Appends one `error.execution` to the internal queue for every condition in
+ * the round that failed, in the order the round evaluated them. An outcome
+ * that did not fail raises nothing. The queue passed in is not changed.
+ */
+export function raiseCondErrors(
+  internalQueue: readonly Event[],
+  outcomes: readonly { readonly tIndex: number; readonly outcome: CondOutcome }[],
+  counters: Counters,
+): Event[] {
+  const queue = [...internalQueue];
+  for (const { tIndex, outcome } of outcomes) {
+    if (!outcome.ok) {
+      queue.push(executionError({ kind: "transition", tIndex }, counters, outcome.reason));
+    }
+  }
+  return queue;
+}
+
+// ---------------------------------------------------------------------------
+// The system variables
+// ---------------------------------------------------------------------------
+
+/** The SCXML Event I/O Processor's type URI, the key of its `_ioprocessors` entry. */
+export const SCXML_EVENT_PROCESSOR = "http://www.w3.org/TR/scxml/#SCXMLEventProcessor";
+
+/** The address a session is reached at through the SCXML Event I/O Processor. */
+export function scxmlLocation(sessionId: string): string {
+  return `#_scxml_${sessionId}`;
+}
+
+/**
+ * The four system variables as they stand before any event. `_sessionid` is
+ * the id the host minted for the session. `_name` is the chart's name, or
+ * undefined when the chart has none. `_event` is declared with no value, so a
+ * read before the first event answers undefined rather than failing.
+ * `_ioprocessors` holds the SCXML Event I/O Processor's entry.
+ */
+export function systemVariables(sessionId: string, name: string | undefined): Datamodel {
+  return new Map<string, Value>([
+    ["_sessionid", sessionId],
+    ["_name", name ?? Undefined],
+    ["_event", Undefined],
+    ["_ioprocessors", { [SCXML_EVENT_PROCESSOR]: { location: scxmlLocation(sessionId) } }],
+  ]);
+}
+
+/**
+ * A session's starting datamodel: the host's roots with the system variables
+ * over them, so a host value under a system variable's name never survives.
+ */
+export function initialDatamodel(
+  host: Datamodel,
+  sessionId: string,
+  name: string | undefined,
+): Datamodel {
+  const data = new Map(host);
+  for (const [root, value] of systemVariables(sessionId, name)) data.set(root, value);
+  return data;
+}
+
+/** An execution reason as a datamodel value, so `_event.data` can read it. */
+export function reasonValue(reason: ExecutionReason): Value {
+  switch (reason.kind) {
+    case "evaluator_error":
+      return {
+        kind: reason.kind,
+        source: reason.source,
+        type: reason.error.type,
+        reason: reason.error.reason,
+        message: reason.error.message,
+      };
+    case "non_boolean_cond":
+      return { kind: reason.kind, value: reason.value };
+    case "system_variable":
+      return { kind: reason.kind, root: reason.root };
+  }
+}
+
+/**
+ * `_event`'s value for an event: the name, the type, and the optional fields,
+ * each undefined when the event has none, and the data.
+ */
+export function eventValue(event: Event): Value {
+  return {
+    name: event.name,
+    type: event.type,
+    sendid: event.sendid ?? Undefined,
+    origin: event.origin ?? Undefined,
+    origintype: event.origintype ?? Undefined,
+    invokeid: event.invokeid ?? Undefined,
+    data: event.data,
+  };
+}
+
+/** The datamodel with `_event` set to an event's value. */
+export function putEvent(data: Datamodel, event: Event): Datamodel {
+  const next = new Map(data);
+  next.set("_event", eventValue(event));
+  return next;
+}
+
+// ---------------------------------------------------------------------------
+// Protected roots
+// ---------------------------------------------------------------------------
+
+/**
+ * Whether a root is a system variable's. The rule is the underscore prefix,
+ * not a list of names: it covers the four variables this module seeds and any
+ * other root spelled that way, a platform root such as `_x` among them, which
+ * nothing seeds.
+ */
+export function isSystemRoot(root: string): boolean {
+  return root.startsWith("_");
+}
+
+/**
+ * The roots a program may not write, derived from the datamodel it runs
+ * against: every root already bound that begins with an underscore.
+ * Predicator's option is a list of names rather than a prefix, so the list is
+ * derived per run. A system root the program creates fresh is not on it;
+ * `runProgram` catches that one after the run.
+ */
+export function protectedRoots(data: Datamodel): string[] {
+  return [...data.keys()].filter(isSystemRoot);
+}
+
+/**
+ * The check a write to a resolved location makes before it writes: a root
+ * beginning with an underscore is refused, whether or not it is bound.
+ */
+export function checkSystemVariable(
+  path: readonly (string | number)[],
+): { readonly ok: true } | { readonly ok: false; readonly reason: ExecutionReason } {
+  const [root] = path;
+  if (typeof root === "string" && isSystemRoot(root)) {
+    return { ok: false, reason: { kind: "system_variable", root } };
+  }
+  return { ok: true };
+}
+
+/** A statement program with the source it was compiled from. */
+export interface CompiledProgram {
+  readonly program: Program;
+  readonly source: string;
+}
+
+/** What running a program answered: the datamodel it leaves, and a failure if one stopped it. */
+export type ProgramOutcome =
+  | { readonly ok: true; readonly data: Datamodel }
+  | { readonly ok: false; readonly data: Datamodel; readonly reason: ExecutionReason };
+
+const PROTECTED_ROOT_SUFFIX = " is a protected root";
+
+/**
+ * The root a protected-root refusal names. Predicator carries the root only in
+ * the refusal's message, so it is read from there.
+ */
+export function refusedRoot(error: PredicatorError | ParseError): string | undefined {
+  if (error.type !== "EvaluationError" || error.reason !== "protected_root") return undefined;
+  if (!error.message.endsWith(PROTECTED_ROOT_SUFFIX)) return undefined;
+  return error.message.slice(0, -PROTECTED_ROOT_SUFFIX.length);
+}
+
+/** Whether two values predicator projected for a host are the same value. */
+function sameHostValue(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (typeof a !== "object" || typeof b !== "object" || a === null || b === null) return false;
+  if (Object.getPrototypeOf(a) !== Object.getPrototypeOf(b)) return false;
+  if (Array.isArray(a)) {
+    const other = b as unknown[];
+    return a.length === other.length && a.every((member, i) => sameHostValue(member, other[i]));
+  }
+  const left = a as { [key: string]: unknown };
+  const right = b as { [key: string]: unknown };
+  const keys = Object.keys(left);
+  return (
+    keys.length === Object.keys(right).length &&
+    keys.every((key) => Object.hasOwn(right, key) && sameHostValue(left[key], right[key]))
+  );
+}
+
+/**
+ * The roots a run changed or created, split into system roots and the rest.
+ * The comparison is at the top level: a write always goes through a root, so a
+ * nested write changes its root's value.
+ */
+export function partitionChangedRoots(
+  before: Datamodel,
+  after: { readonly [root: string]: HostValue },
+): { system: string[]; other: Map<string, Value> } {
+  const system: string[] = [];
+  const other = new Map<string, Value>();
+  for (const [root, value] of Object.entries(after)) {
+    const prior = before.get(root);
+    if (prior !== undefined && sameHostValue(toHost(prior), value)) continue;
+    if (isSystemRoot(root)) system.push(root);
+    else other.set(root, domainValue(value));
+  }
+  return { system: system.sort(), other };
+}
+
+/**
+ * Runs a statement program against a context and merges what it wrote.
+ *
+ * Every system root already bound is protected for the run, so a write to one
+ * fails at the statement that attempts it and no later statement runs. A
+ * system root the program creates fresh cannot be named in advance; the diff
+ * after the run finds it, it is never merged, and the run answers the failure.
+ * Either way the reason is `system_variable` naming the root, and the writes to
+ * other roots that the program made before it stopped are merged. When several
+ * fresh system roots changed, the one named is the first in sort order.
+ */
+export function runProgram(context: EvaluationContext, compiled: CompiledProgram): ProgramOutcome {
+  const before = context.data;
+  const result = executeProgram(compiled.program, contextObject(before), {
+    functions: functionsOf(context),
+    onUnbound: ON_UNBOUND,
+    protectedRoots: protectedRoots(before),
+  });
+
+  let after: { readonly [root: string]: HostValue } = {};
+  let failure: ExecutionReason | undefined;
+  if (result.ok) {
+    after = result.context;
+  } else {
+    if ("context" in result && result.context !== undefined) after = result.context;
+    const root = refusedRoot(result.error);
+    failure =
+      root !== undefined
+        ? { kind: "system_variable", root }
+        : evaluatorError(compiled.source, result.error);
+  }
+
+  const { system, other } = partitionChangedRoots(before, after);
+  const data = new Map(before);
+  for (const [root, value] of other) data.set(root, value);
+
+  if (failure !== undefined) return { ok: false, data, reason: failure };
+  const [first] = system;
+  if (first !== undefined) {
+    return { ok: false, data, reason: { kind: "system_variable", root: first } };
+  }
+  return { ok: true, data };
+}
+
+// ---------------------------------------------------------------------------
+// The datamodel attribute
+// ---------------------------------------------------------------------------
+
+/**
+ * The spellings the `datamodel` attribute accepts: the specification's three
+ * named values and the platform's two. Accepting `ecmascript` does not mean
+ * ECMAScript runs - predicator is the datamodel whatever the attribute says;
+ * the list only catches a misspelling.
+ */
+export const DATAMODEL_SPELLINGS: readonly string[] = [
+  "predicator",
+  "elixir",
+  "null",
+  "ecmascript",
+  "xpath",
+];
+
+/** Whether the `datamodel` attribute's value is an accepted spelling. */
+export function acceptsDatamodel(spelling: string): boolean {
+  return DATAMODEL_SPELLINGS.includes(spelling);
+}
