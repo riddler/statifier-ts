@@ -192,10 +192,12 @@ const bareNodeAlternation = bareNodeBuiltins.join("|");
 const subpath = String.raw`(?:/[\w.-]+)*`;
 
 // A BARE specifier - one that is neither relative, nor absolute, nor carrying
-// a URL scheme - names a package rather than a file, and this package declares
-// no dependencies at all. A bundler with no dependency list to hold back
-// inlines whatever such an import resolves to, so the published tarball would
-// carry a copy of that package while the manifest still said there was none.
+// a URL scheme - names a package rather than a file. The bundler leaves a
+// package that the manifest lists under `dependencies` out of the bundle, and
+// a consumer installs it; any other package it inlines, so the published
+// tarball would carry a copy of that package while the manifest said nothing
+// of it. A package listed only under `devDependencies` is the second case: it
+// is installed for the gate and never for a consumer.
 //
 // The body below is the character set a package name is written in, matched
 // to the closing quote, and it does three jobs rather than one. It is what
@@ -209,17 +211,30 @@ const subpath = String.raw`(?:/[\w.-]+)*`;
 // through it - which is what keeps this rule off the prefixed builtin form
 // and off source text written into a URL, each of which has a rule of its own.
 //
-// The single lookahead does the remaining exclusion: a bare builtin name with
+// The first lookahead does the remaining exclusion: a bare builtin name with
 // its optional subpath, the alternation the rule above matches. What is left
 // is exactly the specifiers no other rule here looks at, so the rules that
 // read a specifier divide them up and an import is reported once, never twice.
+// The second lookahead, when the manifest lists any runtime dependency, admits
+// those names and their subpaths, which the bundler leaves out on the same
+// terms. The names are read from the manifest when the stage runs, not
+// written here, so this rule cannot drift from the list it enforces; a name
+// that merely begins with a listed one is a different package and still fires,
+// because a listed name has to be followed by a subpath or the closing quote.
 //
 // A type-only import is refused on the same terms as a value import. The
 // bundler erases it, so it ships no code; the declaration build keeps it, and
 // the emitted types would name a package the consumer has not installed. That
 // is the same undeclared dependency arriving through the other file the
 // tarball ships.
-const bareSpecifier = String.raw`(?!(?:${bareNodeAlternation})${subpath}["'])[\w@][\w.@/+-]*`;
+const escapedForPattern = (name) => name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const bareSpecifier = (admitted) => {
+  const admits =
+    admitted.length === 0
+      ? ""
+      : `(?!(?:${admitted.map(escapedForPattern).join("|")})${subpath}["'])`;
+  return String.raw`(?!(?:${bareNodeAlternation})${subpath}["'])${admits}[\w@][\w.@/+-]*`;
+};
 
 // Globals that only exist in a browser. Four names a browser also defines are
 // absent on purpose, because each is a plausible identifier in a compiler:
@@ -355,10 +370,13 @@ const rules = [
   },
   {
     id: "package-import",
-    pattern: new RegExp(`${specifierPrefix}["']${bareSpecifier}["']`, "g"),
-    why: "shipped source may not import a package; this package declares no dependencies, and a bundler inlines whatever a source file imports",
+    // Built when the stage runs, from the names the manifest lists under
+    // `dependencies`; see `bareSpecifier` above and `admittedPackages` below.
+    patternFor: (admitted) =>
+      new RegExp(`${specifierPrefix}["']${bareSpecifier(admitted)}["']`, "g"),
+    why: "shipped source may import only a package the manifest lists under dependencies, read from package.json when this stage runs; the bundler inlines any other package, a development dependency included",
     documentedBy:
-      "This module names no bare import specifier, so no package outside this one can be bundled into it.",
+      "This module names no bare import specifier beyond the runtime dependencies its package manifest lists, so no undeclared package can be bundled into it.",
     violation: 'import { luhn } from "card-validator";',
   },
   {
@@ -568,12 +586,51 @@ function sourceFiles(dir) {
   return found.sort();
 }
 
-function findingsIn(file, base) {
+// The runtime dependencies the manifest lists, which the package-import rule
+// admits. The manifest is the one beside the build config the roots came from,
+// or this repository's own when the stage is pointed at a directory, and it is
+// read on every run so the admitted names are always the declared ones. A
+// manifest that cannot be read stops the stage rather than admitting nothing
+// or guessing: either would report a result about a list it never saw. Only
+// `dependencies` is read. A development dependency is not installed for a
+// consumer, so it stays refused like any other package. So does a package
+// listed only under `peerDependencies`: the bundler leaves one out too, but
+// the one package this one may carry is a runtime dependency, and a peer
+// would be a second thing a host has to install that this rule never names.
+const packageName = /^(?:@[\w.-]+\/)?[\w.-]+$/;
+
+function admittedPackages(manifestDir) {
+  const manifestPath = join(manifestDir, "package.json");
+  let manifest;
+  try {
+    manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+  } catch {
+    fail(`cannot read the package manifest ${manifestPath}`);
+  }
+  const listed = manifest?.dependencies;
+  if (listed === undefined) return [];
+  if (listed === null || typeof listed !== "object" || Array.isArray(listed)) {
+    fail(`cannot read a dependency list from ${manifestPath}`);
+  }
+  const names = Object.keys(listed);
+  for (const name of names) {
+    if (!packageName.test(name)) fail(`the dependency ${name} is not a package name`);
+  }
+  return names;
+}
+
+// The rule table as one run applies it: a rule whose pattern depends on the
+// manifest has it built from the admitted names here, and every other rule is
+// used exactly as the table writes it.
+const rulesAdmitting = (admitted) =>
+  rules.map((rule) => (rule.patternFor ? { ...rule, pattern: rule.patternFor(admitted) } : rule));
+
+function findingsIn(file, base, activeRules) {
   const text = readFileSync(file, "utf8");
   const lines = text.split("\n");
   const found = [];
   for (const [index, line] of lines.entries()) {
-    for (const rule of rules) {
+    for (const rule of activeRules) {
       for (const match of line.matchAll(rule.pattern)) {
         found.push({
           file: relative(base, file).split(sep).join("/"),
@@ -609,15 +666,20 @@ async function run() {
   const configFlag = args.indexOf("--config");
   let base;
   let sourceRoots;
+  let admitted;
   if (configFlag !== -1 || args.length === 0) {
     const configArg = configFlag === -1 ? "tsup.config.ts" : args[configFlag + 1];
     if (configArg === undefined) fail("--config needs a path");
     const configPath = isAbsolute(configArg) ? configArg : resolve(repoRoot, configArg);
     if (!existsSync(configPath)) fail(`cannot read the build config ${configArg}`);
+    // Read before the config is loaded, because loading it reads the same
+    // manifest for its module type and would fail on a broken one first.
+    admitted = admittedPackages(dirname(configPath));
     ({ base, roots: sourceRoots } = await entryRoots(configPath));
   } else {
     sourceRoots = [resolve(repoRoot, args[0])];
     base = sourceRoots[0];
+    admitted = admittedPackages(repoRoot);
   }
 
   const files = [];
@@ -634,7 +696,8 @@ async function run() {
     files.push(...found);
   }
 
-  const findings = files.flatMap((file) => findingsIn(file, base));
+  const activeRules = rulesAdmitting(admitted);
+  const findings = files.flatMap((file) => findingsIn(file, base, activeRules));
 
   if (findings.length > 0) {
     for (const finding of findings) {
