@@ -849,7 +849,11 @@ const SPLIT_WHITESPACE = /[\t-\r \u0085\u1680\u2000-\u2006\u2008-\u200a\u2028\u2
 const TRIM_EDGES =
   /^[\t-\r \u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]+|[\t-\r \u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]+$/g;
 
-function isBlank(text: string): boolean {
+/**
+ * Whether trimming Unicode whitespace from `text` leaves nothing, as the
+ * reference trims it. The validator reads text payloads by the same rule.
+ */
+export function isBlank(text: string): boolean {
   return BLANK.test(text);
 }
 
