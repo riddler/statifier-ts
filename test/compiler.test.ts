@@ -319,9 +319,9 @@ describe("executable content", () => {
     });
   });
 
-  // Sabotage: not reserving a content index for <send> turns this red: the
-  // <raise> after it would take index 0.
-  it("numbers <send> and <cancel> but places no node for them yet", () => {
+  // Sabotage: compiling <send> and <cancel> to no node (dropping them from
+  // the block) turns this red.
+  it("places a <send> and a <cancel> node, each with its content index", () => {
     const machine = machineOf(`<scxml ${SCXML}>
       <state id="s">
         <onentry>
@@ -332,8 +332,82 @@ describe("executable content", () => {
       </state>
     </scxml>`);
     expect(stateOf(machine, "s").onentry[0]?.content).toEqual([
+      {
+        kind: "send",
+        cIndex: 0,
+        event: { kind: "static", value: "loan.due" },
+        target: null,
+        type: null,
+        id: "due",
+        idlocation: null,
+        delay: { kind: "static", value: "1s" },
+        namelist: [],
+        params: [],
+        content: null,
+      },
+      { kind: "cancel", cIndex: 1, sendid: { kind: "static", value: "due" } },
       { kind: "raise", cIndex: 2, event: "loan.opened" },
     ]);
+  });
+
+  // Sabotage: folding a <send>'s `eventexpr` to a literal of its source text
+  // instead of compiling it turns this red.
+  it("compiles every expression a <send> and a <cancel> carry", () => {
+    const machine = machineOf(`<scxml ${SCXML}>
+      <datamodel>
+        <data id="copy" expr="9"/><data id="branch" expr="'central'"/><data id="notice"/>
+      </datamodel>
+      <state id="s">
+        <onentry>
+          <send eventexpr="'hold.' + branch" targetexpr="'#_internal'" typeexpr="'scxml'"
+                idlocation="notice" namelist="copy branch">
+            <param name="patron" expr="42"/>
+            <param name="shelf" location="branch"/>
+          </send>
+          <send event="loan.due" delayexpr="'14s'"><content expr="copy"/></send>
+          <send event="loan.note"><content>  due back  </content></send>
+          <cancel sendidexpr="notice"/>
+        </onentry>
+      </state>
+    </scxml>`);
+    const [hold, due, note, cancel] = stateOf(machine, "s").onentry[0]?.content ?? [];
+    if (hold?.kind !== "send") throw new Error("not a send");
+    expect(hold.event).toMatchObject({ kind: "compiled", source: "'hold.' + branch" });
+    expect(hold.target).toMatchObject({ kind: "compiled", source: "'#_internal'" });
+    expect(hold.type).toMatchObject({ kind: "compiled", source: "'scxml'" });
+    expect(hold.id).toBeNull();
+    expect(hold.idlocation).toBe("notice");
+    expect(hold.delay).toBeNull();
+    expect(hold.namelist).toMatchObject([
+      { name: "copy", expr: { kind: "compiled", source: "copy" } },
+      { name: "branch", expr: { kind: "compiled", source: "branch" } },
+    ]);
+    expect(hold.params).toMatchObject([
+      { name: "patron", expr: { kind: "compiled", source: "42" } },
+      { name: "shelf", expr: { kind: "compiled", source: "branch" } },
+    ]);
+    expect(hold.content).toBeNull();
+    if (due?.kind !== "send") throw new Error("not a send");
+    expect(due.delay).toMatchObject({ kind: "compiled", source: "'14s'" });
+    expect(due.content).toMatchObject({ kind: "compiled", source: "copy" });
+    if (note?.kind !== "send") throw new Error("not a send");
+    expect(note.content).toEqual({ kind: "static", value: "  due back  " });
+    expect(cancel).toMatchObject({
+      kind: "cancel",
+      cIndex: 3,
+      sendid: { kind: "compiled", source: "notice" },
+    });
+  });
+
+  // Sabotage: answering a literal null for a <send> namelist entry that does
+  // not compile turns this red.
+  it("defers a <send> namelist entry that does not compile", () => {
+    const machine = machineOf(`<scxml ${SCXML}>
+      <state id="s"><onentry><send event="loan.due" namelist="1+"/></onentry></state>
+    </scxml>`);
+    const node = stateOf(machine, "s").onentry[0]?.content[0];
+    if (node?.kind !== "send") throw new Error("not a send");
+    expect(node.namelist).toMatchObject([{ name: "1+", expr: { kind: "invalid", source: "1+" } }]);
   });
 });
 
@@ -534,6 +608,53 @@ describe("load-time expression errors", () => {
     expect(errors[1]?.owner).toEqual({ kind: "content", cIndex: 1 });
     expect(errors[5]?.owner).toEqual({ kind: "invoke", stateIndex: 1, invokeIndex: 0 });
     expect(errors[9]?.owner).toEqual({ kind: "donedata", stateIndex: 2 });
+  });
+
+  // Sabotage: pushing a <send>'s failure onto no error group (deferring it
+  // as an Invalid instead) turns this red.
+  it("refuses a <send> or <cancel> expression that does not compile", () => {
+    const source = `<scxml ${SCXML}>
+  <state id="desk">
+    <onentry>
+      <send eventexpr="'a' +"/>
+      <send event="b" targetexpr="("/>
+      <send event="c" typeexpr=")"/>
+      <send event="d" delayexpr="["/>
+      <send event="e"><content expr="]"/></send>
+      <send event="f"><param name="p" expr="(("/><param name="q" location="*"/></send>
+      <cancel sendidexpr="{"/>
+    </onentry>
+  </state>
+</scxml>`;
+    const errors = compilerErrorsOf(source);
+    expect(errors.map((e) => [e.element, e.attribute, e.source])).toEqual([
+      ["send", "eventexpr", "'a' +"],
+      ["send", "targetexpr", "("],
+      ["send", "typeexpr", ")"],
+      ["send", "delayexpr", "["],
+      ["content", "expr", "]"],
+      ["param", "expr", "(("],
+      ["param", "location", "*"],
+      ["cancel", "sendidexpr", "{"],
+    ]);
+    for (const e of errors)
+      expect(source.slice(e.location.startOffset).startsWith(e.source)).toBe(true);
+    expect(errors.map((e) => e.owner)).toEqual(
+      [0, 1, 2, 3, 4, 5, 5, 6].map((cIndex) => ({ kind: "content", cIndex })),
+    );
+  });
+
+  // Sabotage: compiling every attribute of a <send> rather than stopping at
+  // the first failure turns this red.
+  it("answers one error for a <send>'s attributes, the first in order, and no <param>'s", () => {
+    const errors = compilerErrorsOf(`<scxml ${SCXML}>
+  <state id="desk">
+    <onentry>
+      <send delayexpr="[" eventexpr="(" targetexpr=")"><param name="p" expr="*"/></send>
+    </onentry>
+  </state>
+</scxml>`);
+    expect(errors.map((e) => [e.attribute, e.source])).toEqual([["eventexpr", "("]]);
   });
 });
 
