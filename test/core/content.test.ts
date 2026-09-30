@@ -12,10 +12,12 @@ import { compile, type Program, Undefined, type Value } from "@riddler/predicato
 import { describe, expect, it } from "vitest";
 import {
   type ContentNode,
+  type Effect,
   executeBlock,
   type Invalid,
   type RaiseSink,
 } from "../../src/core/content.js";
+import { INITIAL_SEND_STATE } from "../../src/core/send.js";
 import {
   type ActiveStates,
   type Datamodel,
@@ -51,6 +53,12 @@ function storeAt(root: string, value: Value): Program {
     ["lit", value],
     ["store", 1],
   ] as unknown as Program;
+}
+
+/** A `<log>` effect's value; every effect these tests read is a log. */
+function loggedValue(effect: Effect): Value {
+  if (effect.kind !== "log") throw new Error(`expected a log effect, got ${effect.kind}`);
+  return effect.value;
 }
 
 function log(cIndex: number, source: string): ContentNode {
@@ -114,7 +122,7 @@ describe("<assign>", () => {
       [assign(0, "renewals", "renewals + 1"), log(1, "renewals")],
       [["renewals", 1]],
     );
-    expect(outcome.effects.map((effect) => effect.value)).toEqual([2]);
+    expect(outcome.effects.map(loggedValue)).toEqual([2]);
     expect(outcome.context.data.get("renewals")).toBe(2);
   });
 
@@ -285,7 +293,7 @@ describe("<foreach>", () => {
   // expectation red.
   it("binds item and index on each iteration, and the names stay declared after it", () => {
     const outcome = run([overHolds([log(1, "[hold, position]")])], [["holds", ["c-1", "c-2"]]]);
-    expect(outcome.effects.map((effect) => effect.value)).toEqual([
+    expect(outcome.effects.map(loggedValue)).toEqual([
       ["c-1", 0],
       ["c-2", 1],
     ]);
@@ -318,7 +326,7 @@ describe("<foreach>", () => {
       [overHolds([assign(1, "holds", "[]"), log(2, "hold")], null)],
       [["holds", ["c-1", "c-2"]]],
     );
-    expect(outcome.effects.map((effect) => effect.value)).toEqual(["c-1", "c-2"]);
+    expect(outcome.effects.map(loggedValue)).toEqual(["c-1", "c-2"]);
   });
 
   // Sabotage: discarding the context on a body failure in executeForeach
@@ -371,7 +379,7 @@ describe("<script>", () => {
       ],
       [["renewals", 0]],
     );
-    expect(outcome.effects.map((effect) => effect.value)).toEqual([2]);
+    expect(outcome.effects.map(loggedValue)).toEqual([2]);
     expect(outcome.raised).toEqual([]);
   });
 
@@ -456,6 +464,11 @@ describe("a block", () => {
   // No sabotage: an empty block has no code path of its own to break.
   it("that is empty answers the context it was given and nothing else", () => {
     const context = evaluationContext(data([["renewals", 1]]), NO_STATES);
-    expect(executeBlock(context, [], SINK)).toEqual({ context, effects: [], raised: [] });
+    expect(executeBlock(context, [], SINK)).toEqual({
+      context,
+      effects: [],
+      raised: [],
+      sends: INITIAL_SEND_STATE,
+    });
   });
 });

@@ -17,7 +17,8 @@
 //
 // Nothing here raises onto a queue or logs anywhere. The runner answers the
 // context it leaves, the effects the block produced and the events it raised,
-// in queue order, and the caller appends them.
+// in queue order, and the caller appends them. A `<send>` or `<cancel>` also
+// moves the session's send state, which the runner takes and answers too.
 
 import { Undefined, type Value } from "@riddler/predicator";
 import {
@@ -33,7 +34,20 @@ import {
   executionError,
   type Owner,
   runProgram,
+  writeLocation,
 } from "../datamodel.js";
+import {
+  type Cancel,
+  type CancelNode,
+  executeCancel,
+  executeSend,
+  INITIAL_SEND_STATE,
+  type Send,
+  type SendDelayed,
+  type SendNode,
+  type SendOutcome,
+  type SendState,
+} from "./send.js";
 
 // ---------------------------------------------------------------------------
 // The nodes a block runs
@@ -104,7 +118,15 @@ export interface ScriptNode {
 }
 
 /** A compiled content node. */
-export type ContentNode = RaiseNode | LogNode | AssignNode | IfNode | ForeachNode | ScriptNode;
+export type ContentNode =
+  | RaiseNode
+  | LogNode
+  | AssignNode
+  | IfNode
+  | ForeachNode
+  | ScriptNode
+  | SendNode
+  | CancelNode;
 
 // ---------------------------------------------------------------------------
 // What a block takes and answers
@@ -134,17 +156,18 @@ export interface Log {
 }
 
 /** An effect a block produced. */
-export type Effect = Log;
+export type Effect = Log | Send | SendDelayed | Cancel;
 
 /**
  * What running a block answered: the context it leaves, its effects in
- * document order, and the events it raised in the order they join the
- * internal queue.
+ * document order, the events it raised in the order they join the internal
+ * queue, and the send state it leaves.
  */
 export interface BlockOutcome {
   readonly context: EvaluationContext;
   readonly effects: readonly Effect[];
   readonly raised: readonly Event[];
+  readonly sends: SendState;
 }
 
 // ---------------------------------------------------------------------------
@@ -154,6 +177,7 @@ export interface BlockOutcome {
 /** The state a block threads from node to node. */
 interface Run {
   context: EvaluationContext;
+  sends: SendState;
   readonly effects: Effect[];
   readonly raised: Event[];
   /** Failures that do not stop the block, raised once the current top-level node finishes. */
@@ -171,14 +195,16 @@ const NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 /**
  * Runs a block of content nodes in document order against one context,
  * stopping at the first node that fails and raising `error.execution` for it,
- * its origin the failing node in this block.
+ * its origin the failing node in this block. `sends` is the session's send
+ * state as the block starts.
  */
 export function executeBlock(
   context: EvaluationContext,
   block: readonly ContentNode[],
   sink: RaiseSink,
+  sends: SendState = INITIAL_SEND_STATE,
 ): BlockOutcome {
-  const run: Run = { context, effects: [], raised: [], pending: [], sink };
+  const run: Run = { context, sends, effects: [], raised: [], pending: [], sink };
   for (const node of block) {
     const step = executeNode(run, node);
     drainPending(run, node.cIndex);
@@ -187,11 +213,22 @@ export function executeBlock(
       break;
     }
   }
-  return { context: run.context, effects: run.effects, raised: run.raised };
+  return { context: run.context, effects: run.effects, raised: run.raised, sends: run.sends };
 }
 
+/**
+ * Raises `error.execution` for a node's failure. A refused `<send>` that
+ * stopped this block names its send id on the event, and the event's data is
+ * the refusal itself; refused inside a nested node, it is data like any other
+ * nested failure.
+ */
 function raiseError(run: Run, cIndex: number, reason: ExecutionReason): void {
   const origin = { kind: "content", cIndex, owner: run.sink.owner } as const;
+  if (reason.kind === "send_rejected") {
+    const event = executionError(origin, run.sink.counters, reason.reason);
+    run.raised.push({ ...event, sendid: reason.sendId });
+    return;
+  }
   run.raised.push(executionError(origin, run.sink.counters, reason));
 }
 
@@ -214,6 +251,10 @@ function executeNode(run: Run, node: ContentNode): Step {
       return executeForeach(run, node);
     case "script":
       return executeScript(run, node);
+    case "send":
+      return applySend(run, executeSend(run.context, node, run.sends, run.sink));
+    case "cancel":
+      return applySend(run, executeCancel(run.context, node, run.sends, run.sink));
   }
 }
 
@@ -278,37 +319,34 @@ function executeLog(run: Run, node: LogNode): Step {
   return OK;
 }
 
-/** The root a location names, and whether the location is that root alone. */
-function locationRoot(location: string): { root: string; bare: boolean } | undefined {
-  const trimmed = location.trim();
-  const match = /^[A-Za-z_][A-Za-z0-9_]*/.exec(trimmed);
-  if (match === null) return undefined;
-  return { root: match[0], bare: match[0].length === trimmed.length };
-}
-
 /**
- * The value is evaluated first, then the location is checked: a root that
- * begins with an underscore is refused, then a root the datamodel does not
- * hold, then anything but a bare root. A write never declares a root.
+ * The value is evaluated first, then written: a root that begins with an
+ * underscore is refused, then a root the datamodel does not hold, then
+ * anything but a bare root. A write never declares a root.
  */
 function executeAssign(run: Run, node: AssignNode): Step {
   const outcome = evaluateIn(run, node.value);
   if (!outcome.ok) return outcome;
+  const write = writeLocation(run.context, node.location, outcome.value);
+  if (!write.ok) return write;
+  run.context = write.context;
+  return OK;
+}
 
-  const unsupported: Step = {
-    ok: false,
-    reason: { kind: "unsupported_location", location: node.location },
-  };
-  const parsed = locationRoot(node.location);
-  if (parsed === undefined) return unsupported;
-  const system = checkSystemVariable([parsed.root]);
-  if (!system.ok) return system;
-  if (!run.context.data.has(parsed.root)) {
-    return { ok: false, reason: { kind: "unbound_location", location: node.location } };
+/**
+ * Keeps what a `<send>` or `<cancel>` answered. A refused send keeps its
+ * minted id and its `idlocation` write even though it fails; an argument
+ * failure changed nothing.
+ */
+function applySend(run: Run, outcome: SendOutcome<Effect>): Step {
+  if (!outcome.ok) {
+    if (outcome.context !== undefined) run.context = outcome.context;
+    if (outcome.state !== undefined) run.sends = outcome.state;
+    return { ok: false, reason: outcome.reason };
   }
-  if (!parsed.bare) return unsupported;
-
-  run.context = bind(run.context, parsed.root, outcome.value);
+  run.context = outcome.context;
+  run.sends = outcome.state;
+  run.effects.push(outcome.effect);
   return OK;
 }
 

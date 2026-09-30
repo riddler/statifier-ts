@@ -168,6 +168,19 @@ export type Expr =
  *   `index` is not a bare variable name.
  * - `nested_content`: a node inside an `<if>` partition or a `<foreach>` body
  *   failed; `cIndex` is that node's and `reason` its own failure.
+ *
+ * And `<send>`'s:
+ *
+ * - `invalid_delay`: a `delay` or `delayexpr` resolved to something that is
+ *   not a delay - text the duration parser refuses, or a value that is
+ *   neither text nor a duration.
+ * - `unsupported_type`: the resolved `type` names no processor this session
+ *   has, built in or registered.
+ * - `invalid_target`: the resolved `target` is not one the SCXML processor
+ *   supports.
+ * - `send_rejected`: a `<send>` whose arguments all resolved was refused for
+ *   its target or its type after its send id was minted. `sendId` is that id
+ *   and `reason` the `unsupported_type` or `invalid_target` refusal.
  */
 export type ExecutionReason =
   | {
@@ -183,7 +196,11 @@ export type ExecutionReason =
   | { readonly kind: "not_iterable"; readonly value: Value }
   | { readonly kind: "illegal_item_name"; readonly name: string }
   | { readonly kind: "illegal_index_name"; readonly name: string }
-  | { readonly kind: "nested_content"; readonly cIndex: number; readonly reason: ExecutionReason };
+  | { readonly kind: "nested_content"; readonly cIndex: number; readonly reason: ExecutionReason }
+  | { readonly kind: "invalid_delay"; readonly value: Value }
+  | { readonly kind: "unsupported_type"; readonly type: Value }
+  | { readonly kind: "invalid_target"; readonly target: Value }
+  | { readonly kind: "send_rejected"; readonly sendId: string; readonly reason: ExecutionReason };
 
 function evaluatorError(source: string, error: PredicatorError | ParseError): ExecutionReason {
   return { kind: "evaluator_error", source, error };
@@ -395,6 +412,14 @@ export function reasonValue(reason: ExecutionReason): Value {
       return { kind: reason.kind, name: reason.name };
     case "nested_content":
       return { kind: reason.kind, c_index: reason.cIndex, reason: reasonValue(reason.reason) };
+    case "invalid_delay":
+      return { kind: reason.kind, value: reason.value };
+    case "unsupported_type":
+      return { kind: reason.kind, type: reason.type };
+    case "invalid_target":
+      return { kind: reason.kind, target: reason.target };
+    case "send_rejected":
+      return { kind: reason.kind, send_id: reason.sendId, reason: reasonValue(reason.reason) };
   }
 }
 
@@ -458,6 +483,45 @@ export function checkSystemVariable(
     return { ok: false, reason: { kind: "system_variable", root } };
   }
   return { ok: true };
+}
+
+/** What a write to a location answered: the context it leaves, or why it was refused. */
+export type WriteOutcome =
+  | { readonly ok: true; readonly context: EvaluationContext }
+  | { readonly ok: false; readonly reason: ExecutionReason };
+
+/** The root a location names, and whether the location is that root alone. */
+function locationRoot(location: string): { root: string; bare: boolean } | undefined {
+  const trimmed = location.trim();
+  const match = /^[A-Za-z_][A-Za-z0-9_]*/.exec(trimmed);
+  if (match === null) return undefined;
+  return { root: match[0], bare: match[0].length === trimmed.length };
+}
+
+/**
+ * Writes a value at a location, as an `<assign>` and a `<send idlocation>`
+ * do. The location is checked in order: a root that begins with an
+ * underscore is refused, then a root the datamodel does not hold, then
+ * anything but a bare root. A write never declares a root.
+ */
+export function writeLocation(
+  context: EvaluationContext,
+  location: string,
+  value: Value,
+): WriteOutcome {
+  const unsupported: WriteOutcome = {
+    ok: false,
+    reason: { kind: "unsupported_location", location },
+  };
+  const parsed = locationRoot(location);
+  if (parsed === undefined) return unsupported;
+  const system = checkSystemVariable([parsed.root]);
+  if (!system.ok) return system;
+  if (!context.data.has(parsed.root)) {
+    return { ok: false, reason: { kind: "unbound_location", location } };
+  }
+  if (!parsed.bare) return unsupported;
+  return { ok: true, context: bind(context, parsed.root, value) };
 }
 
 /** A statement program with the source it was compiled from. */
