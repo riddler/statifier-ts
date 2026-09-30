@@ -857,6 +857,14 @@ export function isBlank(text: string): boolean {
   return BLANK.test(text);
 }
 
+/**
+ * `text` with Unicode whitespace trimmed from both ends, as the reference
+ * trims it. The compiler folds an in-line value by the same rule.
+ */
+export function trimBlank(text: string): string {
+  return text.replace(TRIM_EDGES, "");
+}
+
 // ---------------------------------------------------------------------------
 // Errors
 
