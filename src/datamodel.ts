@@ -152,6 +152,22 @@ export type Expr =
  * - `non_boolean_cond`: a condition evaluated to something other than true or
  *   false, which the specification treats exactly as an evaluation error.
  * - `system_variable`: a write reached a root beginning with an underscore.
+ *
+ * The rest are executable content's:
+ *
+ * - `compile_error`: the node's expression or program never compiled, so the
+ *   failure the compiler deferred is answered when the node runs. `source` is
+ *   the text that failed and `message` the compiler's.
+ * - `unbound_location`: an `<assign>` named a root the datamodel does not
+ *   hold. A write never declares a root.
+ * - `unsupported_location`: an `<assign>` named a location that is not a bare
+ *   root. The reference writes a nested path; this port does not yet.
+ * - `not_iterable`: a `<foreach>`'s `array` evaluated to something other than
+ *   a list.
+ * - `illegal_item_name`, `illegal_index_name`: a `<foreach>`'s `item` or
+ *   `index` is not a bare variable name.
+ * - `nested_content`: a node inside an `<if>` partition or a `<foreach>` body
+ *   failed; `cIndex` is that node's and `reason` its own failure.
  */
 export type ExecutionReason =
   | {
@@ -160,7 +176,14 @@ export type ExecutionReason =
       readonly error: PredicatorError | ParseError;
     }
   | { readonly kind: "non_boolean_cond"; readonly value: Value }
-  | { readonly kind: "system_variable"; readonly root: string };
+  | { readonly kind: "system_variable"; readonly root: string }
+  | { readonly kind: "compile_error"; readonly source: string; readonly message: string }
+  | { readonly kind: "unbound_location"; readonly location: string }
+  | { readonly kind: "unsupported_location"; readonly location: string }
+  | { readonly kind: "not_iterable"; readonly value: Value }
+  | { readonly kind: "illegal_item_name"; readonly name: string }
+  | { readonly kind: "illegal_index_name"; readonly name: string }
+  | { readonly kind: "nested_content"; readonly cIndex: number; readonly reason: ExecutionReason };
 
 function evaluatorError(source: string, error: PredicatorError | ParseError): ExecutionReason {
   return { kind: "evaluator_error", source, error };
@@ -218,8 +241,24 @@ export function condEnables(outcome: CondOutcome): boolean {
 /** Where an event came from. `external` events arrived from outside the chart. */
 export type EventType = "external" | "internal" | "platform";
 
-/** Which node the platform raised an event about: here, a transition's condition. */
-export type Origin = { readonly kind: "transition"; readonly tIndex: number };
+/**
+ * The block a content node runs in: a state's `<onentry>` or `<onexit>` by its
+ * position among the state's blocks of that kind, a transition's own content,
+ * or an `<invoke>`'s `<finalize>` by the invoke's position in its state.
+ */
+export type Owner =
+  | { readonly kind: "onentry"; readonly stateIndex: number; readonly ordinal: number }
+  | { readonly kind: "onexit"; readonly stateIndex: number; readonly ordinal: number }
+  | { readonly kind: "transition"; readonly tIndex: number }
+  | { readonly kind: "finalize"; readonly stateIndex: number; readonly invokeIndex: number };
+
+/**
+ * Which node an internally raised event is about: a transition's condition,
+ * or a content node, named by its index and the block it ran in.
+ */
+export type Origin =
+  | { readonly kind: "transition"; readonly tIndex: number }
+  | { readonly kind: "content"; readonly cIndex: number; readonly owner: Owner };
 
 /** Why an internally raised event exists: its origin and the counters at the raise. */
 export interface Cause {
@@ -344,6 +383,18 @@ export function reasonValue(reason: ExecutionReason): Value {
       return { kind: reason.kind, value: reason.value };
     case "system_variable":
       return { kind: reason.kind, root: reason.root };
+    case "compile_error":
+      return { kind: reason.kind, source: reason.source, message: reason.message };
+    case "unbound_location":
+    case "unsupported_location":
+      return { kind: reason.kind, location: reason.location };
+    case "not_iterable":
+      return { kind: reason.kind, value: reason.value };
+    case "illegal_item_name":
+    case "illegal_index_name":
+      return { kind: reason.kind, name: reason.name };
+    case "nested_content":
+      return { kind: reason.kind, c_index: reason.cIndex, reason: reasonValue(reason.reason) };
   }
 }
 
