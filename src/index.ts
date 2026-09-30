@@ -1,9 +1,20 @@
 // The main entry point.
 //
-// This is the package's first surface and, for now, its only one: the version
-// of the build a host is running. The interpreter core arrives behind it.
+// Two surfaces so far: the version of the build a host is running, and
+// `compile`, which turns SCXML text into a Chart - its identity and the
+// compiled Machine the interpreter will run.
 
 import { version as packageVersion } from "../package.json";
+
+export {
+  type Chart,
+  type ChartIdentity,
+  type CompileError,
+  type CompileOptions,
+  type CompileResult,
+  compile,
+} from "./compiler.js";
+export type { Machine } from "./machine.js";
 
 /**
  * The version of this build, as `package.json` carries it.
