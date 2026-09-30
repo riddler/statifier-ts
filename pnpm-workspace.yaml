@@ -1,0 +1,21 @@
+# pnpm 12 reads its settings from this file rather than from a `pnpm` key in
+# package.json. This repo is a single package, not a workspace; the file exists
+# only to carry the settings below.
+#
+# tsup builds through esbuild, whose install script resolves the platform
+# binary. pnpm refuses to run any dependency's build script unless it is named
+# here, and fails the install outright rather than silently skipping it, so
+# without this entry there would be no esbuild for the gate's build stage to
+# call. Every other dependency's scripts stay blocked, which is the point of
+# the allowlist.
+allowBuilds:
+  esbuild: true
+
+# pnpm 12 declines to install a version younger than its minimum release age.
+# The one runtime dependency was pinned at the version the registry answered
+# when this package was bootstrapped, which was younger than that age, so pnpm
+# wrote the exception below for that exact version. It names one version, not
+# the package: a later version of the dependency waits out the age like any
+# other, and once this one is older than the age the entry changes nothing.
+minimumReleaseAgeExclude:
+  - '@riddler/predicator@0.3.0'

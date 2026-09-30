@@ -4,3 +4,25 @@
 *.db
 .beads-credential-key
 .beads/proxieddb/
+
+# Changelog fragments are tracked. A global gitignore rule for `*.d` (C/C++
+# dependency files) matches this directory name and would otherwise hide them.
+!changelog.d/
+
+# Node / TypeScript build output.
+node_modules/
+dist/
+coverage/
+reports/
+
+# Temporary files, for example, from tests.
+/tmp/
+
+# The wurk kit's detached gate runner writes its run directory (meta.json,
+# gate.log, result.json) here when it is given no run directory. Biome honours
+# this file, so without the rule the gate lints the files its own run wrote.
+/.claude/wurk-runs/
+
+# A packed tarball, written to the checkout root by `npm pack` or `pnpm pack`.
+# It is a build artefact and must never be committed.
+*.tgz

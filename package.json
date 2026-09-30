@@ -1,0 +1,68 @@
+{
+  "name": "@riddler/statifier",
+  "version": "0.0.0",
+  "description": "A conformant TypeScript sibling of the Statifier statechart engine: the SCXML interpreter core, engine-neutral, driven by the reference's conformance corpus.",
+  "license": "MIT",
+  "type": "module",
+  "sideEffects": false,
+  "engines": {
+    "node": ">=20"
+  },
+  "packageManager": "pnpm@12.4.2",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/riddler/statifier-ts.git"
+  },
+  "main": "./dist/index.cjs",
+  "types": "./dist/index.d.cts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    }
+  },
+  "files": [
+    "dist",
+    "src",
+    "LICENSE",
+    "README.md",
+    "CHANGELOG.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "prepack": "node scripts/publish-guard.mjs",
+    "gate": "node --version && pnpm run typecheck && pnpm run lint && pnpm run neutrality && vitest run --coverage && pnpm run corpus:check && pnpm run registry && pnpm run build && pnpm run resolution",
+    "gate:loop": "pnpm run typecheck && pnpm run lint && pnpm run test",
+    "typecheck": "tsc --noEmit -p tsconfig.src.json && tsc --noEmit",
+    "lint": "biome check .",
+    "format": "biome format --write .",
+    "test": "vitest run",
+    "build": "tsup",
+    "neutrality": "node scripts/engine-neutrality.mjs",
+    "corpus:check": "node scripts/corpus-check.mjs",
+    "corpus:refresh": "node scripts/corpus-refresh.mjs",
+    "registry": "node scripts/registry-check.mjs",
+    "ratchet": "node scripts/ratchet.mjs",
+    "resolution": "node scripts/legacy-resolution.mjs"
+  },
+  "dependencies": {
+    "@riddler/predicator": "^0.3.0"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.5.13",
+    "@types/node": "24.13.4",
+    "@vitest/coverage-v8": "5.0.1",
+    "tsup": "8.5.1",
+    "tsx": "4.23.13",
+    "typescript": "5.9.3",
+    "vitest": "5.0.1"
+  }
+}

@@ -1,0 +1,79 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  gate:
+    name: Full quality gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    # No service containers. Every function in this package is pure over a
+    # decoded value, so the suite needs nothing but a JavaScript runtime; a
+    # database or a browser here would be a sign that something moved in that
+    # should not have.
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # The toolchain comes from mise.toml, provisioned by mise itself, so CI
+      # runs the gate through the same `mise exec --` command an agent runs
+      # locally (.claude/wurk.json gate.full), on the node and pnpm pinned
+      # there. A node or pnpm version written into this file would drift the
+      # first time mise.toml moves. The action installs mise at the version
+      # below, runs `mise install` against mise.toml, and caches the tools.
+      - uses: jdx/mise-action@v4
+        with:
+          version: 2026.8.2
+
+      # The pnpm store is the whole dependency cache. The key is derived from
+      # pnpm-lock.yaml, which is the whole pin: every dependency here is a
+      # public npm package, so nothing authenticates to anything and the
+      # default GITHUB_TOKEN with the read-only `contents` permission above is
+      # all this job needs.
+      - name: Resolve the toolchain and the pnpm store path
+        id: store
+        run: |
+          set -euo pipefail
+          echo "node=$(mise exec -- node --version)" >> "$GITHUB_OUTPUT"
+          echo "path=$(mise exec -- pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache the pnpm store
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.store.outputs.path }}
+          key: pnpm-${{ runner.os }}-node${{ steps.store.outputs.node }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            pnpm-${{ runner.os }}-node${{ steps.store.outputs.node }}-
+
+      - name: Install dependencies
+        run: mise exec -- pnpm install --frozen-lockfile
+
+      # The gate is the whole job: every stage of package.json's `gate`
+      # script, which lists them in one place so this comment does not.
+      #
+      # Same reasoning as the toolchain step, applied to the gate itself: the
+      # command is read out of .claude/wurk.json rather than written here, so
+      # the gate CI runs and the gate an agent must have green before
+      # committing are one definition with one place to change it. It is read
+      # and executed inside the step rather than interpolated into `run:`, so
+      # a repository file never reaches the shell as expression text.
+      - name: Full quality gate
+        run: |
+          set -euo pipefail
+          mapfile -t cmd < <(jq -er '.gate.full[]' .claude/wurk.json)
+          test "${#cmd[@]}" -gt 0 || { echo "gate.full is empty" >&2; exit 1; }
+          echo "gate command (.claude/wurk.json gate.full): ${cmd[*]}"
+          "${cmd[@]}"
