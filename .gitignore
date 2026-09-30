@@ -5,6 +5,11 @@
 .beads-credential-key
 .beads/proxieddb/
 
+# The local beads interactions log. Every bd write appends to it, so a
+# tracked copy dirtied the checkout on each one; the tracker itself syncs
+# through its DoltHub remote, not through this file.
+.beads/interactions.jsonl
+
 # Changelog fragments are tracked. A global gitignore rule for `*.d` (C/C++
 # dependency files) matches this directory name and would otherwise hide them.
 !changelog.d/
