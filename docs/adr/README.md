@@ -2,8 +2,7 @@
 
 | # | Decision | Status |
 |---|---|---|
-
-No record has been written yet.
+| [0001](0001-a-conformant-sibling.md) | A conformant sibling of the Elixir engine, not a second reference implementation | proposed |
 
 New ADRs: next number, same three-section format (Context, Decision,
 Consequences). A record that states a public signature adds a Typespecs
