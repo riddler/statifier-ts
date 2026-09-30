@@ -257,12 +257,14 @@ drift fails the gate and nothing is fixed silently, so run
   is used, and nothing here has yet shown that engine accepting either.
 - **The `src/` rules above are checked mechanically.**
   `scripts/engine-neutrality.mjs` is the one place the patterns live, copied
-  unchanged from the predicator sibling; its header states what it reads, the
-  anchor property every rule follows, and what it cannot see, and
-  `test/engine-neutrality.test.ts` holds each rule to the sentence documenting
-  it and to a line violating it. The lookbehind rule above is not one of its
-  rules yet. A finding is a hard stop: it is answered by changing the code,
-  never by narrowing the rule.
+  from the predicator sibling with one change: its package-import rule admits
+  the packages `package.json` lists under `dependencies`, read when the stage
+  runs, and refuses every other bare specifier, a development dependency
+  included. Its header states what it reads, the anchor property every rule
+  follows, and what it cannot see, and `test/engine-neutrality.test.ts` holds
+  each rule to the sentence documenting it and to a line violating it. The
+  lookbehind rule above is not one of its rules yet. A finding is a hard stop:
+  it is answered by changing the code, never by narrowing the rule.
 - **Sabotage every new test that asserts `src/` behavior**: break the code it
   covers, confirm the test goes red, revert, and note the mutation in one line
   above the test.

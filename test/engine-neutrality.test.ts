@@ -15,7 +15,7 @@
 // the sentence that states the property is the fixture that proves it.
 
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { builtinModules } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -603,8 +603,9 @@ describe("the bare builtin list", () => {
 });
 
 describe("a bare specifier names a package", () => {
-  // The package declares no dependencies, so a bundler inlines whatever a
-  // source file imports by name. Sabotage: widening the specifier body in
+  // None of the packages named here is one this package declares, so a
+  // bundler would inline whatever such an import resolves to. The declared
+  // ones are the next block's. Sabotage: widening the specifier body in
   // `bareSpecifier` in scripts/engine-neutrality.mjs back to everything up to
   // the closing quote turns the two keyword cases below red, because `from` is
   // a keyword of the language this package parses and its lexer and parser
@@ -656,6 +657,156 @@ describe("a bare specifier names a package", () => {
     const { status, output } = scanLine(root, line);
     expect(status, line).toBe(1);
     expect(firedRules(output), line).toEqual([id]);
+  });
+});
+
+describe("a package the manifest declares under dependencies is admitted", () => {
+  // The manifest the gate reads, so that the cases below follow it rather than
+  // restating it: a name added to or dropped from either list moves a case
+  // with it, and a list that is empty fails its own count first.
+  const manifest = JSON.parse(
+    readFileSync(fileURLToPath(new URL("../package.json", import.meta.url)), "utf8"),
+  ) as { dependencies?: Record<string, string>; devDependencies?: Record<string, string> };
+  const declared = Object.keys(manifest.dependencies ?? {});
+  const development = Object.keys(manifest.devDependencies ?? {});
+
+  it("reads a manifest that declares a runtime dependency and development ones", () => {
+    expect(declared).toContain("@riddler/predicator");
+    expect(development.length).toBeGreaterThan(0);
+  });
+
+  // Sabotage: dropping the admitted-name lookahead from `bareSpecifier` in
+  // scripts/engine-neutrality.mjs turns each case here red.
+  it.each(
+    declared.flatMap((name) => [
+      [`${name}, by name`, `import { evaluate } from "${name}";`],
+      [`${name}, type-only`, `import type { Program } from "${name}";`],
+      [`${name}, dynamically`, `const engine = await import("${name}");`],
+      [`${name}, by subpath`, `import { evaluate } from "${name}/evaluate";`],
+    ]),
+  )("admits %s", (_name, line) => {
+    const { status, output } = scanLine(root, line);
+    expect(output, line).toContain("clean");
+    expect(status, line).toBe(0);
+  });
+
+  // A development dependency is installed for the gate and never for a
+  // consumer, so importing one from shipped source is the undeclared-package
+  // case exactly. Sabotage: reading `devDependencies` beside `dependencies` in
+  // scripts/engine-neutrality.mjs turns this red.
+  it.each(development.map((name) => [name] as const))(
+    "refuses the development dependency %s",
+    (name) => {
+      const line = `import * as tool from "${name}";`;
+      const { status, output } = scanLine(root, line);
+      expect(status, line).toBe(1);
+      expect(firedRules(output), line).toEqual(["package-import"]);
+    },
+  );
+
+  // A name that merely begins with a declared one is a different package.
+  // Sabotage: dropping the closing-quote-or-subpath requirement after the
+  // admitted names in scripts/engine-neutrality.mjs turns the first two red;
+  // the third is a sibling name that no prefix reaches, held beside them.
+  it.each([
+    ["a longer name", `import { evaluate } from "${declared[0]}-extras";`],
+    ["a name with a suffix", `import { evaluate } from "${declared[0]}x";`],
+    ["another package in the same scope", 'import { evaluate } from "@riddler/riddler";'],
+  ] as const)("still refuses %s", (_name, line) => {
+    const { status, output } = scanLine(root, line);
+    expect(status, line).toBe(1);
+    expect(firedRules(output), line).toEqual(["package-import"]);
+  });
+
+  // The admitted names are the ones the manifest beside the build config
+  // lists, read when the stage runs, so a project whose manifest names other
+  // packages admits every one of them and refuses this one's. One of them
+  // carries a dot, which a pattern reads as any character unless it is
+  // escaped. Sabotage: writing the admitted names into
+  // scripts/engine-neutrality.mjs as a list, reading them from this
+  // repository's manifest in place of the one beside the config, admitting
+  // only the first listed name, or dropping `escapedForPattern`, turns this
+  // red.
+  it("reads the admitted names from the manifest beside the build config", () => {
+    const dir = project({
+      "package.json": JSON.stringify({
+        type: "module",
+        dependencies: { "loan-ledger": "^10.0.0", "branch.catalog": "^2.0.0" },
+      }),
+      "tsup.config.ts": 'export default { entry: ["src/index.ts"] };\n',
+      "src/index.ts": [
+        'import { renew } from "loan-ledger";',
+        'import { shelve } from "branch.catalog";',
+        'import { evaluate } from "@riddler/predicator";',
+        'import { shelve as shelf } from "branchXcatalog";',
+        "",
+      ].join("\n"),
+    });
+    const { status, output } = runChecker(["--config", join(dir, "tsup.config.ts")]);
+    rmSync(dir, { recursive: true, force: true });
+    expect(status).toBe(1);
+    expect(findings(output)).toEqual([
+      "src/index.ts:3: package-import",
+      "src/index.ts:4: package-import",
+    ]);
+  });
+
+  it.each([
+    ["no dependencies field", '{ "type": "module" }\n'],
+    ["an empty dependencies field", '{ "type": "module", "dependencies": {} }\n'],
+  ] as const)("admits nothing when the manifest has %s", (_name, manifestText) => {
+    const dir = project({
+      "package.json": manifestText,
+      "tsup.config.ts": 'export default { entry: ["src/index.ts"] };\n',
+      "src/index.ts": 'import { evaluate } from "@riddler/predicator";\n',
+    });
+    const { status, output } = runChecker(["--config", join(dir, "tsup.config.ts")]);
+    rmSync(dir, { recursive: true, force: true });
+    expect(status).toBe(1);
+    expect(findings(output)).toEqual(["src/index.ts:1: package-import"]);
+  });
+
+  // Sabotage: deleting any one refusal in `admittedPackages` in
+  // scripts/engine-neutrality.mjs turns its case red: without it the stage
+  // either admits nothing and passes a clean file, or admits a name it could
+  // not read.
+  it.each([
+    ["a manifest that is not there", undefined, "cannot read the package manifest"],
+    ["a manifest that is not JSON", "{ type: module }\n", "cannot read the package manifest"],
+    [
+      "a dependencies field that is a list",
+      '{ "type": "module", "dependencies": ["loan-ledger"] }\n',
+      "cannot read a dependency list",
+    ],
+    [
+      "a dependencies field that is null",
+      '{ "type": "module", "dependencies": null }\n',
+      "cannot read a dependency list",
+    ],
+    [
+      "a dependencies field that is a string",
+      '{ "type": "module", "dependencies": "loan-ledger" }\n',
+      "cannot read a dependency list",
+    ],
+    [
+      "a dependency name no package can carry",
+      '{ "type": "module", "dependencies": { "loan ledger": "^10.0.0" } }\n',
+      "is not a package name",
+    ],
+  ] as const)("refuses %s", (_name, manifestText, message) => {
+    const dir = project({
+      "tsup.config.ts": 'export default { entry: ["src/index.ts"] };\n',
+      "src/index.ts": "export const answer = 1;\n",
+    });
+    if (manifestText === undefined) {
+      rmSync(join(dir, "package.json"));
+    } else {
+      writeFileSync(join(dir, "package.json"), manifestText, "utf8");
+    }
+    const { status, output } = runChecker(["--config", join(dir, "tsup.config.ts")]);
+    rmSync(dir, { recursive: true, force: true });
+    expect(output).toContain(message);
+    expect(status).toBe(1);
   });
 });
 
