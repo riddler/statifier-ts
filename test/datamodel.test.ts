@@ -223,7 +223,11 @@ describe("a transition's condition", () => {
       "error.execution",
       "error.execution",
     ]);
-    expect(queue.map((event) => event.cause?.origin.tIndex)).toEqual([undefined, 7, 5]);
+    expect(
+      queue.map((event) =>
+        event.cause?.origin.kind === "transition" ? event.cause.origin.tIndex : undefined,
+      ),
+    ).toEqual([undefined, 7, 5]);
   });
 });
 
