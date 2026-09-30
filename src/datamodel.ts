@@ -270,12 +270,18 @@ export type Owner =
   | { readonly kind: "finalize"; readonly stateIndex: number; readonly invokeIndex: number };
 
 /**
- * Which node an internally raised event is about: a transition's condition,
- * or a content node, named by its index and the block it ran in.
+ * Which node an internally raised event is about: a transition's condition;
+ * a content node, named by its index and the block it ran in; a state, for
+ * the `done.state.<id>` a final state's entry raises and for its
+ * `<donedata>`'s `<content>` failing; or one `<param>` of a state's
+ * `<donedata>`, by its position there, so that two failing params raise
+ * events with different origins.
  */
 export type Origin =
   | { readonly kind: "transition"; readonly tIndex: number }
-  | { readonly kind: "content"; readonly cIndex: number; readonly owner: Owner };
+  | { readonly kind: "content"; readonly cIndex: number; readonly owner: Owner }
+  | { readonly kind: "state"; readonly stateIndex: number }
+  | { readonly kind: "donedata_param"; readonly stateIndex: number; readonly paramIndex: number };
 
 /** Why an internally raised event exists: its origin and the counters at the raise. */
 export interface Cause {

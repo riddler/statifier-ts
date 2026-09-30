@@ -208,6 +208,26 @@ export function isCompound(machine: Machine, index: number): boolean {
   return (state.kind === "state" || state.kind === "scxml") && state.children.length > 0;
 }
 
+/** Whether the state is a `<parallel>` (`Machine.parallel?/2`). */
+export function isParallel(machine: Machine, index: number): boolean {
+  return stateAt(machine, index).kind === "parallel";
+}
+
+/** Whether the state is a `<final>` (`Machine.final?/2`). */
+export function isFinal(machine: Machine, index: number): boolean {
+  return stateAt(machine, index).kind === "final";
+}
+
+/**
+ * The state's child states in document order, history pseudo-states left
+ * out (`Machine.child_states/2`, the specification's `getChildStates`): the
+ * regions of a parallel, the children of a compound.
+ */
+export function childStates(machine: Machine, index: number): number[] {
+  const state = stateAt(machine, index);
+  return state.children.filter((child) => !state.historyChildren.includes(child));
+}
+
 /** Whether the state is a history pseudo-state (`Machine.history?/2`). */
 export function isHistory(machine: Machine, index: number): boolean {
   return stateAt(machine, index).kind === "history";
@@ -249,4 +269,12 @@ export function lcca(machine: Machine, indexes: readonly number[]): number | nul
 /** The indexes in document order (`Machine.document_order/2`): ascending, as a new list. */
 export function documentOrder(indexes: Iterable<number>): number[] {
   return [...indexes].sort((a, b) => a - b);
+}
+
+/**
+ * The indexes in exit order (`Machine.exit_order/2`): descending, as a new
+ * list, so a descendant always leaves before its ancestors.
+ */
+export function exitOrder(indexes: Iterable<number>): number[] {
+  return [...indexes].sort((a, b) => b - a);
 }
