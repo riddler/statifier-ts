@@ -158,3 +158,95 @@ export interface Machine {
   readonly binding: "early" | "late";
   readonly location: Location;
 }
+
+// ---------------------------------------------------------------------------
+// Topology queries
+// ---------------------------------------------------------------------------
+//
+// The reference's `Statifier.Machine` query functions the interpreter reads,
+// one function each. Every answer is an integer comparison or a walk up the
+// parents: a state's subtree is the index range from its own index to its
+// `last`.
+
+/** The state at `index` (`Machine.at/2`). An index the Machine does not hold is a bug here. */
+export function stateAt(machine: Machine, index: number): CompiledState {
+  const state = machine.states[index];
+  if (state === undefined) throw new Error(`no state at index ${index}`);
+  return state;
+}
+
+/** The transition at `tIndex` (`Machine.transition/2`). */
+export function transitionAt(machine: Machine, tIndex: number): CompiledTransition {
+  const transition = machine.transitions[tIndex];
+  if (transition === undefined) throw new Error(`no transition at index ${tIndex}`);
+  return transition;
+}
+
+/**
+ * Whether `descendant` is a descendant of `ancestor` (`Machine.descendant?/3`,
+ * the specification's `isDescendant`). Proper: a state is not its own
+ * descendant, which is what keeps a transition's domain out of its own exit
+ * set and makes the least common compound ancestor reject a candidate that is
+ * itself in the list.
+ */
+export function isDescendant(machine: Machine, descendant: number, ancestor: number): boolean {
+  return ancestor < descendant && descendant <= stateAt(machine, ancestor).last;
+}
+
+/** Whether the state has no children (`Machine.atomic?/2`). A final state is atomic. */
+export function isAtomic(machine: Machine, index: number): boolean {
+  return stateAt(machine, index).children.length === 0;
+}
+
+/**
+ * Whether the state is compound (`Machine.compound?/2`): a `state` or the
+ * root with at least one child. A parallel is never compound: it enters every
+ * region at once and has no default child to enter.
+ */
+export function isCompound(machine: Machine, index: number): boolean {
+  const state = stateAt(machine, index);
+  return (state.kind === "state" || state.kind === "scxml") && state.children.length > 0;
+}
+
+/** Whether the state is a history pseudo-state (`Machine.history?/2`). */
+export function isHistory(machine: Machine, index: number): boolean {
+  return stateAt(machine, index).kind === "history";
+}
+
+/**
+ * The state's proper ancestors, nearest first and the root last
+ * (`Machine.proper_ancestors/2`, the specification's `getProperAncestors`
+ * with no bound). The state itself is not among them.
+ */
+export function properAncestors(machine: Machine, index: number): number[] {
+  const ancestors: number[] = [];
+  let parent = stateAt(machine, index).parent;
+  while (parent !== null) {
+    ancestors.push(parent);
+    parent = stateAt(machine, parent).parent;
+  }
+  return ancestors;
+}
+
+/**
+ * The least common compound ancestor of the states in `indexes`
+ * (`Machine.lcca/2`, the specification's `findLCCA`): the nearest proper
+ * ancestor of the first index that is compound and has every index in the
+ * list as a proper descendant. A parallel never qualifies. The root
+ * qualifies for any list whose first index is not the root itself; null
+ * answers the case where no ancestor qualifies, as the reference answers nil.
+ */
+export function lcca(machine: Machine, indexes: readonly number[]): number | null {
+  const [first] = indexes;
+  if (first === undefined) return null;
+  for (const candidate of properAncestors(machine, first)) {
+    if (!isCompound(machine, candidate)) continue;
+    if (indexes.every((index) => isDescendant(machine, index, candidate))) return candidate;
+  }
+  return null;
+}
+
+/** The indexes in document order (`Machine.document_order/2`): ascending, as a new list. */
+export function documentOrder(indexes: Iterable<number>): number[] {
+  return [...indexes].sort((a, b) => a - b);
+}
