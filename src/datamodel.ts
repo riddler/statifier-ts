@@ -321,8 +321,10 @@ export type Owner =
  * `<donedata>`'s `<content>` failing; one `<param>` of a state's
  * `<donedata>`, by its position there, so that two failing params raise
  * events with different origins; a `<data>` whose value failed to bind, by
- * its `dIndex`; or a `<script>` child of `<scxml>`, by its position among
- * them.
+ * its `dIndex`; a `<script>` child of `<scxml>`, by its position among
+ * them; an `<invoke>` whose start failed, by its state and its position
+ * there; or the write an empty `<finalize>` makes for one returned value, by
+ * the same pair.
  */
 export type Origin =
   | { readonly kind: "transition"; readonly tIndex: number }
@@ -330,7 +332,9 @@ export type Origin =
   | { readonly kind: "state"; readonly stateIndex: number }
   | { readonly kind: "donedata_param"; readonly stateIndex: number; readonly paramIndex: number }
   | { readonly kind: "data"; readonly dIndex: number }
-  | { readonly kind: "global_script"; readonly index: number };
+  | { readonly kind: "global_script"; readonly index: number }
+  | { readonly kind: "invoke"; readonly stateIndex: number; readonly invokeIndex: number }
+  | { readonly kind: "finalize"; readonly stateIndex: number; readonly invokeIndex: number };
 
 /** Why an internally raised event exists: its origin and the counters at the raise. */
 export interface Cause {

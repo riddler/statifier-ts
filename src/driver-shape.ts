@@ -100,6 +100,8 @@ const ORIGIN_FIELDS: Readonly<Record<string, readonly string[]>> = {
   donedata_param: ["stateIndex", "paramIndex"],
   data: ["dIndex"],
   global_script: ["index"],
+  invoke: ["stateIndex", "invokeIndex"],
+  finalize: ["stateIndex", "invokeIndex"],
 };
 
 // A tagged union of plain counts: a known kind, and a count in each field it names.

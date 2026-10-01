@@ -124,7 +124,7 @@ export interface CompiledDonedata {
   readonly params: readonly CompiledParam[];
 }
 
-/** A compiled `<invoke>`. Nothing drives an invocation yet. */
+/** A compiled `<invoke>`: the invoke pass starts it, the host runs it. */
 export interface CompiledInvoke {
   /** Its position among its state's `<invoke>` elements. */
   readonly index: number;
