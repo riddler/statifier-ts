@@ -103,7 +103,8 @@ function exampleModule(block: Fence): { source: string; assertions: number } {
   });
   const source = lines
     .join("\n")
-    .replaceAll('from "@riddler/statifier"', `from ${JSON.stringify(ENTRY)}`);
+    .split('from "@riddler/statifier"')
+    .join(`from ${JSON.stringify(ENTRY)}`);
   if (source.includes("@riddler/statifier")) {
     throw new Error(
       `README.md line ${block.line}: an import of the package this test cannot point at src/`,
