@@ -28,6 +28,7 @@ import {
   Undefined,
   type Value,
 } from "@riddler/predicator";
+import { decodeTagged, evaluateTagged } from "@riddler/predicator/tagged";
 
 // ---------------------------------------------------------------------------
 // The datamodel and the context
@@ -218,16 +219,52 @@ export type EvaluateOutcome =
   | { readonly ok: false; readonly reason: ExecutionReason };
 
 /**
+ * The message predicator's tagged evaluation gives a result the encoding
+ * cannot carry. It is the only failure of that entry point that is not the
+ * evaluation's own, and the message is the one place it is told apart: its
+ * reason is the encoding's, a token an evaluation failure can share.
+ */
+const TAGGED_REFUSAL = "the result is outside the tagged encoding";
+
+/**
+ * A tagged-encoding text predicator handed back, decoded into the domain.
+ * Predicator encoded it, so a refusal here is a broken invariant rather than
+ * an outcome.
+ */
+function decodedValue(text: HostValue): Value {
+  if (typeof text !== "string") {
+    throw new Error("predicator answered a tagged result that is not text");
+  }
+  const decoded = decodeTagged(text);
+  if (!decoded.ok) {
+    throw new Error(`predicator answered a tagged result it cannot decode: ${decoded.reason}`);
+  }
+  return decoded.value;
+}
+
+/**
  * Evaluates an expression against a context. A literal comes back as the
  * document wrote it; a compiled program runs under the binding's functions
  * and unbound policy. A failure is answered, never thrown.
+ *
+ * The value comes back as predicator's own, as the reference hands it back:
+ * an integral float stays a float, at the top and nested. Predicator's main
+ * evaluation projects its result to plain host values, which loses that
+ * brand, so the result is read through the tagged encoding, which carries it.
+ * A result the encoding cannot carry - a map holding the encoding's reserved
+ * key is the one an evaluation can reach - is read through the plain
+ * projection instead, as it was before, rather than failing.
  */
 export function evaluate(context: EvaluationContext, expr: Expr): EvaluateOutcome {
   if (expr.kind === "static") return { ok: true, value: expr.value };
-  const result = predicatorEvaluate(expr.program, contextObject(context.data), {
-    functions: functionsOf(context),
-    onUnbound: ON_UNBOUND,
-  });
+  const data = contextObject(context.data);
+  const options = { functions: functionsOf(context), onUnbound: ON_UNBOUND } as const;
+  const tagged = evaluateTagged(expr.program, data, { ...options, tagged: true });
+  if (tagged.ok) return { ok: true, value: decodedValue(tagged.value) };
+  if (tagged.error.message !== TAGGED_REFUSAL) {
+    return { ok: false, reason: evaluatorError(expr.source, tagged.error) };
+  }
+  const result = predicatorEvaluate(expr.program, data, options);
   if (!result.ok) return { ok: false, reason: evaluatorError(expr.source, result.error) };
   return { ok: true, value: domainValue(result.value) };
 }

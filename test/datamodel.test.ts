@@ -7,6 +7,9 @@
 
 import {
   compile,
+  float,
+  isFloat,
+  isInteger,
   type Program,
   evaluate as predicatorEvaluate,
   Undefined,
@@ -157,6 +160,69 @@ describe("the unbound policy", () => {
     expect(data.has("_x")).toBe(false);
     const outcome = evaluate(contextOf(data), expr("_x || true"));
     expect(outcome.ok).toBe(false);
+  });
+});
+
+describe("an evaluated value", () => {
+  // The reference hands back predicator's value untouched
+  // (lib/statifier/evaluator.ex, evaluate/2, at statifier-ex v2.9.0), so an
+  // integral float stays a float.
+
+  // Sabotage: answering `domainValue(toHost(decoded))` (the plain projection
+  // over the decoded value) in evaluate turns this red.
+  it("keeps an integral float a float", () => {
+    const value = evaluated("2.0", new Map());
+    expect(isFloat(value)).toBe(true);
+    expect(value).toEqual(float(2));
+  });
+
+  // Sabotage: decoding only the top level and projecting the members (a
+  // `map(domainValue)` over a decoded list) turns this red.
+  it("keeps a float nested in a list or a map a float", () => {
+    const value = evaluated("[1.0, {fine: 2.0, renewals: 2}]", new Map());
+    expect(value).toEqual([float(1), { fine: float(2), renewals: 2 }]);
+    const [first, second] = value as Value[];
+    expect(isFloat(first)).toBe(true);
+    expect(isFloat((second as { fine: Value }).fine)).toBe(true);
+    expect(isInteger((second as { renewals: Value }).renewals)).toBe(true);
+  });
+
+  // Sabotage: answering `domainValue(toHost(...))` for a root the datamodel
+  // holds turns this red.
+  it("keeps a float the datamodel holds a float when an expression reads it", () => {
+    const data = new Map<string, Value>([["patron", { fine: float(3), holds: [float(0.5)] }]]);
+    expect(isFloat(evaluated("patron.fine", data))).toBe(true);
+    expect(evaluated("patron", data)).toEqual({ fine: float(3), holds: [float(0.5)] });
+  });
+
+  // Sabotage: answering every number as a float in decodedValue turns this
+  // red.
+  it("keeps an integer an integer", () => {
+    const value = evaluated("2", new Map());
+    expect(value).toBe(2);
+    expect(isInteger(value)).toBe(true);
+  });
+
+  // Sabotage: answering the encoding refusal as the evaluation's failure
+  // (dropping the plain-projection fallback in evaluate) turns this red.
+  it("answers a result the tagged encoding refuses through the plain projection", () => {
+    const data = new Map<string, Value>([["slip", { $type: "loan_slip", copy: "c-1" }]]);
+    const outcome = evaluate(contextOf(data), expr("slip"));
+    expect(outcome).toEqual({ ok: true, value: { $type: "loan_slip", copy: "c-1" } });
+  });
+
+  // Sabotage: answering a failed tagged evaluation as a success (`{ ok: true,
+  // value: Undefined }` in place of the failure arm) in evaluate turns this
+  // red.
+  it("still answers an evaluation failure as error.execution's reason", () => {
+    const outcome = evaluate(contextOf(new Map()), expr("1 + true"));
+    expect(outcome.ok).toBe(false);
+    if (outcome.ok) return;
+    expect(outcome.reason).toMatchObject({
+      kind: "evaluator_error",
+      source: "1 + true",
+      error: { type: "TypeMismatchError" },
+    });
   });
 });
 
