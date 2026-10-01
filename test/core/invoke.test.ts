@@ -623,6 +623,25 @@ describe("finalize", () => {
     expect(dm(after.state, "length")).toBe(null);
   });
 
+  // statifier-ex v2.9.0, interpreter.ex `auto_assign_finalize`: the value
+  // is read with Map.fetch and written as it is, so a returned null is
+  // written as null, never as undefined.
+  // Sabotage: reading the value as `data[param.name] ?? Undefined` in
+  // autoAssignFinalize turns this red.
+  it("writes a returned null back as null", () => {
+    const source = `<scxml ${SCXML} initial="loan">
+      <datamodel><data id="dueDate" expr="'2026-10-15'"/></datamodel>
+      <state id="loan">
+        <invoke id="renewal" type="scxml" namelist="dueDate"><finalize/></invoke>
+      </state>
+    </scxml>`;
+    const after = deliver(
+      start(source),
+      external("renewal.done", { invokeid: "renewal", data: { dueDate: null } }),
+    );
+    expect(dm(after.state, "dueDate")).toBe(null);
+  });
+
   // statifier-ex v2.9.0, interpreter.ex `write_finalize_target`: a write that
   // fails raises error.execution with the finalize as its origin and leaves
   // the other writes standing.
