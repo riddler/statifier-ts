@@ -517,6 +517,7 @@ describe("malformed input", () => {
     ["<!DOCTYPE a [<!-->' -->]><a/>", "unterminated_doctype", 1, 30],
     ["<!DOCTYPE a [<!-- a > ' -->]><a/>", "unterminated_doctype", 1, 34],
     ["<!DOCTYPE a [<!-- ] -->]><a/>", "content_before_root", 1, 24],
+    ["<!DOCTYPE a [<!-- ' -->]>\u0001<a/>", "content_before_root", 1, 26],
     ["<a>&nbsp;</a>", "unknown_entity", 1, 4],
     ["<a>R&D</a>", "malformed_reference", 1, 5],
     ["<a>&amp</a>", "malformed_reference", 1, 4],
