@@ -4,7 +4,10 @@
 //
 // Runs every suite the vendored manifest lists, or only those named, writes
 // `reports/<suite>.json` for each, and prints for each suite how many cases
-// passed and failed. Then it prints what is not yet claimed: every case the
+// passed and failed. When the scion suite ran, it prints the position
+// round-trip property's counts over it (`test/conformance/position.ts`): the
+// points, the round trips that agree, and the points not carried with each
+// reason. Then it prints what is not yet claimed: every case the
 // reference's own registry claims, for the suites run, that this package's
 // registry does not, each with the features it needs. That list is the
 // distance between this package and the reference, read off the two
@@ -26,6 +29,7 @@ import {
   REGISTRY_FILE,
   unclaimed,
 } from "../../scripts/lib/corpus.mjs";
+import { positionLines, runPositionProperty } from "./position.js";
 import { gapLines, runVendored, writeReports } from "./reports.js";
 
 function readSuites(argv: readonly string[]): string[] {
@@ -52,6 +56,14 @@ for (const [index, report] of reports.entries()) {
   process.stdout.write(
     `${report.suite}: ${report.results.length} cases, ${passed} pass, ${failed} fail -> ${path}\n`,
   );
+}
+
+const scion = loadSuites().find((suite) => suite.suite === "scion");
+if (scion !== undefined && reports.some((report) => report.suite === "scion")) {
+  process.stdout.write("\n");
+  for (const line of positionLines(runPositionProperty(scion.cases))) {
+    process.stdout.write(`${line}\n`);
+  }
 }
 
 // Before the ratchet has written a registry, this package claims nothing.

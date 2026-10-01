@@ -39,7 +39,7 @@
   },
   "scripts": {
     "prepack": "node scripts/publish-guard.mjs",
-    "gate": "node --version && pnpm run typecheck && pnpm run lint && pnpm run neutrality && vitest run --coverage && pnpm run corpus:check && pnpm run registry && pnpm run build && pnpm run resolution",
+    "gate": "node --version && pnpm run typecheck && pnpm run lint && pnpm run neutrality && vitest run --coverage && pnpm run corpus:check && pnpm run registry && pnpm run position && pnpm run build && pnpm run resolution",
     "gate:loop": "pnpm run typecheck && pnpm run lint && pnpm run test",
     "typecheck": "tsc --noEmit -p tsconfig.src.json && tsc --noEmit",
     "lint": "biome check .",
@@ -50,6 +50,7 @@
     "corpus:check": "node scripts/corpus-check.mjs",
     "corpus:refresh": "node scripts/corpus-refresh.mjs",
     "registry": "tsx scripts/registry-check.mjs",
+    "position": "tsx scripts/position-check.mjs",
     "conformance": "tsx test/conformance/run.ts",
     "ratchet": "node scripts/ratchet.mjs",
     "resolution": "node scripts/legacy-resolution.mjs"
