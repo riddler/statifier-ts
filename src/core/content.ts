@@ -20,11 +20,15 @@
 // in queue order, and the caller appends them. A `<send>` or `<cancel>` also
 // moves the session's send state, which the runner takes and answers too.
 //
-// A successful `<assign>` answers a `datamodel_change`, nested or not. With
-// tracing on, the block answers one `content_executed` trace after its own
-// effects, naming the block's nodes that ran: every node on success, the
-// nodes up to and including the failing one otherwise, and none for an empty
-// block, which still answers the trace.
+// A successful `<assign>` answers a `datamodel_change`, nested in an `<if>`
+// or a `<foreach>` or not. An `<if>` or a `<foreach>` that fails answers no
+// effect at all: what its nodes answered before the failure is dropped, as
+// the reference's composite nodes drop it, though what they wrote to the
+// datamodel and the send state is kept. With tracing on, the block answers
+// one `content_executed` trace after its own effects, naming the block's
+// nodes that ran: every node on success, the nodes up to and including the
+// failing one otherwise, and none for an empty block, which still answers
+// the trace.
 
 import { Undefined, type Value } from "@riddler/predicator";
 import {
@@ -269,9 +273,9 @@ function executeNode(run: Run, node: ContentNode): Step {
     case "assign":
       return executeAssign(run, node);
     case "if":
-      return executeIf(run, node);
+      return discardOnFailure(run, () => executeIf(run, node));
     case "foreach":
-      return executeForeach(run, node);
+      return discardOnFailure(run, () => executeForeach(run, node));
     case "script":
       return executeScript(run, node);
     case "send":
@@ -279,6 +283,18 @@ function executeNode(run: Run, node: ContentNode): Step {
     case "cancel":
       return applySend(run, executeCancel(run.context, node, run.sends, run.sink));
   }
+}
+
+/**
+ * Runs a composite node, dropping every effect it answered when it fails:
+ * a failing `<if>` partition or `<foreach>` loop answers none of its earlier
+ * nodes' effects, while what they wrote stays in the context.
+ */
+function discardOnFailure(run: Run, execute: () => Step): Step {
+  const mark = run.effects.length;
+  const step = execute();
+  if (!step.ok) run.effects.splice(mark);
+  return step;
 }
 
 /** Runs a partition or a loop body, naming the inner node when one fails. */

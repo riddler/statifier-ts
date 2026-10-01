@@ -799,3 +799,71 @@ describe("the trace effects", () => {
     expect(next.effects.filter((e) => e.kind === "trace")).toEqual([]);
   });
 });
+
+describe("a composite node that fails", () => {
+  // statifier-ex v2.9.0, lib/statifier/machine/content/if.ex, `run_partition`:
+  // the `{:error, new_context, reason}` arm halts without the partition's
+  // accumulated effects, and Interpreter.Content's `run_nodes` keeps only the
+  // earlier nodes' effects. The write stays in the datamodel.
+  // Sabotage: routing "if" past discardOnFailure in executeNode turns this red.
+  it("answers no effect of an <if> whose partition fails, and keeps its write", () => {
+    const { effects, state } = start(`<scxml ${SCXML} initial="desk">
+      <datamodel><data id="fines" expr="0"/></datamodel>
+      <state id="desk">
+        <onentry>
+          <log label="opened"/>
+          <if cond="true">
+            <assign location="fines" expr="1"/>
+            <log label="fined" expr="fines"/>
+            <assign location="lost" expr="2"/>
+          </if>
+        </onentry>
+      </state>
+    </scxml>`);
+    expect(tags(effects)).toEqual(["datamodel_init", "datamodel_change", "log"]);
+    expect(effects[2]).toMatchObject({ kind: "log", label: "opened" });
+    expect(state.datamodel.get("fines")).toBe(1);
+  });
+
+  // statifier-ex v2.9.0, lib/statifier/machine/content/foreach.ex, `run_loop`:
+  // a failing iteration halts the loop with none of the loop's effects.
+  // Sabotage: routing "foreach" past discardOnFailure in executeNode turns
+  // this red.
+  it("answers no log, send or change of a <foreach> whose body fails", () => {
+    const { effects, state } = start(`<scxml ${SCXML} initial="desk">
+      <datamodel><data id="holds" expr="['c-1', 'c-2']"/><data id="seen" expr="0"/></datamodel>
+      <state id="desk">
+        <onentry>
+          <foreach array="holds" item="hold">
+            <log label="hold" expr="hold"/>
+            <send event="hold.notice" delay="1s"/>
+            <assign location="seen" expr="seen + 1"/>
+            <if cond="seen == 2"><assign location="lost" expr="1"/></if>
+          </foreach>
+        </onentry>
+      </state>
+    </scxml>`);
+    expect(tags(effects)).toEqual(["datamodel_init", "datamodel_change", "datamodel_change"]);
+    expect(state.datamodel.get("seen")).toBe(2);
+  });
+
+  // Sabotage: splicing the effects whether or not the step failed, in
+  // discardOnFailure, turns this red.
+  it("keeps the effects of a composite that succeeds", () => {
+    const { effects } = start(`<scxml ${SCXML} initial="desk">
+      <datamodel><data id="fines" expr="0"/></datamodel>
+      <state id="desk">
+        <onentry>
+          <if cond="true"><assign location="fines" expr="1"/><log label="fined"/></if>
+          <assign location="lost" expr="2"/>
+        </onentry>
+      </state>
+    </scxml>`);
+    expect(tags(effects)).toEqual([
+      "datamodel_init",
+      "datamodel_change",
+      "datamodel_change",
+      "log",
+    ]);
+  });
+});
