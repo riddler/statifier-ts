@@ -214,9 +214,9 @@ drift fails the gate and nothing is fixed silently, so run
   against this package. It is copied from the predicator sibling, where it runs
   the conformance surfaces on the engine React Native uses; here it drives
   every suite of the vendored corpus through `test/conformance/runner.ts`, and
-  running it is a deliberate step, never a gate's. Until the interpreter is
-  wired into the runner every case fails on both engines, so a run proves only
-  that the bundle loads and agrees.
+  running it is a deliberate step, never a gate's. The runner drives the scion
+  suite through the interpreter and fails every case of the other suites with
+  one reason, so a run proves agreement on the scion cases only.
 
 ## Conventions
 

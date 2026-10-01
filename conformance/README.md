@@ -57,8 +57,13 @@ fails naming the field, and is never repaired by rewriting a hash.
 **Run.** `pnpm conformance` runs every suite, or the ones named with
 `--suite`, and writes one report per suite under `reports/`, which git
 ignores. Every case is a `pass` or a `fail` with a reason; there is no third
-value and no case is left out. Until the interpreter core is wired into the
-runner, every case fails with the reason `core not implemented`.
+value and no case is left out. The runner drives each scion case through the
+interpreter, compares the active leaf set after the start and after each
+event as the reference's harness does, and moves a virtual clock by the two
+knobs ADR-0003 fixes (a settle window of 100 ms before each event, a
+deadline of 4000 ms after it); a case that needs a feature this package does
+not run fails naming the feature. A case of the w3c or statifier suite fails
+with the reason that its suite is not driven yet.
 
 **Ratchet.** `pnpm ratchet` reads only the reports the last run wrote. It
 refuses, writing nothing, when a report is of another corpus or is not a run

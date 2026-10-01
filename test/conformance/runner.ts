@@ -8,10 +8,10 @@
 // A case result is `pass` or `fail`, and a `fail` carries a reason. There is
 // no third value: no skip, no pending, no not-applicable, and the runner never
 // shortens the case set it was given. A case the package cannot yet run fails
-// with a reason naming what is missing. Today that is every case: the
-// interpreter core is not wired to the runner, so every case fails with the
-// reason `core not implemented`, and running a case is a function the caller
-// may hand in once one exists.
+// with a reason naming what is missing. The scion suite's cases are driven
+// through the interpreter by `test/conformance/scion.ts`; a case of any other
+// suite fails with the reason that its suite is not driven yet, and running a
+// case is a function the caller may hand in instead.
 
 import type {
   CaseResult,
@@ -19,6 +19,7 @@ import type {
   CorpusSuite,
   SuiteReport,
 } from "../../scripts/lib/corpus-rules.d.mts";
+import { runScionCase } from "./scion.js";
 
 /** What running one case answers: a pass, or a fail with its reason. */
 export type CaseOutcome =
@@ -28,11 +29,19 @@ export type CaseOutcome =
 /** Runs one case. */
 export type RunCase = (testCase: CorpusCase) => CaseOutcome;
 
-/** The reason every case fails with while no interpreter core is wired in. */
-export const CORE_NOT_IMPLEMENTED = "core not implemented";
+/** The reason a case of a suite the runner does not drive yet fails with. */
+export function suiteNotDriven(suite: string): string {
+  return `the ${suite} suite is not driven yet: the runner drives the scion suite only`;
+}
 
-/** The case runner used until the interpreter core is wired in. */
-export const coreNotImplemented: RunCase = () => ({ result: "fail", reason: CORE_NOT_IMPLEMENTED });
+/**
+ * The default case runner: a scion case is driven through the interpreter, a
+ * case of any other suite fails naming its suite.
+ */
+export const runCorpusCase: RunCase = (testCase) =>
+  testCase.suite === "scion"
+    ? runScionCase(testCase)
+    : { result: "fail", reason: suiteNotDriven(testCase.suite) };
 
 function messageOf(value: unknown): string {
   return value instanceof Error ? value.message : String(value);
@@ -79,7 +88,7 @@ function runOne(testCase: CorpusCase, runCase: RunCase): CaseResult {
 export function runSuite(
   suite: CorpusSuite,
   corpusHash: string,
-  runCase: RunCase = coreNotImplemented,
+  runCase: RunCase = runCorpusCase,
 ): SuiteReport {
   return {
     implementation: "statifier-ts",
