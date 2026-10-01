@@ -1,0 +1,57 @@
+{
+  "description": "The hold_queue chart with idle and awaiting_pickup inside a compound state open, whose own copy.disputed transition moves the copy to held_for_review. p-1's hold waits in awaiting_pickup while the edit adds a pending > 0 condition to open's copy.disputed transition and changes nothing inside awaiting_pickup. open is an ancestor of the active state, so it is in the configuration and its transition is selectable from there: the predicate answers false. The diff is breaking, open's transition (t_index 1) matching nothing on either side.",
+  "initial_configuration": [
+    "idle"
+  ],
+  "steps": [
+    {
+      "event": {
+        "name": "hold.placed"
+      },
+      "configuration": [
+        "idle"
+      ]
+    },
+    {
+      "event": {
+        "name": "copy.available"
+      },
+      "configuration": [
+        "awaiting_pickup"
+      ]
+    }
+  ],
+  "host": {
+    "send_types": [
+      "library:timer",
+      "library:route"
+    ],
+    "expect_sends": [
+      {
+        "type": "library:timer",
+        "target": "hold_queue",
+        "event": {
+          "name": "pickup.expired"
+        },
+        "delay_ms": 604800000,
+        "send_id": "pickup"
+      }
+    ],
+    "expect_diff": {
+      "class": "breaking",
+      "reasons": [
+        {
+          "reason": "transition_removed",
+          "state": "open",
+          "t_index": 1
+        },
+        {
+          "reason": "transition_added",
+          "state": "open",
+          "t_index": 1
+        }
+      ]
+    },
+    "expect_compatible_at": false
+  }
+}

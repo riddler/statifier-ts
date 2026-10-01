@@ -1,0 +1,57 @@
+{
+  "description": "p-1's hold waits in awaiting_pickup while the hold_queue chart is edited in idle only: idle's copy.available condition is rewritten from pending > 0 to pending >= 1. The diff compares a condition by its text, so the pair is breaking; but awaiting_pickup's own transitions and onexit are byte-identical in both charts, so at this position the predicate answers true. A breaking pair can be harmless to one execution.",
+  "initial_configuration": [
+    "idle"
+  ],
+  "steps": [
+    {
+      "event": {
+        "name": "hold.placed"
+      },
+      "configuration": [
+        "idle"
+      ]
+    },
+    {
+      "event": {
+        "name": "copy.available"
+      },
+      "configuration": [
+        "awaiting_pickup"
+      ]
+    }
+  ],
+  "host": {
+    "send_types": [
+      "library:timer",
+      "library:route"
+    ],
+    "expect_sends": [
+      {
+        "type": "library:timer",
+        "target": "hold_queue",
+        "event": {
+          "name": "pickup.expired"
+        },
+        "delay_ms": 604800000,
+        "send_id": "pickup"
+      }
+    ],
+    "expect_diff": {
+      "class": "breaking",
+      "reasons": [
+        {
+          "reason": "transition_removed",
+          "state": "idle",
+          "t_index": 1
+        },
+        {
+          "reason": "transition_added",
+          "state": "idle",
+          "t_index": 1
+        }
+      ]
+    },
+    "expect_compatible_at": true
+  }
+}

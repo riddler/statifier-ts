@@ -1,0 +1,49 @@
+{
+  "description": "p-1 places a hold on c-1, which is taken without leaving idle; when the copy becomes available the queue is not empty, so the chart enters awaiting_pickup and sends the 7-day pickup timer for the head of the queue. p-2 then places a hold while that window runs: hold.placed is a transition with no target, so it exits nothing and the chart stays in awaiting_pickup with no second timer.",
+  "initial_configuration": [
+    "idle"
+  ],
+  "steps": [
+    {
+      "event": {
+        "name": "hold.placed"
+      },
+      "configuration": [
+        "idle"
+      ]
+    },
+    {
+      "event": {
+        "name": "copy.available"
+      },
+      "configuration": [
+        "awaiting_pickup"
+      ]
+    },
+    {
+      "event": {
+        "name": "hold.placed"
+      },
+      "configuration": [
+        "awaiting_pickup"
+      ]
+    }
+  ],
+  "host": {
+    "send_types": [
+      "library:timer",
+      "library:route"
+    ],
+    "expect_sends": [
+      {
+        "type": "library:timer",
+        "target": "hold_queue",
+        "event": {
+          "name": "pickup.expired"
+        },
+        "delay_ms": 604800000,
+        "send_id": "pickup"
+      }
+    ]
+  }
+}

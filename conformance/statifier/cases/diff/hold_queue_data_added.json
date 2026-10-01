@@ -1,0 +1,23 @@
+{
+  "description": "The hold_queue chart diffed to an edit that declares one more datamodel key, branch_id, with the value b-1. Every state and transition of the old chart corresponds to one of the new, so the pair is compatible, and the addition is reported.",
+  "initial_configuration": [
+    "idle"
+  ],
+  "steps": [],
+  "host": {
+    "send_types": [
+      "library:timer",
+      "library:route"
+    ],
+    "expect_sends": [],
+    "expect_diff": {
+      "class": "compatible",
+      "reasons": [
+        {
+          "reason": "data_added",
+          "data_id": "branch_id"
+        }
+      ]
+    }
+  }
+}

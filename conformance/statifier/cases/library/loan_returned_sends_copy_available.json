@@ -1,0 +1,52 @@
+{
+  "description": "The copy comes back while the loan is on_loan: the loan reaches its returned final state, which sends copy.available to the hold_queue chart carrying the copy id as event data.",
+  "initial_configuration": [
+    "on_loan"
+  ],
+  "steps": [
+    {
+      "event": {
+        "name": "copy.returned"
+      },
+      "configuration": [
+        "returned"
+      ]
+    }
+  ],
+  "host": {
+    "send_types": [
+      "library:timer",
+      "library:route"
+    ],
+    "expect_sends": [
+      {
+        "type": "library:timer",
+        "target": "loan",
+        "event": {
+          "name": "loan.due"
+        },
+        "delay_ms": 1814400000,
+        "send_id": "due"
+      },
+      {
+        "type": "library:timer",
+        "target": "loan",
+        "event": {
+          "name": "loan.due_soon"
+        },
+        "delay_ms": 1555200000,
+        "send_id": "due_soon"
+      },
+      {
+        "type": "library:route",
+        "target": "hold_queue",
+        "event": {
+          "name": "copy.available",
+          "data": {
+            "copy_id": "c-1"
+          }
+        }
+      }
+    ]
+  }
+}

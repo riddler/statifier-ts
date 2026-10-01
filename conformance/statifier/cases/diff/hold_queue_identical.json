@@ -1,0 +1,18 @@
+{
+  "description": "The hold_queue chart diffed to the same bytes. The two charts carry the same identity, so the pair is identical and no structural comparison is made: the reasons are empty.",
+  "initial_configuration": [
+    "idle"
+  ],
+  "steps": [],
+  "host": {
+    "send_types": [
+      "library:timer",
+      "library:route"
+    ],
+    "expect_sends": [],
+    "expect_diff": {
+      "class": "identical",
+      "reasons": []
+    }
+  }
+}

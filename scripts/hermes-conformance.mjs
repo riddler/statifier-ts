@@ -1,7 +1,7 @@
-// Runs both conformance surfaces under a standalone Hermes VM and diffs the
-// two reports against a run of the same corpus under Node.
+// Runs every suite of the conformance corpus under a standalone Hermes VM and
+// diffs the reports against a run of the same corpus under Node.
 //
-//   node scripts/hermes-conformance.mjs --tools <dir> [--tier N] [--out <dir>]
+//   node scripts/hermes-conformance.mjs --tools <dir> [--out <dir>]
 //
 // WHAT THIS IS EVIDENCE OF. The README says this package's source assumes no
 // host environment, so it runs unchanged on a server runtime, in a browser and
@@ -12,13 +12,12 @@
 // A text check cannot see a behaviour difference between two engines, and a
 // behaviour difference is what would make the sentence untrue.
 //
-// ZERO DIFFERENCES ON BOTH SURFACES IS THE RESULT THAT MEANS ANYTHING. A
+// ZERO DIFFERENCES ON EVERY SUITE IS THE RESULT THAT MEANS ANYTHING. A
 // difference is a finding about this package or about the engine, to be
 // recorded and explained; it is never answered by dropping the case from the
 // run or by narrowing what the README claims. So this script excludes nothing:
-// it runs the surface's whole case set at the tier asked for, and it exits
-// non-zero on the first surface whose reports differ, naming every row that
-// diverged.
+// it runs every case of every suite the vendored manifest lists, and it exits
+// non-zero when any suite's reports differ, naming every row that diverged.
 //
 // WHAT IT BUILDS, AND WHY THE VM NEEDS A BUNDLE AT ALL. The VM has no module
 // loader and no filesystem: there is no `require`, no `import`, and nothing to
@@ -26,7 +25,10 @@
 // self-contained file, and the corpus travels in it as data. That is why
 // `test/conformance/runner.ts` takes the corpus as an argument instead of
 // finding it: reading it off disk is `test/conformance/reports.ts`'s, and the
-// runner itself reaches nothing outside the language. The bundle is checked
+// runner itself reaches nothing outside the language. Until the interpreter
+// core is wired into the runner every case fails with the same reason on both
+// engines, so a run today proves the bundle loads and agrees, not that a chart
+// runs. The bundle is checked
 // for a host module specifier before it is run, and the check refuses rather
 // than warns - a bundle that reached one would not be evidence about a host
 // that has none.
@@ -68,14 +70,9 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { join, relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { loadCases, loadManifest } from "./lib/corpus.mjs";
+import { loadManifest, loadSuites } from "./lib/corpus.mjs";
 
 const repoRoot = fileURLToPath(new URL("../", import.meta.url));
-
-/** The default tier: every tier the vendored manifest carries. */
-function topTier(manifest) {
-  return Math.max(...manifest.tiers.map((entry) => entry.tier));
-}
 
 /**
  * The host module specifiers a bundle for the VM must not carry.
@@ -92,18 +89,18 @@ const HOST_MODULE_PATTERN =
 function usage(problem) {
   process.stderr.write(`${problem}\n\n`);
   process.stderr.write("usage: node scripts/hermes-conformance.mjs --tools <dir>");
-  process.stderr.write(" [--tier N] [--out <dir>]\n");
+  process.stderr.write(" [--out <dir>]\n");
   process.stderr.write("  --tools  a directory holding the VM and the bundling tools,\n");
   process.stderr.write("           or set STATIFIER_HERMES_TOOLS instead\n");
   process.exit(2);
 }
 
 function readArguments(argv) {
-  const parsed = { tools: process.env.STATIFIER_HERMES_TOOLS ?? null, tier: null, out: null };
+  const parsed = { tools: process.env.STATIFIER_HERMES_TOOLS ?? null, out: null };
   for (let index = 0; index < argv.length; index += 1) {
     const flag = argv[index];
     const value = argv[index + 1];
-    if (flag === "--tools" || flag === "--tier" || flag === "--out") {
+    if (flag === "--tools" || flag === "--out") {
       if (value === undefined) usage(`${flag} wants a value`);
       parsed[flag.slice(2)] = value;
       index += 1;
@@ -149,12 +146,12 @@ function resolveTools(toolsDir) {
 }
 
 /** The entry both engines run, and the corpus it carries. */
-function writeSources(outDir, tier, corpus) {
+function writeSources(outDir, corpus) {
   mkdirSync(outDir, { recursive: true });
-  const runner = join(repoRoot, "test", "conformance", "runner.js");
+  const runner = join(repoRoot, "test", "conformance", "runner.ts");
   writeFileSync(
     join(outDir, "corpus-data.ts"),
-    `export const tier = ${tier};\nexport const corpus = ${JSON.stringify(corpus)};\n`,
+    `export const corpus = ${JSON.stringify(corpus)};\n`,
     "utf8",
   );
   // `print` is the VM's only output channel and the only one it has; a server
@@ -163,14 +160,15 @@ function writeSources(outDir, tier, corpus) {
   writeFileSync(
     join(outDir, "entry.ts"),
     [
-      `import { runCompiler, runEvaluator } from ${JSON.stringify(runner)};`,
-      `import { corpus, tier } from "./corpus-data.js";`,
+      `import { runSuite } from ${JSON.stringify(runner)};`,
+      `import { corpus } from "./corpus-data.js";`,
       ``,
       `const emit =`,
       `  typeof print === "function" ? print : (line) => { console.log(line); };`,
       ``,
-      `emit(JSON.stringify(runEvaluator(tier, corpus)));`,
-      `emit(JSON.stringify(runCompiler(tier, corpus)));`,
+      `for (const suite of corpus.suites) {`,
+      `  emit(JSON.stringify(runSuite(suite, corpus.corpus_hash)));`,
+      `}`,
       ``,
     ].join("\n"),
     "utf8",
@@ -219,11 +217,13 @@ function lower(babel, classes, source) {
   return lowered.code;
 }
 
-/** Reads two reports out of an engine's output, one per line. */
-function readReports(text, engine) {
+/** Reads one report per suite out of an engine's output, one per line. */
+function readReports(text, engine, expected) {
   const lines = text.split("\n").filter((line) => line.trim() !== "");
-  if (lines.length !== 2) {
-    throw new Error(`${engine} printed ${lines.length} lines where two reports were expected`);
+  if (lines.length !== expected) {
+    throw new Error(
+      `${engine} printed ${lines.length} lines where ${expected} reports were expected`,
+    );
   }
   return lines.map((line) => JSON.parse(line));
 }
@@ -240,12 +240,12 @@ function readReports(text, engine) {
  */
 function reportDifferences(node, vm) {
   const differences = [];
-  for (const field of ["isa_version", "corpus_hash", "tier", "surface"]) {
+  for (const field of ["implementation", "corpus_hash", "suite"]) {
     if (node[field] !== vm[field]) {
       differences.push(`${field}: the server runtime answered ${node[field]}, the VM ${vm[field]}`);
     }
   }
-  const byId = (report) => new Map(report.results.map((result) => [result.id, result]));
+  const byId = (report) => new Map(report.results.map((result) => [result.case_id, result]));
   const left = byId(node);
   const right = byId(vm);
   for (const [id, result] of left) {
@@ -276,15 +276,14 @@ async function main() {
   const parsed = readArguments(process.argv.slice(2));
   const tools = resolveTools(parsed.tools);
   const manifest = loadManifest();
-  const tier = parsed.tier === null ? topTier(manifest) : Number(parsed.tier);
-  if (!Number.isInteger(tier) || tier < 1) usage("--tier wants an integer of at least one");
   const outDir = parsed.out === null ? join(repoRoot, "tmp", "hermes") : resolve(parsed.out);
 
-  const cases = loadCases(tier, manifest);
-  const corpus = { manifest, cases };
-  process.stdout.write(`corpus: tier ${tier}, ${cases.length} cases, ${manifest.corpus_hash}\n`);
+  const suites = loadSuites(undefined, manifest);
+  const corpus = { corpus_hash: manifest.corpus_hash, suites };
+  const counts = suites.map((suite) => `${suite.suite} ${suite.cases.length}`).join(", ");
+  process.stdout.write(`corpus: ${counts} cases, ${manifest.corpus_hash}\n`);
 
-  const entry = writeSources(outDir, tier, corpus);
+  const entry = writeSources(outDir, corpus);
   const nodeBundle = await bundle(tools.esbuild, entry, join(outDir, "on-node.mjs"), false);
   const builtForVM = await bundle(tools.esbuild, entry, join(outDir, "on-vm.js"), true);
   const vmBundle = join(outDir, "on-vm-lowered.js");
@@ -312,8 +311,8 @@ async function main() {
     maxBuffer: 1 << 28,
   });
 
-  const vmReports = readReports(vmOut, "the VM");
-  const nodeReports = readReports(nodeOut, "the server runtime");
+  const vmReports = readReports(vmOut, "the VM", suites.length);
+  const nodeReports = readReports(nodeOut, "the server runtime", suites.length);
 
   let differing = 0;
   for (let index = 0; index < nodeReports.length; index += 1) {
@@ -321,18 +320,18 @@ async function main() {
     const vm = vmReports[index];
     const differences = reportDifferences(node, vm);
     process.stdout.write(
-      `${node.surface}: ${node.results.length} rows on the server runtime, ${vm.results.length} on the VM, ${differences.length} differences\n`,
+      `${node.suite}: ${node.results.length} rows on the server runtime, ${vm.results.length} on the VM, ${differences.length} differences\n`,
     );
     for (const difference of differences) process.stdout.write(`  ${difference}\n`);
     if (differences.length > 0) differing += 1;
   }
   if (differing > 0) {
     process.stderr.write(
-      `${differing} of ${nodeReports.length} surfaces differ; each difference above is a finding\n`,
+      `${differing} of ${nodeReports.length} suites differ; each difference above is a finding\n`,
     );
     process.exit(1);
   }
-  process.stdout.write("both surfaces agree, row for row\n");
+  process.stdout.write("every suite agrees, row for row\n");
 }
 
 await main();

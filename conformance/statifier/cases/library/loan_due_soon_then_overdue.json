@@ -1,0 +1,59 @@
+{
+  "description": "The host fires the due-soon reminder and then the due date, each injected as a step: the loan moves on_loan to due_soon to overdue, and entering overdue sends the lost-item timer.",
+  "initial_configuration": [
+    "on_loan"
+  ],
+  "steps": [
+    {
+      "event": {
+        "name": "loan.due_soon"
+      },
+      "configuration": [
+        "due_soon"
+      ]
+    },
+    {
+      "event": {
+        "name": "loan.due"
+      },
+      "configuration": [
+        "overdue"
+      ]
+    }
+  ],
+  "host": {
+    "send_types": [
+      "library:timer",
+      "library:route"
+    ],
+    "expect_sends": [
+      {
+        "type": "library:timer",
+        "target": "loan",
+        "event": {
+          "name": "loan.due"
+        },
+        "delay_ms": 1814400000,
+        "send_id": "due"
+      },
+      {
+        "type": "library:timer",
+        "target": "loan",
+        "event": {
+          "name": "loan.due_soon"
+        },
+        "delay_ms": 1555200000,
+        "send_id": "due_soon"
+      },
+      {
+        "type": "library:timer",
+        "target": "loan",
+        "event": {
+          "name": "loan.lost"
+        },
+        "delay_ms": 2419200000,
+        "send_id": "lost"
+      }
+    ]
+  }
+}

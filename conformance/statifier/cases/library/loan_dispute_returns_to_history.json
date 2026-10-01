@@ -1,0 +1,58 @@
+{
+  "description": "A dispute takes the loan out of active and its resolution puts it back through the shallow history, which restores due_soon rather than the initial on_loan; due_soon has no entry action, so the run's only sends are the two the checkout made.",
+  "initial_configuration": [
+    "on_loan"
+  ],
+  "steps": [
+    {
+      "event": {
+        "name": "loan.due_soon"
+      },
+      "configuration": [
+        "due_soon"
+      ]
+    },
+    {
+      "event": {
+        "name": "copy.disputed"
+      },
+      "configuration": [
+        "held_for_review"
+      ]
+    },
+    {
+      "event": {
+        "name": "dispute.resolved"
+      },
+      "configuration": [
+        "due_soon"
+      ]
+    }
+  ],
+  "host": {
+    "send_types": [
+      "library:timer",
+      "library:route"
+    ],
+    "expect_sends": [
+      {
+        "type": "library:timer",
+        "target": "loan",
+        "event": {
+          "name": "loan.due"
+        },
+        "delay_ms": 1814400000,
+        "send_id": "due"
+      },
+      {
+        "type": "library:timer",
+        "target": "loan",
+        "event": {
+          "name": "loan.due_soon"
+        },
+        "delay_ms": 1555200000,
+        "send_id": "due_soon"
+      }
+    ]
+  }
+}

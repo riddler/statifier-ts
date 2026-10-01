@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<scxml xmlns="http://www.w3.org/2005/07/scxml" version="1.0" datamodel="predicator" initial="open">
+    <datamodel>
+        <data id="copy_id" expr="'c-1'"/>
+        <data id="pending" expr="0"/>
+    </datamodel>
+
+    <state id="open" initial="idle">
+        <state id="idle">
+            <transition event="hold.placed">
+                <assign location="pending" expr="pending + 1"/>
+            </transition>
+            <transition event="copy.available" cond="pending &gt; 0" target="awaiting_pickup"/>
+            <transition event="copy.available" target="idle"/>
+        </state>
+
+        <state id="awaiting_pickup">
+            <onentry>
+                <send type="library:timer" target="hold_queue" event="pickup.expired" id="pickup" delay="7d"/>
+            </onentry>
+            <onexit>
+                <cancel sendid="pickup"/>
+            </onexit>
+            <transition event="pickup.expired" cond="pending &gt; 1" target="awaiting_pickup">
+                <assign location="pending" expr="pending - 1"/>
+            </transition>
+            <transition event="pickup.expired" target="idle">
+                <assign location="pending" expr="pending - 1"/>
+            </transition>
+            <transition event="copy.collected" target="idle">
+                <assign location="pending" expr="pending - 1"/>
+            </transition>
+        </state>
+
+        <transition event="hold.placed">
+            <assign location="pending" expr="pending + 1"/>
+        </transition>
+        <transition event="copy.disputed" cond="pending &gt; 0" target="held_for_review"/>
+    </state>
+
+    <state id="held_for_review">
+        <transition event="dispute.resolved" target="open"/>
+    </state>
+</scxml>

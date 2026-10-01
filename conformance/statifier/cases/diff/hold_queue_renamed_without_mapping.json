@@ -1,0 +1,65 @@
+{
+  "description": "The same rename of awaiting_pickup to ready_for_pickup, diffed with no mapping. awaiting_pickup can be active and nothing in the new chart corresponds to it, so the pair is breaking: the state is unresolved, ready_for_pickup is added, and idle's copy.available transition to it (t_index 1) matches nothing on either side. At the position where p-1's hold waits for pickup the predicate answers false.",
+  "initial_configuration": [
+    "idle"
+  ],
+  "steps": [
+    {
+      "event": {
+        "name": "hold.placed"
+      },
+      "configuration": [
+        "idle"
+      ]
+    },
+    {
+      "event": {
+        "name": "copy.available"
+      },
+      "configuration": [
+        "awaiting_pickup"
+      ]
+    }
+  ],
+  "host": {
+    "send_types": [
+      "library:timer",
+      "library:route"
+    ],
+    "expect_sends": [
+      {
+        "type": "library:timer",
+        "target": "hold_queue",
+        "event": {
+          "name": "pickup.expired"
+        },
+        "delay_ms": 604800000,
+        "send_id": "pickup"
+      }
+    ],
+    "expect_diff": {
+      "class": "breaking",
+      "reasons": [
+        {
+          "reason": "state_unresolved",
+          "state": "awaiting_pickup"
+        },
+        {
+          "reason": "state_added",
+          "state": "ready_for_pickup"
+        },
+        {
+          "reason": "transition_removed",
+          "state": "idle",
+          "t_index": 1
+        },
+        {
+          "reason": "transition_added",
+          "state": "idle",
+          "t_index": 1
+        }
+      ]
+    },
+    "expect_compatible_at": false
+  }
+}

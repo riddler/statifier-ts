@@ -1,0 +1,50 @@
+{
+  "description": "The loan chart declared to accept loan.renew, copy.returned and loan.archived. The host checks the declaration against the chart's event vocabulary before it runs the case: loan.archived is unreachable, because no transition in the chart listens for it, and the descriptors the chart listens for that the declaration omits are undeclared, in document order. The chart then initializes into on_loan and hands the host its two loan timers.",
+  "initial_configuration": [
+    "on_loan"
+  ],
+  "steps": [],
+  "host": {
+    "send_types": [
+      "library:timer",
+      "library:route"
+    ],
+    "expect_sends": [
+      {
+        "type": "library:timer",
+        "target": "loan",
+        "event": {
+          "name": "loan.due"
+        },
+        "delay_ms": 1814400000,
+        "send_id": "due"
+      },
+      {
+        "type": "library:timer",
+        "target": "loan",
+        "event": {
+          "name": "loan.due_soon"
+        },
+        "delay_ms": 1555200000,
+        "send_id": "due_soon"
+      }
+    ],
+    "declared_events": [
+      "loan.renew",
+      "copy.returned",
+      "loan.archived"
+    ],
+    "expect_accepts": {
+      "unreachable": [
+        "loan.archived"
+      ],
+      "undeclared": [
+        "copy.disputed",
+        "loan.due_soon",
+        "loan.due",
+        "loan.lost",
+        "dispute.resolved"
+      ]
+    }
+  }
+}

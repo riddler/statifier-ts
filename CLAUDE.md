@@ -199,9 +199,12 @@ drift fails the gate and nothing is fixed silently, so run
   Nothing else in the gate backstops these rules. In particular Biome's own
   builtin-import rule is a **warning**, so it does not fail the lint stage and
   is not a check to lean on.
-- The corpus stages are placeholders until the conformance apparatus lands:
-  `corpus:check` and `registry` pass and say that there is no corpus and no
-  registry yet, and `corpus:refresh` and `ratchet` refuse with "not yet".
+- The corpus stages hold the vendored corpus and the registry to the rules in
+  `docs/adr/0003-the-conformance-apparatus.md`: `corpus:check` requires the
+  four corpus hashes to agree, and `registry` runs the reference's five sibling
+  checks, running every corpus case through the conformance runner.
+  `corpus:refresh` and `ratchet` are never gate stages; `conformance/README.md`
+  says what each command does.
 - A change touching no TypeScript code has no gate to run and may commit on
   review of the diff alone - the authority table above says the same. The
   exception is any path the manifest lists under `gate.also_gated_paths`:
@@ -209,12 +212,11 @@ drift fails the gate and nothing is fixed silently, so run
   because its examples are executed as tests once the reference section lands.
 - `scripts/hermes-conformance.mjs` is not a gate stage and has not been run
   against this package. It is copied from the predicator sibling, where it runs
-  the conformance surfaces on the engine React Native uses; here it waits for
-  a conformance runner to exist, and running it is a deliberate step, never a
-  gate's. The corpus loader it imports, `scripts/lib/corpus.mjs` with
-  `scripts/lib/corpus-rules.mjs`, is copied with it and still reads the
-  predicator corpus's layout; the conformance apparatus rewrites both for this
-  package's corpus.
+  the conformance surfaces on the engine React Native uses; here it drives
+  every suite of the vendored corpus through `test/conformance/runner.ts`, and
+  running it is a deliberate step, never a gate's. Until the interpreter is
+  wired into the runner every case fails on both engines, so a run proves only
+  that the bundle loads and agrees.
 
 ## Conventions
 
