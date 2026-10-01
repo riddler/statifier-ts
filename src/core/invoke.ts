@@ -27,7 +27,7 @@
 // reference's trace and datamodel effects are not emitted here, as nowhere
 // else in this core.
 
-import { typeName, Undefined, type Value } from "@riddler/predicator";
+import { typeName, type Value } from "@riddler/predicator";
 import {
   type EvaluationContext,
   type Event,
@@ -359,7 +359,7 @@ function autoAssignFinalize<S extends InvokeState>(
   for (const param of [...invoke.namelist, ...invoke.params]) {
     if (param.kind !== "location" || param.expr.kind !== "compiled") continue;
     if (!Object.hasOwn(data, param.name)) continue;
-    const value = data[param.name] ?? Undefined;
+    const value = data[param.name] as Value;
     const write = writeLocation(context, param.expr.source, value);
     if (write.ok) {
       context = write.context;
