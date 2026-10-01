@@ -454,9 +454,9 @@ describe("the state as a JSON value", () => {
     const [note, period, rate, dueOn] = logged(direct.effects);
     expect(note).toBe(Undefined);
     expect(period).toBeInstanceOf(Duration);
-    // The evaluator answers an integral float as an integer; the state keeps
-    // the float, which is what the next step reads.
-    expect(rate).toBe(2);
+    // The evaluator answers an integral float as a float, as the state keeps
+    // it, which is what the next step reads.
+    expect(rate).toEqual(float(2));
     expect(parsed.datamodel.rate).toBe("2.0");
     expect(parsed.datamodel.note).toBe(started.state.datamodel.note);
     expect(dueOn).toBeInstanceOf(PDate);
