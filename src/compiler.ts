@@ -94,10 +94,12 @@ export type ExpressionOwner =
 
 /**
  * An expression that did not compile. `element` and `attribute` name where
- * it was written, `location`
- * is the attribute's value when one was written and the element otherwise,
- * and `error` is the expression language's own refusal, in the expression's
- * coordinates.
+ * it was written, `location` is the attribute's value when one was written
+ * and the element otherwise, and `error` is the expression language's own
+ * refusal, in the expression's coordinates.
+ *
+ * It is not exported by name: a host meets it as one member of
+ * `CompileError`.
  */
 export interface CompilerError {
   readonly reason: "expression_compile_error";
@@ -864,7 +866,16 @@ export interface ChartIdentity {
   readonly version: string | null;
 }
 
-/** A compiled chart: its identity and its Machine. */
+/**
+ * A compiled chart: its identity and its Machine.
+ *
+ * The identity lives here, on the wrapper, by choice: the reference stamps
+ * its identity onto its Machine, and this package keeps it on the `Chart`,
+ * which every driver call that moves a chart takes. `machine` is opaque and
+ * unstable: a host passes the `Chart` on and reads none of the Machine's
+ * members, whose shape changes without notice until a release fixes it.
+ * ADR-0002 (the core contract) records both choices.
+ */
 export interface Chart {
   readonly identity: ChartIdentity;
   readonly machine: Machine;
@@ -876,7 +887,10 @@ export interface CompileOptions {
   readonly chartVersion?: string;
 }
 
-/** Why a chart did not compile, from whichever stage refused it. */
+/**
+ * Why a chart did not compile, from whichever stage refused it: the parser,
+ * the lowering, the validator, or the compiler's own refusal of an expression.
+ */
 export type CompileError = ParseError | LoweringError | ValidationError | CompilerError;
 
 export type CompileResult =

@@ -6,6 +6,11 @@
 // its virtual clock, and read its configuration and whether it is done; and
 // position export and import, a running chart's state in the string-id
 // vocabulary out and back in.
+//
+// The identity lives on the Chart wrapper, not on the Machine, by choice. The
+// Machine type is exported only because a Chart carries one: it is opaque and
+// unstable until a release fixes it. ADR-0002 (the core contract) records
+// both.
 
 import { version as packageVersion } from "../package.json";
 

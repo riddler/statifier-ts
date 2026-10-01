@@ -141,7 +141,14 @@ export interface CompiledInvoke {
   readonly attributeLocations: AttributeLocations<string>;
 }
 
-/** The compiled chart. */
+/**
+ * The compiled chart.
+ *
+ * Opaque and unstable: it is exported only because a `Chart` carries one. A
+ * host reads none of its members and codes against none of them; its shape
+ * changes without notice until a release fixes it. ADR-0002 (the core
+ * contract) records this.
+ */
 export interface Machine {
   /** Every state by index, the root at 0, in document order. */
   readonly states: readonly CompiledState[];

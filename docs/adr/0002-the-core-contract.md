@@ -457,3 +457,24 @@ not compile is deferred as the reference defers it: it compiles to an
 reference's message, and the chart still loads. The Consequences paragraph
 beginning "A chart with a `<script>` compiles and runs" now holds only for a
 script whose body did not compile.
+
+## Amendment: the Machine stays opaque until a release fixes it (2026-10-01)
+
+Status: proposed
+
+The Decision's paragraphs "The chart identity lives on the `Chart`, not on the
+`Machine`" and "The `Machine` type is opaque and unstable" stand as written.
+Both were to be kept and declared, the `Chart` wrapper and the `Machine` export
+alike, with no export removed, ruled by the operator, 2026-10-01.
+
+This Amendment adds when the second ends. The `Machine` type stays opaque and
+unstable until a release of this package fixes its shape, and a release fixes
+it only by an Amendment to this record that names the members it promises.
+Until then no version promises any member of `Machine` or of the types it
+holds, and a change to them is not a breaking change to this contract.
+
+The change that adds this Amendment puts both statements where a host reads
+them, in the declarations' doc comments, each citing this record: `Chart` in
+`src/compiler.ts` says the identity lives on the wrapper by choice and that its
+`machine` is opaque and unstable, and `Machine` in `src/machine.ts` says it is
+opaque and unstable and exported only because a `Chart` carries one.
