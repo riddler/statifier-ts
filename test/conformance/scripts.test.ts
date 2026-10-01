@@ -108,7 +108,7 @@ describe("the registry check", () => {
     expect(result.stderr).toBe("");
     expect(result.status).toBe(0);
     expect(result.stdout).toMatch(
-      /registry: \d+ entries pass today; claims \["scion","w3c-mandatory","w3c-optional"\]/,
+      /registry: \d+ entries pass today; claims \["scion","statifier","w3c-mandatory","w3c-optional"\]/,
     );
   });
 

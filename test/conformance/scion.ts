@@ -48,7 +48,14 @@
 
 import type { CorpusCase } from "../../scripts/lib/corpus-rules.d.mts";
 import { type Chart, compile } from "../../src/compiler.js";
-import { advance, type DriveResult, type State, start, step } from "../../src/driver.js";
+import {
+  advance,
+  type DriveOptions,
+  type DriveResult,
+  type State,
+  start,
+  step,
+} from "../../src/driver.js";
 import { isAtomic } from "../../src/machine.js";
 import type { CaseOutcome } from "./runner.js";
 
@@ -125,17 +132,17 @@ function moved(result: DriveResult, call: string): State {
 /**
  * The settle window: fires every timer due within `SETTLE_WINDOW_MS` of the
  * clock's time, earliest first, and ends the window at its end when a timer
- * is still pending.
+ * is still pending. `options` is passed to every call the driver is handed.
  */
-export function settle(chart: Chart, state: State): State {
+export function settle(chart: Chart, state: State, options: DriveOptions = {}): State {
   const windowEnd = state.nowMs + SETTLE_WINDOW_MS;
   let current = state;
   for (;;) {
     const due = earliestDue(current);
     if (due === undefined) return current;
     if (due > windowEnd)
-      return moved(advance(chart, current, windowEnd - current.nowMs), "advance");
-    current = moved(advance(chart, current, due - current.nowMs), "advance");
+      return moved(advance(chart, current, windowEnd - current.nowMs, options), "advance");
+    current = moved(advance(chart, current, due - current.nowMs, options), "advance");
   }
 }
 
@@ -143,13 +150,14 @@ export function settle(chart: Chart, state: State): State {
  * The configuration deadline: fires due timers, earliest first, until the
  * active leaf set is the expectation, the chart has stopped, no timer is
  * pending, or the next one falls due later than `CONFIGURATION_DEADLINE_MS`
- * after `since`.
+ * after `since`. `options` is passed to every call the driver is handed.
  */
 export function awaitConfiguration(
   chart: Chart,
   state: State,
   expected: readonly string[],
   since: number,
+  options: DriveOptions = {},
 ): State {
   const deadline = since + CONFIGURATION_DEADLINE_MS;
   let current = state;
@@ -157,12 +165,12 @@ export function awaitConfiguration(
     if (matches(chart, current, expected) || current.done !== null) return current;
     const due = earliestDue(current);
     if (due === undefined || due > deadline) return current;
-    current = moved(advance(chart, current, due - current.nowMs), "advance");
+    current = moved(advance(chart, current, due - current.nowMs, options), "advance");
   }
 }
 
 /** The comparison after the start or a step: null when it agrees, else the reason. */
-function compare(
+export function compareLeafSets(
   chart: Chart,
   state: State,
   expected: readonly string[],
@@ -174,7 +182,8 @@ function compare(
   return `${where}: expected active leaf states ${list(expected)}, got ${list(leaves.ids)}`;
 }
 
-function compileFailure(testCase: CorpusCase): { chart: Chart } | { reason: string } {
+/** The case's source compiled, or the reason it does not compile. */
+export function compileCase(testCase: CorpusCase): { chart: Chart } | { reason: string } {
   const compiled = compile(testCase.source);
   if (compiled.ok) return { chart: compiled.chart };
   const errors = compiled.errors.map((error) => `${error.reason}: ${error.message}`);
@@ -183,14 +192,14 @@ function compileFailure(testCase: CorpusCase): { chart: Chart } | { reason: stri
 
 /** Runs one scion case: a pass, or a fail whose reason names the step and both leaf sets. */
 export function runScionCase(testCase: CorpusCase): CaseOutcome {
-  const compiled = compileFailure(testCase);
+  const compiled = compileCase(testCase);
   if ("reason" in compiled) return { result: "fail", reason: compiled.reason };
   const { chart } = compiled;
 
   const started = start(chart, { sessionId: testCase.id });
   if (!started.ok) return { result: "fail", reason: `start was refused: ${started.reason}` };
   let state = awaitConfiguration(chart, started.state, testCase.initial_configuration, 0);
-  const initial = compare(
+  const initial = compareLeafSets(
     chart,
     state,
     testCase.initial_configuration,
@@ -209,7 +218,7 @@ export function runScionCase(testCase: CorpusCase): CaseOutcome {
       };
     }
     state = awaitConfiguration(chart, stepped.state, configuration, settled.nowMs);
-    const found = compare(chart, state, configuration, where);
+    const found = compareLeafSets(chart, state, configuration, where);
     if (found !== null) return { result: "fail", reason: found };
   }
   return { result: "pass" };

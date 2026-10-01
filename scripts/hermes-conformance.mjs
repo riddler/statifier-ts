@@ -26,10 +26,8 @@
 // `test/conformance/runner.ts` takes the corpus as an argument instead of
 // finding it: reading it off disk is `test/conformance/reports.ts`'s, and the
 // runner itself reaches nothing outside the language. The runner drives the
-// scion and w3c suites through the interpreter and fails every case of the
-// statifier suite with the same reason on both engines, so a run proves
-// agreement on the scion and w3c cases and only that the bundle loads for the
-// rest. The bundle is checked
+// scion, w3c and statifier suites through the interpreter, so a run proves
+// agreement on the cases of every suite. The bundle is checked
 // for a host module specifier before it is run, and the check refuses rather
 // than warns - a bundle that reached one would not be evidence about a host
 // that has none.

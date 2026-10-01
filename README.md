@@ -353,24 +353,29 @@ hand. Its registry, `conformance/registry.json`, lists the cases this package
 claims to pass - written only by a run that observed the pass, and never
 narrowed.
 
-**The claim:** this package makes three claims, with 242 entries in its
-registry: `scion` with 119 entries out of the suite's 119 cases,
-`w3c-mandatory` with 121 entries out of the w3c suite's 154 mandatory cases,
-and `w3c-optional` with 2 entries out of its 2 optional cases. A claim is
-exactly its entries: a case with no entry is one this package does not claim
-to pass.
+**The claim:** this package makes four claims, with 261 entries in its
+registry: `scion` with 119 entries out of the suite's 119 cases, `statifier`
+with 19 entries out of the suite's 28 cases, `w3c-mandatory` with 121 entries
+out of the w3c suite's 154 mandatory cases, and `w3c-optional` with 2 entries
+out of its 2 optional cases. A claim is exactly its entries: a case with no
+entry is one this package does not claim to pass.
 
-**The gap:** it does not yet claim the 31 w3c cases and the 28 statifier cases
+**The gap:** it does not yet claim the 31 w3c cases and the 9 statifier cases
 the reference's own registry lists that this package's does not, nor the 2 w3c
 cases the reference's registry does not list either. `pnpm conformance` runs
 the corpus, writes one report per suite under `reports/`, and prints both
 lists, every unclaimed case with the reason the run failed it, and each case
 the reference claims with the features it needs in the corpus's own words. The
-runner drives the scion and w3c suites through the interpreter. A w3c case
-that needs `<invoke>`, which this package does not run yet, fails before it
-is driven, naming the feature, `invoke_elements`, as the reference's harness
-fails a case needing a feature it does not run; every case of the statifier
-suite fails with the reason that its suite is not driven yet.
+runner drives the scion, w3c and statifier suites through the interpreter. A
+w3c case that needs `<invoke>`, which this package does not run yet, fails
+before it is driven, naming the feature, `invoke_elements`, as the reference's
+harness fails a case needing a feature it does not run. A statifier case that
+carries a host object registers its send types with the driver, and agrees
+only when the sends handed to them are exactly the ones it expects; the
+accepts case and the diff cases fail before they are driven, because this
+package does not port the reference's accepts check or its chart diff, and a
+case that asks the host to report a send failed fails because the driver
+offers a host no way to.
 
 ```bash
 pnpm conformance      # run the corpus and print the gap list

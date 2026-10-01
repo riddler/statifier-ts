@@ -100,8 +100,33 @@ naming the feature, `invoke_elements` in the reference's feature names: the
 reference's harness runs `<invoke>`, and its rule for a feature a harness
 does not run is to fail the case before it starts, so that the feature never
 passes as a test it did not run (ADR-0003 decision 6).
-A case of the statifier suite fails with the reason that its suite is not
-driven yet.
+
+The reference's runner routes a statifier case by whether it carries a `host`
+object (`run_case/1` in `lib/mix/statifier/corpus/runner.ex` at `v2.9.0`).
+A case with none is driven as a scion case is. A case with one is driven as
+the reference's host-case harness drives it (`Mix.Statifier.Corpus.HostCase`
+in `lib/mix/statifier/corpus/host_case.ex`): the runner registers each of the
+case's `send_types` with one processor of its own, passed to the driver
+through `sendTypes`, which records every send it is handed and delivers none,
+and never fires a delayed one; a step's event carries the step's `data` when
+it gives one. Each handed send is written as an `expect_sends` item - `type`,
+`target`, `event` with its `name` and its `data` when it carries one,
+`delay_ms` when delayed, `send_id` when the author named it - and once every
+configuration agrees, the items handed over the whole run, in order, must be
+exactly the case's `expect_sends`. A cancel that reaches the processor marks
+`"outcome": "cancelled"` on the delayed sends it names whose item asks for it,
+so an item marked cancelled that no cancel reached disagrees (ADR-0003's
+Amendment of 2026-10-01). Three things the reference's harness does the
+runner cannot, and each fails its case with the reason:
+
+- an expected send marked `"outcome": "fail"`, which the reference reports
+  failed so the sender takes `error.communication`: the driver offers a host
+  no way to report a failed send;
+- `declared_events` and `expect_accepts`, the reference's accepts check, which
+  this package does not port; the case fails before it is driven;
+- `to_source`, `expect_diff`, `mapping` and `expect_compatible_at`, which the
+  reference compares through its chart diff and its position predicate, which
+  this package does not port; the case fails before it is driven.
 
 **Ratchet.** `pnpm ratchet` reads only the reports the last run wrote. It
 refuses, writing nothing, when a report is of another corpus or is not a run
@@ -161,10 +186,11 @@ registry does not list either, each with the reason the run failed it: the
 gap list is read off the reference's registry, so without this second list
 those cases would go unnamed.
 
-This package's registry claims every scion case and the w3c cases a run
-observed to pass; the claims `w3c-mandatory` and `w3c-optional` are exactly
-those entries, and a w3c case with no entry is one this package does not
-claim to pass. What the run fails in the w3c suite falls in three groups:
+This package's registry claims every scion case and the w3c and statifier
+cases a run observed to pass; the claims `w3c-mandatory`, `w3c-optional` and
+`statifier` are exactly those entries, and a w3c or statifier case with no
+entry is one this package does not claim to pass. What the run fails in the
+w3c suite falls in three groups:
 
 - the cases that need `<invoke>`, each failing before it is driven with
   `invoke_elements` named;
@@ -177,5 +203,10 @@ A case that needs `<invoke>` fails even when its chart would reach the
 expected configuration with no invocation run, as `w3c/test187` would on its
 timeout guard: a pass there would claim a feature this package does not run.
 
-The statifier suite is not driven yet, so every statifier case of the
-reference's registry is on the list.
+What the run fails in the statifier suite falls in three groups, each named
+under "Run" above:
+
+- `statifier/accepts/loan_declares_an_unreachable_event`, the accepts case;
+- the seven cases under `statifier/diff/`, the diff cases;
+- `statifier/send/registered_send_failed`, the case that asks the host to
+  report a send failed.
