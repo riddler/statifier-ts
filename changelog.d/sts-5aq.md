@@ -4,7 +4,6 @@
 
 ### Fixed
 
-- A document type declaration whose internal subset holds a quote inside a comment or a processing instruction parses instead of being refused as `unterminated_doctype`.
-- A document type declaration whose internal subset holds a `]` inside a comment or a processing instruction parses instead of being refused as `content_before_root`.
+- A document type declaration whose internal subset holds an unpaired quote inside a comment or a processing instruction parses instead of being refused as `unterminated_doctype`, wherever the reference accepts it.
 - A lone surrogate in text, an attribute value or a CDATA section is refused as `invalid_character`, as its character reference already was.
 - An `&` whose would-be reference runs past a quote is refused as `malformed_reference` instead of `unknown_entity`.

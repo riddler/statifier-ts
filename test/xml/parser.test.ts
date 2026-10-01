@@ -226,12 +226,12 @@ describe("CDATA, comments and the skipped constructs", () => {
   });
 
   // A quote inside a comment or a processing instruction in the internal
-  // subset is text, not the start of a literal. The reference at v2.9.0
-  // accepts both documents (its parser skips the subset by counting angle
-  // brackets and never reads a quote there).
+  // subset need not close. The reference at v2.9.0 accepts both documents:
+  // its XML library ends the declaration by counting angle brackets and its
+  // markup scanner by bracket depth, and neither reads a quote.
   //
-  // Sabotage: reading a quote inside a subset comment or PI as a literal
-  // start turns this red with unterminated_doctype.
+  // Sabotage: dropping the second scan, by the reference's rule, turns this
+  // red with unterminated_doctype.
   it("skips a quote inside a comment and inside a processing instruction in the internal subset", () => {
     for (const subset of ["<!-- it's on loan -->", '<?shelf say "hi ?>']) {
       const source = `<!DOCTYPE scxml [${subset}]>\n<scxml/>`;
@@ -241,25 +241,33 @@ describe("CDATA, comments and the skipped constructs", () => {
     }
   });
 
-  // A bracket inside a subset comment or PI is text too, so it does not close
-  // the subset early. The reference at v2.9.0 accepts both documents.
+  // A quote opened inside a subset comment or PI and closed after it still
+  // pairs, and `<!-->]>` still ends the declaration: the first scan answers
+  // these as before, and so does the reference at v2.9.0.
   //
-  // Sabotage: reading a bracket inside a subset comment or PI as the end of
-  // the subset turns this red with content_before_root.
-  it("skips a bracket inside a comment and inside a processing instruction in the internal subset", () => {
-    for (const subset of ["<!-- ] -->", "<?pi ]?>"]) {
-      expect(root(`<!DOCTYPE a [${subset}]><a/>`).name).toBe("a");
+  // Sabotage: skipping a subset comment or PI whole, quotes and all, turns
+  // this red with unterminated_doctype.
+  it("keeps a quote that pairs across a subset comment or PI, and an unclosed comment opener", () => {
+    for (const source of [
+      '<!DOCTYPE a [<!-- " -->"]><a/>',
+      "<!DOCTYPE a [<?p ' ?>']><a/>",
+      "<!DOCTYPE a [<!-->]><a/>",
+    ]) {
+      expect(root(source).name).toBe("a");
     }
   });
 
-  // A subset comment opener that never closes is read character by character
-  // instead, as before the subset skip: `<!-->]>` ends the declaration. The
-  // reference at v2.9.0 accepts this document as well.
+  // Both scans are linear: the second runs once, over the declaration, only
+  // when the first runs off the end. A rescan per opener took seconds here.
   //
-  // Sabotage: refusing when a subset comment never closes, instead of
-  // rewinding, turns this red with unterminated_doctype.
-  it("rewinds over a subset comment that never closes", () => {
-    expect(root("<!DOCTYPE a [<!-->]><a/>").name).toBe("a");
+  // Sabotage: rescanning from every subset opener to the end of the source
+  // turns this red.
+  it("skips a subset of many openers in linear time", () => {
+    const source = `<!DOCTYPE a [${"<?".repeat(100_000)}' ]><a/>`;
+    const started = performance.now();
+    const result = parseXml(source);
+    expect(performance.now() - started).toBeLessThan(1000);
+    expect(result.ok ? "" : result.error.reason).toBe("unterminated_doctype");
   });
 
   // Sabotage: dropping whitespace-only runs turns this red.
@@ -505,6 +513,10 @@ describe("malformed input", () => {
     ["<!DOCTYPE a [", "unterminated_doctype", 1, 14],
     ["<!DOCTYPE a [<!-- x", "unterminated_doctype", 1, 20],
     ["<!DOCTYPE a [<?pi x", "unterminated_doctype", 1, 20],
+    ["<!DOCTYPE a [<!-- [ -->]><a/>", "unterminated_doctype", 1, 30],
+    ["<!DOCTYPE a [<!-->' -->]><a/>", "unterminated_doctype", 1, 30],
+    ["<!DOCTYPE a [<!-- a > ' -->]><a/>", "unterminated_doctype", 1, 34],
+    ["<!DOCTYPE a [<!-- ] -->]><a/>", "content_before_root", 1, 24],
     ["<a>&nbsp;</a>", "unknown_entity", 1, 4],
     ["<a>R&D</a>", "malformed_reference", 1, 5],
     ["<a>&amp</a>", "malformed_reference", 1, 4],
