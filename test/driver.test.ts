@@ -19,6 +19,7 @@ import {
   type DriveResult,
   isDone,
   type SendProcessor,
+  type SendProcessors,
   type StartOptions,
   type State,
   start,
@@ -499,6 +500,27 @@ describe("registered send types", () => {
     expect(logged(send(LISTED, bare.state, "check", { sendTypes }).effects)).toEqual([false]);
   });
 
+  // Sabotage: building the held processors as a plain object literal by
+  // assignment (where a `__proto__` key sets the prototype) turns this red.
+  it("registers, lists and hands a send type named __proto__ given as an own key", () => {
+    const chart = chartOf(`<scxml ${SCXML} initial="depot">
+      <state id="depot">
+        <onentry>
+          <log label="listed" expr="_ioprocessors['__proto__'] !== undefined"/>
+          <send type="__proto__" event="parcel.handed" target="van-7"/>
+          <log label="after" expr="'sent'"/>
+        </onentry>
+      </state>
+    </scxml>`);
+    const host = courier();
+    const sendTypes: SendProcessors = Object.fromEntries([["__proto__", host.processor]]);
+    expect(Object.keys(sendTypes)).toEqual(["__proto__"]);
+    const started = begin(chart, { sendTypes });
+    expect(logged(started.effects)).toEqual([true, "sent"]);
+    expect(kinds(started.effects)).toContain("send");
+    expect(host.handed.map(([s]) => [s.type, s.event])).toEqual([["__proto__", "parcel.handed"]]);
+  });
+
   // A value the tagged-value text cannot carry: a map with a `$type` key.
   const UNENCODABLE: Value = { $type: "date" };
 
@@ -857,7 +879,7 @@ describe("the entry point", () => {
   // Checked by the typecheck stage, not at run time.
   // Sabotage: dropping `Cause` from the entry point's type exports turns
   // the typecheck stage red on this test.
-  it("exports by name every type the event and effect types reference", () => {
+  it("exports by name every type the event and effect types reference or extend", () => {
     expectTypeOf<entry.Event["type"]>().toEqualTypeOf<entry.EventType>();
     expectTypeOf<entry.QueuedEvent["type"]>().toEqualTypeOf<entry.EventType>();
     expectTypeOf<NonNullable<entry.Event["reason"]>>().toEqualTypeOf<entry.ExecutionReason>();
@@ -872,6 +894,10 @@ describe("the entry point", () => {
     expectTypeOf<entry.CancelInvoke>().toExtend<entry.ExitEntryEffect>();
     expectTypeOf<entry.BindingEffect>().toExtend<entry.ExitEntryEffect>();
     expectTypeOf<entry.Log>().toExtend<entry.Effect>();
+    expectTypeOf<entry.Send>().toExtend<entry.SendFields>();
+    expectTypeOf<entry.SendDelayed>().toExtend<entry.SendFields>();
+    expectTypeOf<entry.TraceDone>().toExtend<entry.TraceCounters>();
+    expectTypeOf<entry.TraceEventDequeued>().toExtend<entry.TraceCounters>();
   });
 });
 
