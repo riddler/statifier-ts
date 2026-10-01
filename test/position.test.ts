@@ -6,12 +6,15 @@
 // copy on loan, renewable while fewer than two renewals have been taken),
 // and a parcel delivery chart with a state the document gave no id.
 
+import { Undefined } from "@riddler/predicator";
 import { describe, expect, it } from "vitest";
+import { type CorpusCase, type CorpusSuite, loadSuites } from "../scripts/lib/corpus.mjs";
 import { type Chart, compile } from "../src/compiler.js";
 import {
   advance,
   configuration,
   type DriveResult,
+  isDone,
   type State,
   start,
   step,
@@ -366,6 +369,47 @@ describe("importPosition", () => {
     expect(state.running).toBe(false);
     expect(state.status).toBe("done");
     expect(step(LOAN, state, { name: "loan.renew" })).toEqual({ ok: false, reason: "not_running" });
+  });
+
+  // Sabotage: rebuilding a stopped position with no done record (as the
+  // import first did) turns this red: isDone answers that the chart runs.
+  it("answers a stopped position as stopped from isDone, with no donedata", () => {
+    const original = moved(step(LOAN, renewed(), { name: "loan.returned" }));
+    expect(isDone(original)).toMatchObject({ ok: true, done: true });
+    const position = exported(original);
+    const state = imported(LOAN, position);
+    expect(isDone(state)).toEqual({
+      ok: true,
+      done: true,
+      donedata: Undefined,
+      configuration: position.configuration,
+    });
+    expect(step(LOAN, state, { name: "loan.renew" })).toEqual({ ok: false, reason: "not_running" });
+    expect(advance(LOAN, state, 1000)).toMatchObject({ ok: true, effects: [] });
+  });
+
+  // Sabotage: rebuilding a running position with a done record turns this red.
+  it("answers a running position as running from isDone", () => {
+    expect(isDone(imported(LOAN, exported(renewed())))).toEqual({ ok: true, done: false });
+  });
+
+  // Sabotage: rebuilding a stopped position with no done record turns this
+  // red: the scion case's chart answers not stopped after the round trip.
+  it("round-trips a stopped scion case: stopped before export and after import", () => {
+    const corpusCase = loadSuites()
+      .flatMap((suite: CorpusSuite) => suite.cases)
+      .find((c: CorpusCase) => c.id === "scion/send-idlocation/test0");
+    if (corpusCase === undefined) throw new Error("the scion case is not in the corpus");
+    const chart = chartOf(corpusCase.source, { chartName: "scion", chartVersion: "1" });
+    let state = moved(start(chart, { sessionId: "scion-1" }));
+    for (const { event } of corpusCase.steps)
+      state = moved(step(chart, state, { name: event.name }));
+    expect(isDone(state)).toMatchObject({ ok: true, done: true });
+    const position = exported(state);
+    const reloaded = imported(chart, JSON.parse(JSON.stringify(position)));
+    expect(isDone(reloaded)).toMatchObject({ ok: true, done: true, donedata: Undefined });
+    expect(configuration(reloaded)).toEqual(configuration(state));
+    expect(exportPosition(reloaded)).toEqual({ ok: true, position });
   });
 });
 

@@ -437,7 +437,12 @@ export function configuration(state: State): readonly string[] {
   return state.configuration;
 }
 
-/** Whether the chart has stopped and, when it has, the top-level final's donedata. */
+/**
+ * Whether the chart has stopped and, when it has, the top-level final's
+ * donedata. A state imported from a stopped position answers undefined for
+ * the donedata: the donedata does not travel in a position, as the
+ * reference's position does not carry it.
+ */
 export function isDone(state: State): DoneStatus {
   const badShape = stateShapeFailure(state);
   if (badShape !== null) {

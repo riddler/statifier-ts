@@ -26,8 +26,13 @@
 // and the driver's fields as a fresh session leaves them - the clock at
 // zero, no timer, empty queues, nothing held, no halt - with the session id
 // read from `_sessionid`, the system variable the chart itself reads it
-// from. The state is then written once through the driver's own codec, so
-// an imported state is in exactly the form a drive answers.
+// from. A stopped position (`status` "done") is what says the chart has
+// stopped, as in the reference, so the import rebuilds the driver's done
+// record from it: the donedata does not travel in a position (the
+// reference's carries it only in the done effect, never in the position),
+// so it is undefined, and the configuration is the position's own. The
+// state is then written once through the driver's own codec, so an
+// imported state is in exactly the form a drive answers.
 
 import { decodeTagged } from "@riddler/predicator/tagged";
 import type { Chart, ChartIdentity } from "./compiler.js";
@@ -123,6 +128,10 @@ export type ImportResult = { readonly ok: true; readonly state: State } | Import
 
 const SESSION_ID = "_sessionid";
 
+// Predicator's tagged-value text for undefined: the donedata of an imported
+// stopped position, since a position does not carry the donedata.
+const UNDEFINED_TEXT = '{"$type":"undefined"}';
+
 function byCodeUnit(a: string, b: string): number {
   if (a < b) return -1;
   return a > b ? 1 : 0;
@@ -204,6 +213,12 @@ function malformed(detail: MalformedExport): ImportRefused {
  * be loaded onto any chart that holds every state it names. The driver's own
  * fields start as a fresh session's do, and the session id is the one the
  * position's `_sessionid` holds.
+ *
+ * A stopped position imports stopped: `isDone` answers that the chart has
+ * stopped, and `step` and `advance` refuse it as they refuse any stopped
+ * chart. The donedata does not travel in a position, as the reference's
+ * position does not carry it, so `isDone` answers undefined for it, and the
+ * configuration it answers is the position's.
  */
 export function importPosition(chart: Chart, exported: unknown): ImportResult {
   if (typeof exported !== "object" || exported === null || Array.isArray(exported)) {
@@ -253,7 +268,10 @@ export function importPosition(chart: Chart, exported: unknown): ImportResult {
     internalQueue: [],
     heldSends: {},
     halted: null,
-    done: null,
+    done:
+      position.status === "done"
+        ? { donedata: UNDEFINED_TEXT, configuration: position.configuration }
+        : null,
   });
   // Every check the rewrite makes has been made above, so a refusal here is
   // a bug in this module, not an outcome a caller handles.
