@@ -181,9 +181,13 @@ export type Expr =
  *   has, built in or registered.
  * - `invalid_target`: the resolved `target` is not one the SCXML processor
  *   supports.
+ * - `unreachable_target`: the resolved `target` names a session, a parent or
+ *   an invocation the host's declared routes do not reach; the one refusal
+ *   raised as `error.communication` rather than `error.execution`.
  * - `send_rejected`: a `<send>` whose arguments all resolved was refused for
  *   its target or its type after its send id was minted. `sendId` is that id
- *   and `reason` the `unsupported_type` or `invalid_target` refusal.
+ *   and `reason` the `unsupported_type`, `invalid_target` or
+ *   `unreachable_target` refusal.
  *
  * And `<data>`'s:
  *
@@ -208,6 +212,7 @@ export type ExecutionReason =
   | { readonly kind: "invalid_delay"; readonly value: Value }
   | { readonly kind: "unsupported_type"; readonly type: Value }
   | { readonly kind: "invalid_target"; readonly target: Value }
+  | { readonly kind: "unreachable_target"; readonly target: Value }
   | { readonly kind: "send_rejected"; readonly sendId: string; readonly reason: ExecutionReason }
   | { readonly kind: "src"; readonly src: string };
 
@@ -492,6 +497,7 @@ export function reasonValue(reason: ExecutionReason): Value {
     case "unsupported_type":
       return { kind: reason.kind, type: reason.type };
     case "invalid_target":
+    case "unreachable_target":
       return { kind: reason.kind, target: reason.target };
     case "send_rejected":
       return { kind: reason.kind, send_id: reason.sendId, reason: reasonValue(reason.reason) };

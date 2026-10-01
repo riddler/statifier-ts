@@ -23,6 +23,7 @@ import {
   type ParamNode,
   paramsData,
   parseTarget,
+  reachable,
   rejectReason,
   type SendNode,
   type SendState,
@@ -240,7 +241,12 @@ describe("the scion suite's delayed sends", () => {
       },
     ]);
     expect(outcome.context.data.get("httpid")).toBe("send_1");
-    expect(outcome.sends).toEqual({ sendCounter: 1, timerCounter: 2, sendTypes: null });
+    expect(outcome.sends).toEqual({
+      sendCounter: 1,
+      timerCounter: 2,
+      sendTypes: null,
+      routes: null,
+    });
   });
 });
 
@@ -282,7 +288,12 @@ describe("an immediate <send>", () => {
         ordinal: null,
       },
     ]);
-    expect(outcome.sends).toEqual({ sendCounter: 1, timerCounter: 0, sendTypes: null });
+    expect(outcome.sends).toEqual({
+      sendCounter: 1,
+      timerCounter: 0,
+      sendTypes: null,
+      routes: null,
+    });
   });
 
   // Sabotage: reading every `<content>` as literal text in resolveContent
@@ -411,6 +422,85 @@ describe("a statically invalid <send>", () => {
         reason: { kind: "invalid_target", target: "nowhere" },
       },
     });
+  });
+});
+
+describe("a target the declared routes do not reach", () => {
+  // The routes a driver declares for a session that was never invoked and
+  // runs no invocation: only its own session id.
+  const DESK: SendState = {
+    ...INITIAL_SEND_STATE,
+    routes: { sessions: new Set(["desk-1"]), parent: false, invokes: new Set() },
+  };
+
+  // Sabotage: skipping the reachability check in executeSend turns this red.
+  it("refuses an immediate send to another session with error.communication", () => {
+    const outcome = run(
+      [
+        sendNode(0, `<send event="loan.recall" target="#_scxml_branch-2"/>`),
+        { kind: "raise", cIndex: 1, event: "loan.after" },
+      ],
+      [],
+      DESK,
+    );
+    expect(outcome.effects).toEqual([]);
+    expect(outcome.raised).toMatchObject([
+      {
+        name: "error.communication",
+        type: "platform",
+        sendid: "send_1",
+        data: { kind: "unreachable_target", target: "#_scxml_branch-2" },
+      },
+    ]);
+    expect(outcome.sends.sendCounter).toBe(1);
+  });
+
+  // Sabotage: answering true for every route in reachable turns this red.
+  it("judges the parent, a session and an invocation against the routes", () => {
+    const routes = { sessions: new Set(["desk-1"]), parent: true, invokes: new Set(["hold"]) };
+    const sends: SendState = { ...INITIAL_SEND_STATE, routes };
+    for (const target of ["#_parent", "#_scxml_desk-1", "#_hold", "#_internal"]) {
+      const outcome = run([sendNode(0, `<send event="loan.ok" target="${target}"/>`)], [], sends);
+      expect(outcome.raised).toEqual([]);
+    }
+    for (const target of ["#_scxml_branch-2", "#_renewal"]) {
+      const outcome = run([sendNode(0, `<send event="loan.no" target="${target}"/>`)], [], sends);
+      expect(outcome.raised.map((event) => event.name)).toEqual(["error.communication"]);
+    }
+    const orphan = run([sendNode(0, `<send event="loan.no" target="#_parent"/>`)], [], DESK);
+    expect(orphan.raised.map((event) => event.name)).toEqual(["error.communication"]);
+    expect(reachable(routes, parseTarget("front desk"))).toBe(false);
+  });
+
+  // Sabotage: judging a delayed send's route in executeSend turns this red.
+  it("leaves a delayed send's route to the timer", () => {
+    const outcome = run(
+      [sendNode(0, `<send event="loan.recall" target="#_scxml_branch-2" delay="1s"/>`)],
+      [],
+      DESK,
+    );
+    expect(outcome.raised).toEqual([]);
+    expect(outcome.effects).toMatchObject([{ kind: "send_delayed" }]);
+  });
+
+  // Sabotage: judging a registered type's target against the routes turns
+  // this red.
+  it("never reads a registered type's target", () => {
+    const sends: SendState = { ...DESK, sendTypes: new Set(["branch-mail"]) };
+    const outcome = run(
+      [sendNode(0, `<send event="loan.recall" type="branch-mail" target="#_scxml_branch-2"/>`)],
+      [],
+      sends,
+    );
+    expect(outcome.raised).toEqual([]);
+    expect(outcome.effects).toMatchObject([{ kind: "send" }]);
+  });
+
+  // Sabotage: judging reachability with no routes declared turns this red.
+  it("makes no judgement when no routes are declared", () => {
+    const outcome = run([sendNode(0, `<send event="loan.recall" target="#_scxml_branch-2"/>`)]);
+    expect(outcome.raised).toEqual([]);
+    expect(outcome.effects).toMatchObject([{ kind: "send", target: "#_scxml_branch-2" }]);
   });
 });
 

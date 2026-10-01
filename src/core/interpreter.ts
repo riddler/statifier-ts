@@ -72,7 +72,7 @@ import {
 } from "./exit-entry.js";
 import { applyInvokePasses, type InvokeEffect, type InvokeState, runInvokePass } from "./invoke.js";
 import { selectEventlessTransitions, selectTransitions } from "./selection.js";
-import { INITIAL_SEND_STATE } from "./send.js";
+import { INITIAL_SEND_STATE, type Routes } from "./send.js";
 
 // ---------------------------------------------------------------------------
 // The machine state and the effects
@@ -148,6 +148,8 @@ export interface InitializeOptions {
   readonly maxMacrostepRounds?: RoundBudget;
   /** The send types the host registered a processor for, or null for none. */
   readonly sendTypes?: ReadonlySet<string> | null;
+  /** What the host declares it can reach, or null to leave every route to the host. */
+  readonly routes?: Routes | null;
 }
 
 /** What `handleEvent` answers: the step, or a refusal when the chart has stopped. */
@@ -213,7 +215,11 @@ function newMachineState(machine: Machine, options: InitializeOptions): MachineS
     macrostep: 0,
     microstep: 0,
     round: 0,
-    sends: { ...INITIAL_SEND_STATE, sendTypes: options.sendTypes ?? null },
+    sends: {
+      ...INITIAL_SEND_STATE,
+      sendTypes: options.sendTypes ?? null,
+      routes: options.routes ?? null,
+    },
     statesToInvoke: new Set(),
     enteredStates: new Set(),
     activeInvocations: new Map(),

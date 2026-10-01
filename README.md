@@ -353,14 +353,14 @@ hand. Its registry, `conformance/registry.json`, lists the cases this package
 claims to pass - written only by a run that observed the pass, and never
 narrowed.
 
-**The claim:** this package makes three claims, with 241 entries in its
+**The claim:** this package makes three claims, with 242 entries in its
 registry: `scion` with 119 entries out of the suite's 119 cases,
-`w3c-mandatory` with 120 entries out of the w3c suite's 154 mandatory cases,
+`w3c-mandatory` with 121 entries out of the w3c suite's 154 mandatory cases,
 and `w3c-optional` with 2 entries out of its 2 optional cases. A claim is
 exactly its entries: a case with no entry is one this package does not claim
 to pass.
 
-**The gap:** it does not yet claim the 32 w3c cases and the 28 statifier cases
+**The gap:** it does not yet claim the 31 w3c cases and the 28 statifier cases
 the reference's own registry lists that this package's does not, nor the 2 w3c
 cases the reference's registry does not list either. `pnpm conformance` runs
 the corpus, writes one report per suite under `reports/`, and prints both

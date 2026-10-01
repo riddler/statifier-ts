@@ -170,7 +170,12 @@ describe("a compiled block", () => {
       { kind: "cancel", sendId: "notice", cIndex: 4, ...stamp, ordinal: 4 },
     ]);
     expect(outcome.context.data.get("reminder")).toBe("send_2");
-    expect(outcome.sends).toEqual({ sendCounter: 2, timerCounter: 4, sendTypes: null });
+    expect(outcome.sends).toEqual({
+      sendCounter: 2,
+      timerCounter: 4,
+      sendTypes: null,
+      routes: null,
+    });
   });
 
   // Sabotage: compiling a namelist entry that fails to compile to a literal
@@ -461,6 +466,11 @@ describe("the scion suite's delayed sends, compiled", () => {
       },
     ]);
     expect(outcome.context.data.get("httpid")).toBe("send_1");
-    expect(outcome.sends).toEqual({ sendCounter: 1, timerCounter: 2, sendTypes: null });
+    expect(outcome.sends).toEqual({
+      sendCounter: 1,
+      timerCounter: 2,
+      sendTypes: null,
+      routes: null,
+    });
   });
 });
