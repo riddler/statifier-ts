@@ -70,15 +70,31 @@ export function writeReports(reports: readonly SuiteReport[], dir: string = REPO
 }
 
 /**
+ * Why a case fails here, where the reason the run gives says only where it
+ * failed: the cause, found by reading the case against this package, keyed by
+ * case id. A cause is printed after the run's reason, and only when the run
+ * failed the case. Each is held by a test that observes it again ("the known
+ * causes" in `test/conformance/runner.test.ts`), so a cause that stops holding
+ * turns the gate red rather than staying printed.
+ */
+export const KNOWN_CAUSES: ReadonlyMap<string, string> = new Map([
+  [
+    "w3c/test329",
+    "its condition Var2==_event answers false, because _event carries each field the event lacks as undefined and @riddler/predicator compares undefined with undefined as undefined, not true, so two objects that carry an undefined field compare unequal, even one object compared with itself",
+  ],
+]);
+
+/**
  * What a run found for one case, as a clause a gap line ends with: the reason
- * a fail carries, or that a pass is not recorded yet. No clause when the run
- * did not hold the case.
+ * a fail carries, then its known cause when it has one, or that a pass is not
+ * recorded yet. No clause when the run did not hold the case.
  */
 function runClause(result: CaseResult | undefined): string {
   if (result === undefined) return "";
-  return result.result === "pass"
-    ? "; this run passed it, and the ratchet has not recorded it"
-    : `; this run failed it: ${result.reason}`;
+  if (result.result === "pass") return "; this run passed it, and the ratchet has not recorded it";
+  const cause = KNOWN_CAUSES.get(result.case_id);
+  const known = cause === undefined ? "" : `; the cause: ${cause}`;
+  return `; this run failed it: ${result.reason}${known}`;
 }
 
 function byCaseId(results: readonly CaseResult[]): Map<string, CaseResult> {
@@ -90,8 +106,8 @@ function byCaseId(results: readonly CaseResult[]): Map<string, CaseResult> {
  * needs in the corpus's own words (its `required_features`, the reference's
  * feature detector's atoms), and, given the results of a run, what that run
  * found: the reason it failed the case, which names a feature this package
- * does not run when the case needs one. A case no suite here holds is named
- * as such.
+ * does not run when the case needs one, and the case's known cause when it
+ * has one. A case no suite here holds is named as such.
  *
  * Sabotage: dropping the run's clause from every line turns the runner test
  * that reads a w3c fail's reason off its gap line red. It was run and

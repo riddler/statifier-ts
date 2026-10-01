@@ -1,3 +1,4 @@
+import { evaluate, Undefined } from "@riddler/predicator";
 import { describe, expect, it } from "vitest";
 import type { CorpusCase, CorpusSuite } from "../../scripts/lib/corpus.mjs";
 import {
@@ -8,8 +9,10 @@ import {
   reportFindings,
   unclaimed,
 } from "../../scripts/lib/corpus.mjs";
-import { gapLines, unclaimedByEither, unclaimedByEitherLines } from "./reports.js";
+import { eventValue } from "../../src/datamodel.js";
+import { gapLines, KNOWN_CAUSES, unclaimedByEither, unclaimedByEitherLines } from "./reports.js";
 import { type RunCase, runCorpusCase, runSuite, suiteNotDriven } from "./runner.js";
+import { runScionCase } from "./scion.js";
 import { featuresNotRun } from "./w3c.js";
 
 const manifest = loadManifest();
@@ -195,7 +198,9 @@ describe("the gap list", () => {
         throw new Error(`${entry.case_id} is unclaimed but did not fail`);
       }
       expect(lines[index]).toMatch(new RegExp(`^${entry.case_id}: needs `));
-      expect(lines[index]?.endsWith(`; this run failed it: ${result.reason}`)).toBe(true);
+      const cause = KNOWN_CAUSES.get(entry.case_id);
+      const known = cause === undefined ? "" : `; the cause: ${cause}`;
+      expect(lines[index]?.endsWith(`; this run failed it: ${result.reason}${known}`)).toBe(true);
     }
     const [first] = gap;
     if (first === undefined) throw new Error("an empty gap");
@@ -214,6 +219,62 @@ describe("the gap list", () => {
         [{ ...suiteNamed("scion"), cases: [bare] }],
       ),
     ).toEqual([`${first.id}: needs no named feature`]);
+  });
+});
+
+describe("the known causes", () => {
+  // Sabotage: dropping the cause from the clause turns this red. It was run
+  // and reverted.
+  it("are printed after the run's reason on a fail, and never on a pass", () => {
+    const entry = { case_id: "w3c/test329", suite: "w3c" } as const;
+    const cause = KNOWN_CAUSES.get(entry.case_id);
+    if (cause === undefined) throw new Error("no known cause for w3c/test329");
+    const fail = { ...entry, result: "fail", reason: "the comparison" } as const;
+    expect(
+      gapLines([entry], suites, [fail])[0]?.endsWith(
+        `; this run failed it: the comparison; the cause: ${cause}`,
+      ),
+    ).toBe(true);
+    expect(gapLines([entry], suites, [{ ...entry, result: "pass" }])[0]).not.toContain("the cause");
+    expect(unclaimedByEitherLines([entry], [fail])).toEqual([
+      `w3c/test329: the reference's registry does not claim it either; this run failed it: the comparison; the cause: ${cause}`,
+    ]);
+  });
+
+  // Sabotage: keying the cause to a case the run passes turns this red. It
+  // was run and reverted.
+  it("name only cases the run fails", () => {
+    const results = suites.flatMap((suite) => runSuite(suite, manifest.corpus_hash).results);
+    expect(KNOWN_CAUSES.size).toBeGreaterThan(0);
+    for (const caseId of KNOWN_CAUSES.keys()) {
+      expect(results.find((result) => result.case_id === caseId)?.result).toBe("fail");
+    }
+  });
+
+  // The cause of w3c/test329 observed again: undefined compared with
+  // undefined answers undefined, not true, so the value of an event that
+  // carries no data compares unequal to itself while an object with no
+  // undefined field compares equal, and the case passes once that one
+  // condition is taken out of its source.
+  //
+  // Sabotage: writing the absent fields of an event value as empty strings
+  // instead of undefined turns this red, and w3c/test329 then passes. It was
+  // run and reverted.
+  it("hold: w3c/test329 fails at its _event comparison and nowhere else", () => {
+    expect(evaluate("a == b", { a: Undefined, b: Undefined })).toEqual({ ok: true });
+    const event = eventValue({ name: "foo", type: "internal", data: Undefined });
+    expect(evaluate("a == b", { a: event, b: event })).toEqual({ ok: true, value: false });
+    expect(evaluate("a == b", { a: { name: "foo" }, b: { name: "foo" } })).toEqual({
+      ok: true,
+      value: true,
+    });
+    const testCase = suiteNamed("w3c").cases.find((candidate) => candidate.id === "w3c/test329");
+    if (testCase === undefined) throw new Error("no w3c/test329 in the vendored corpus");
+    expect(runScionCase(testCase).result).toBe("fail");
+    const condition = 'cond="Var2==_event"';
+    expect(testCase.source).toContain(condition);
+    const without = { ...testCase, source: testCase.source.replace(condition, 'cond="true"') };
+    expect(runScionCase(without)).toEqual({ result: "pass" });
   });
 });
 
