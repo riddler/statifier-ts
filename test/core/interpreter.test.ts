@@ -11,6 +11,7 @@
 import { Undefined } from "@riddler/predicator";
 import { describe, expect, it } from "vitest";
 import { compile } from "../../src/compiler.js";
+import type { Trace } from "../../src/core/effects.js";
 import {
   type BudgetExhausted,
   type Done,
@@ -112,7 +113,7 @@ describe("initialize", () => {
     expect(state.datamodel.get("loans")).toBe(0);
     expect(state.datamodel.get("_sessionid")).toBe("desk");
     expect(state.statesToInvoke.size).toBe(0);
-    expect(effects).toEqual([]);
+    expect(effects.map((e) => e.kind)).toEqual(["datamodel_init", "datamodel_change"]);
   });
 
   // Sabotage: letting the host's value lose to the root <data> turns this red.
@@ -314,7 +315,7 @@ describe("the round budget", () => {
       </scxml>`,
       1,
     );
-    expect(effects.map((e) => e.kind)).toEqual(["budget_exhausted", "done"]);
+    expect(effects.map((e) => e.kind)).toEqual(["datamodel_init", "budget_exhausted", "done"]);
     expect(state.status).toBe("done");
   });
 });
@@ -524,5 +525,277 @@ describe("the <script> children of <scxml>", () => {
     </scxml>`);
     expect(leaves(state)).toEqual(["desk"]);
     expect(state.datamodel.get("fines")).toBe(3);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The datamodel effects and the trace effects
+// ---------------------------------------------------------------------------
+
+/** Each effect's kind, a trace named by which trace it is. */
+function tags(effects: readonly InterpreterEffect[]): string[] {
+  return effects.map((e) => (e.kind === "trace" ? `trace:${e.trace}` : e.kind));
+}
+
+function traceOf<K extends Trace["trace"]>(
+  effects: readonly InterpreterEffect[],
+  trace: K,
+): Extract<Trace, { trace: K }>[] {
+  return effects.filter(
+    (e): e is Extract<Trace, { trace: K }> => e.kind === "trace" && e.trace === trace,
+  );
+}
+
+function startTraced(source: string, rounds?: number): Stepped {
+  const machine = machineOf(source);
+  return initialize(machine, {
+    sessionId: "desk",
+    trace: true,
+    ...(rounds === undefined ? {} : { maxMacrostepRounds: rounds }),
+  });
+}
+
+describe("the datamodel effects when a chart starts", () => {
+  // statifier-ex v2.9.0, lib/statifier/interpreter/datamodel.ex,
+  // `initialize/1`: the datamodel_init baseline first, taken after every id
+  // exists and before any binds, then one datamodel_change per binding.
+  // Sabotage: taking the datamodel_init after the binding in
+  // initializeDatamodel turns this red (loans reads 0, not undefined).
+  it("answers the baseline first, then each binding in ascending order", () => {
+    const { effects } = start(`<scxml ${SCXML} initial="desk" name="branch">
+      <datamodel><data id="loans" expr="0"/><data id="holds" expr="[]"/></datamodel>
+      <state id="desk"/>
+    </scxml>`);
+    const [init, ...changes] = effects;
+    expect(init).toMatchObject({ kind: "datamodel_init", macrostep: 1, microstep: 1, round: 0 });
+    if (init?.kind !== "datamodel_init") throw new Error("expected datamodel_init");
+    expect(init.datamodel.loans).toBe(Undefined);
+    expect(init.datamodel.holds).toBe(Undefined);
+    expect(init.datamodel._sessionid).toBe("desk");
+    expect(init.datamodel._name).toBe("branch");
+    expect(changes).toEqual([
+      {
+        kind: "datamodel_change",
+        locationPath: ["loans"],
+        locationSource: "loans",
+        newValue: 0,
+        priorValue: Undefined,
+        dIndex: 0,
+        cIndex: null,
+        owner: null,
+        macrostep: 1,
+        microstep: 1,
+        round: 0,
+      },
+      {
+        kind: "datamodel_change",
+        locationPath: ["holds"],
+        locationSource: "holds",
+        newValue: [],
+        priorValue: Undefined,
+        dIndex: 1,
+        cIndex: null,
+        owner: null,
+        macrostep: 1,
+        microstep: 1,
+        round: 0,
+      },
+    ]);
+  });
+
+  // statifier-ex v2.9.0, datamodel.ex, `bind/6`: no change "for a value
+  // nothing here wrote".
+  // Sabotage: answering a change for a root <data> the host's value stands
+  // in for turns this red.
+  it("answers no change for a root <data> the host supplied, and the baseline carries the host's value", () => {
+    const machine = machineOf(LOAN);
+    const { effects } = initialize(machine, {
+      sessionId: "desk",
+      datamodel: new Map([["loans", 7]]),
+    });
+    expect(tags(effects)).toEqual(["datamodel_init"]);
+    expect(effects[0]).toMatchObject({ datamodel: { loans: 7 } });
+  });
+
+  // Sabotage: answering a change from either failure branch of bindValue -
+  // an expression that did not compile, or one whose evaluation fails -
+  // turns this red.
+  it("answers no change for a binding that fails", () => {
+    const { effects } = start(`<scxml ${SCXML} initial="desk">
+      <datamodel><data id="fines" expr="nope +"/><data id="holds" expr="branch_holds"/></datamodel>
+      <state id="desk"/>
+    </scxml>`);
+    expect(tags(effects)).toEqual(["datamodel_init"]);
+  });
+
+  // statifier-ex v2.9.0, lib/statifier/interpreter/exit_entry.ex, `arrive`:
+  // a first entry's binding effects come before the state's onentry.
+  // Sabotage: putting the binding's effects after the onentry's in arrive
+  // turns this red.
+  it("answers a late-bound state's binding on its first entry, before its onentry, and never again", () => {
+    const source = `<scxml ${SCXML} initial="desk" binding="late">
+      <state id="desk"><transition event="copy.checked_out" target="loaned"/></state>
+      <state id="loaned">
+        <datamodel><data id="due" expr="14"/></datamodel>
+        <onentry><log label="due" expr="due"/></onentry>
+        <transition event="copy.returned" target="desk"/>
+      </state>
+    </scxml>`;
+    const first = send(start(source), "copy.checked_out");
+    expect(tags(first.effects)).toEqual(["datamodel_change", "log"]);
+    expect(first.effects[0]).toMatchObject({ locationPath: ["due"], newValue: 14, dIndex: 0 });
+    const again = send(send(first, "copy.returned"), "copy.checked_out");
+    expect(tags(again.effects)).toEqual(["log"]);
+  });
+});
+
+describe("the trace effects", () => {
+  const TRACED_LOAN = `<scxml ${SCXML} initial="desk">
+    <datamodel><data id="loans" expr="0"/></datamodel>
+    <state id="desk">
+      <onexit><log label="leaving"/></onexit>
+      <transition event="copy.checked_out" target="loaned">
+        <assign location="loans" expr="loans + 1"/>
+      </transition>
+    </state>
+    <state id="loaned">
+      <onentry><raise event="loan.opened"/></onentry>
+      <transition event="loan.opened" target="on_hold"/>
+    </state>
+    <state id="on_hold"><transition event="copy.returned" target="returned"/></state>
+    <final id="returned"/>
+  </scxml>`;
+
+  // statifier-ex v2.9.0, lib/statifier/interpreter.ex, `initialize/2` and
+  // `main_event_loop/3`: the datamodel effects, the entry set, then the
+  // fold's terminal empty selection, the invoke pass and the stable
+  // macrostep.
+  // Sabotage: answering macrostep_stable ahead of the invoke pass in
+  // mainEventLoop turns this red.
+  it("answers the reference's order when a chart starts", () => {
+    expect(tags(startTraced(TRACED_LOAN).effects)).toEqual([
+      "datamodel_init",
+      "datamodel_change",
+      "trace:entry_set",
+      "trace:transitions_selected",
+      "trace:invoke_pass",
+      "trace:macrostep_stable",
+    ]);
+  });
+
+  // statifier-ex v2.9.0, interpreter.ex, `handle_event/2`, `internal_round/1`
+  // and `run_selected/3`.
+  // Sabotage: dropping the empty eventless selection's trace in internalRound
+  // turns this red.
+  it("answers the reference's order for an external event and the internal event it raises", () => {
+    const next = send(startTraced(TRACED_LOAN), "copy.checked_out");
+    expect(tags(next.effects)).toEqual([
+      "trace:event_dequeued",
+      "trace:finalize_autoforward",
+      "trace:transitions_selected",
+      "trace:exit_set",
+      "log",
+      "trace:content_executed",
+      "datamodel_change",
+      "trace:content_executed",
+      "trace:entry_set",
+      "trace:content_executed",
+      "trace:transitions_selected",
+      "trace:event_dequeued",
+      "trace:transitions_selected",
+      "trace:exit_set",
+      "trace:content_executed",
+      "trace:entry_set",
+      "trace:transitions_selected",
+      "trace:invoke_pass",
+      "trace:macrostep_stable",
+    ]);
+    expect(traceOf(next.effects, "event_dequeued").map((t) => [t.event.name, t.from])).toEqual([
+      ["copy.checked_out", "external"],
+      ["loan.opened", "internal"],
+    ]);
+  });
+
+  // statifier-ex v2.9.0, interpreter.ex moduledoc: a selection's trace
+  // carries the microstep it ran in, one behind the exit set that follows.
+  // Sabotage: stamping the selection's trace after beginMicrostep in
+  // runSelected turns this red.
+  it("stamps a selection one microstep behind the exit set it starts", () => {
+    const next = send(startTraced(TRACED_LOAN), "copy.checked_out");
+    const [selected] = traceOf(next.effects, "transitions_selected");
+    const [exitSet] = traceOf(next.effects, "exit_set");
+    expect([selected?.macrostep, selected?.microstep, selected?.round]).toEqual([2, 0, 0]);
+    expect([exitSet?.macrostep, exitSet?.microstep, exitSet?.round]).toEqual([2, 1, 0]);
+    expect(selected?.event?.name).toBe("copy.checked_out");
+    expect(selected?.tIndexes).toHaveLength(1);
+  });
+
+  // statifier-ex v2.9.0, lib/statifier/effect/trace/exit_set.ex and
+  // entry_set.ex: the states in exit or entry order, and the configuration
+  // once every one has moved.
+  // Sabotage: carrying the configuration from before the exits in exitStates
+  // turns this red.
+  it("names the states moved and the configuration they leave", () => {
+    const begun = startTraced(TRACED_LOAN);
+    const { machine } = begun.state;
+    const next = send(begun, "copy.checked_out");
+    const [exitSet] = traceOf(next.effects, "exit_set");
+    const [entrySet] = traceOf(next.effects, "entry_set");
+    expect(exitSet?.indexes).toEqual([idx(machine, "desk")]);
+    expect(exitSet?.configuration).toEqual([0]);
+    expect(entrySet?.indexes).toEqual([idx(machine, "loaned")]);
+    expect(entrySet?.configuration).toEqual([0, idx(machine, "loaned")]);
+  });
+
+  // statifier-ex v2.9.0, interpreter.ex, `exit_interpreter/1`: the exit set
+  // first, then the exits, then the done trace and the done effect.
+  // Sabotage: dropping the done trace in exitInterpreter turns this red.
+  it("answers an exit set first and a done trace before done when the chart stops", () => {
+    const stopped = send(send(startTraced(TRACED_LOAN), "copy.checked_out"), "copy.returned");
+    const tail = tags(stopped.effects).slice(-5);
+    expect(tail).toEqual([
+      "trace:content_executed",
+      "trace:entry_set",
+      "trace:exit_set",
+      "trace:done",
+      "done",
+    ]);
+    const [, last] = traceOf(stopped.effects, "exit_set");
+    const { machine } = stopped.state;
+    expect(last?.indexes).toEqual([idx(machine, "returned"), 0]);
+    expect(last?.configuration).toEqual([]);
+    const [doneTrace] = traceOf(stopped.effects, "done");
+    expect(doneTrace?.configuration).toEqual([0, idx(machine, "returned")]);
+  });
+
+  // statifier-ex v2.9.0, interpreter.ex, `terminal_effects/2`: a macrostep
+  // that stops the chart answers no macrostep_stable.
+  // Sabotage: dropping the running test from terminalEffects turns this red.
+  it("answers no macrostep_stable when the macrostep stops the chart", () => {
+    const stopped = send(send(startTraced(TRACED_LOAN), "copy.checked_out"), "copy.returned");
+    expect(traceOf(stopped.effects, "macrostep_stable")).toEqual([]);
+  });
+
+  // statifier-ex v2.9.0, interpreter.ex, `run_global_script/3`: each
+  // top-level script answers a content_executed naming no node.
+  // Sabotage: dropping the trace in runGlobalScripts turns this red.
+  it("answers a content_executed for each <script> child of <scxml>", () => {
+    const { effects } = startTraced(`<scxml ${SCXML} initial="desk">
+      <script>fines = 2</script>
+      <script>fines =</script>
+      <state id="desk"/>
+    </scxml>`);
+    expect(traceOf(effects, "content_executed").map((t) => [t.owner, t.cIndexes])).toEqual([
+      [{ kind: "global_script", index: 0 }, []],
+      [{ kind: "global_script", index: 1 }, []],
+    ]);
+  });
+
+  // Sabotage: defaulting the trace flag to true in newMachineState turns
+  // this red.
+  it("answers none when the position does not trace", () => {
+    const next = send(start(TRACED_LOAN), "copy.checked_out");
+    expect(next.state.trace).toBe(false);
+    expect(next.effects.filter((e) => e.kind === "trace")).toEqual([]);
   });
 });

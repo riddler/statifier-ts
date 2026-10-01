@@ -22,6 +22,21 @@ export {
   type CompileResult,
   compile,
 } from "./compiler.js";
+export type {
+  ContentOwner,
+  DatamodelChange,
+  DatamodelInit,
+  Trace,
+  TraceContentExecuted,
+  TraceDone,
+  TraceEntrySet,
+  TraceEventDequeued,
+  TraceExitSet,
+  TraceFinalizeAutoforward,
+  TraceInvokePass,
+  TraceMacrostepStable,
+  TraceTransitionsSelected,
+} from "./core/effects.js";
 export type { Done, InterpreterEffect, RoundBudget } from "./core/interpreter.js";
 export type { Autoforward, Invoke } from "./core/invoke.js";
 export type { Cancel, Send, SendDelayed } from "./core/send.js";

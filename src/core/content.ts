@@ -19,6 +19,12 @@
 // context it leaves, the effects the block produced and the events it raised,
 // in queue order, and the caller appends them. A `<send>` or `<cancel>` also
 // moves the session's send state, which the runner takes and answers too.
+//
+// A successful `<assign>` answers a `datamodel_change`, nested or not. With
+// tracing on, the block answers one `content_executed` trace after its own
+// effects, naming the block's nodes that ran: every node on success, the
+// nodes up to and including the failing one otherwise, and none for an empty
+// block, which still answers the trace.
 
 import { Undefined, type Value } from "@riddler/predicator";
 import {
@@ -36,6 +42,7 @@ import {
   runProgram,
   writeLocation,
 } from "../datamodel.js";
+import { type DatamodelChange, type TraceContentExecuted, traced } from "./effects.js";
 import {
   type Cancel,
   type CancelNode,
@@ -133,13 +140,15 @@ export type ContentNode =
 // ---------------------------------------------------------------------------
 
 /**
- * Where a block's raised events are stamped from: the block they came from
- * and the counters as they stand while it runs. No node in a block moves the
- * counters, so one stamp serves the whole block.
+ * Where a block's raised events and effects are stamped from: the block they
+ * came from and the counters as they stand while it runs, and whether the
+ * position traces, which only a set `trace` turns on. No node in a block
+ * moves the counters, so one stamp serves the whole block.
  */
 export interface RaiseSink {
   readonly owner: Owner;
   readonly counters: Counters;
+  readonly trace?: boolean;
 }
 
 /** A `<log>`'s effect: the label, the evaluated value, and where it ran. */
@@ -156,7 +165,7 @@ export interface Log {
 }
 
 /** An effect a block produced. */
-export type Effect = Log | Send | SendDelayed | Cancel;
+export type Effect = Log | Send | SendDelayed | Cancel | DatamodelChange | TraceContentExecuted;
 
 /**
  * What running a block answered: the context it leaves, its effects in
@@ -205,15 +214,27 @@ export function executeBlock(
   sends: SendState = INITIAL_SEND_STATE,
 ): BlockOutcome {
   const run: Run = { context, sends, effects: [], raised: [], pending: [], sink };
+  const executed: number[] = [];
   for (const node of block) {
     const step = executeNode(run, node);
+    executed.push(node.cIndex);
     drainPending(run, node.cIndex);
     if (!step.ok) {
       raiseError(run, node.cIndex, step.reason);
       break;
     }
   }
-  return { context: run.context, effects: run.effects, raised: run.raised, sends: run.sends };
+  const trace = traced<TraceContentExecuted>(sink.trace, sink.counters, () => ({
+    trace: "content_executed",
+    owner: sink.owner,
+    cIndexes: executed,
+  }));
+  return {
+    context: run.context,
+    effects: [...run.effects, ...trace],
+    raised: run.raised,
+    sends: run.sends,
+  };
 }
 
 /**
@@ -324,13 +345,29 @@ function executeLog(run: Run, node: LogNode): Step {
 /**
  * The value is evaluated first, then written: a root that begins with an
  * underscore is refused, then a root the datamodel does not hold, then
- * anything but a bare root. A write never declares a root.
+ * anything but a bare root. A write never declares a root. A write that
+ * lands answers a `datamodel_change`; one that is refused answers nothing.
+ * The only location a write accepts is a bare root, so the resolved path is
+ * that root alone and the prior value is the root's.
  */
 function executeAssign(run: Run, node: AssignNode): Step {
   const outcome = evaluateIn(run, node.value);
   if (!outcome.ok) return outcome;
   const write = writeLocation(run.context, node.location, outcome.value);
   if (!write.ok) return write;
+  const root = node.location.trim();
+  const { counters, owner } = run.sink;
+  run.effects.push({
+    kind: "datamodel_change",
+    locationPath: [root],
+    locationSource: node.location,
+    newValue: outcome.value,
+    priorValue: run.context.data.get(root) as Value,
+    dIndex: null,
+    cIndex: node.cIndex,
+    owner,
+    ...counters,
+  });
   run.context = write.context;
   return OK;
 }

@@ -208,7 +208,7 @@ describe("the virtual clock", () => {
     const loaned = send(LOAN, begin(LOAN).state, "checkout");
     const renewed = send(LOAN, loaned.state, "renew");
     // The exit cancels the first loan's timer; the re-entry schedules a new one.
-    expect(kinds(renewed.effects)).toEqual(["cancel", "send_delayed"]);
+    expect(kinds(renewed.effects)).toEqual(["cancel", "datamodel_change", "send_delayed"]);
     expect(renewed.state.timers.map((t) => t.sequence)).toEqual([1]);
     const returned = send(LOAN, loaned.state, "return");
     expect(returned.state.timers).toEqual([]);
@@ -460,7 +460,7 @@ describe("registered send types", () => {
       "parcel.chase",
       "parcel.again",
     ]);
-    expect(kinds(begin(PARCEL).effects)).toEqual([]);
+    expect(kinds(begin(PARCEL).effects)).toEqual(["datamodel_init"]);
   });
 
   // A chart that reads _ioprocessors for the courier type on start and again
@@ -786,5 +786,21 @@ describe("the entry point", () => {
     expect(typeof entry.advance).toBe("function");
     expect(typeof entry.configuration).toBe("function");
     expect(typeof entry.isDone).toBe("function");
+  });
+});
+
+describe("the trace flag", () => {
+  // The reference's position carries `trace` and a drive reads it from the
+  // position (statifier-ex v2.9.0, lib/statifier/position.ex, `import/2`).
+  // Sabotage: decoding the state's trace as false in decodeState turns this
+  // red (no trace effect, and the flag comes back false).
+  it("is read from the state and written back, and a set flag answers the trace effects", () => {
+    const started = begin(LOAN);
+    expect(started.state.trace).toBe(false);
+    const traced = send(LOAN, viaJson({ ...started.state, trace: true }), "checkout");
+    expect(traced.state.trace).toBe(true);
+    expect(traced.effects.filter((effect) => effect.kind === "trace").length).toBeGreaterThan(0);
+    const plain = send(LOAN, started.state, "checkout");
+    expect(plain.effects.filter((effect) => effect.kind === "trace")).toEqual([]);
   });
 });

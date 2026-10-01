@@ -25,10 +25,15 @@
 //
 // Whether a state's entry is its first is the caller's question: exit and
 // entry keeps the states ever entered and calls `enterStateData` only on a
-// first entry. The datamodel change effects the reference emits for each
-// binding land with the datamodel effects.
+// first entry.
+//
+// Both answer the effects the binding produced. Starting a chart answers one
+// `datamodel_init` first, the datamodel once every id exists and before any
+// value binds; then each `<data>` that binds answers a `datamodel_change`, in
+// ascending order. A binding that fails, or a root `<data>` the host's value
+// stands in for, answers nothing.
 
-import { Undefined } from "@riddler/predicator";
+import { Undefined, type Value } from "@riddler/predicator";
 import {
   type ActiveStates,
   type Counters,
@@ -41,6 +46,7 @@ import {
   executionError,
 } from "../datamodel.js";
 import { type CompiledData, type Machine, stateAt } from "../machine.js";
+import type { DatamodelChange, DatamodelInit } from "./effects.js";
 
 /** What `<data>` binding reads and writes: the chart, the configuration `In()` reads, the datamodel and the internal queue. */
 export interface BindingState extends Counters {
@@ -50,26 +56,45 @@ export interface BindingState extends Counters {
   readonly internalQueue: readonly Event[];
 }
 
+/** A datamodel effect binding produced. */
+export type BindingEffect = DatamodelInit | DatamodelChange;
+
+/** What binding answers: the state it leaves and its effects, in order. */
+export interface Bound<S extends BindingState> {
+  readonly state: S;
+  readonly effects: readonly BindingEffect[];
+}
+
 /**
  * `initializeDatamodel`: creates every `<data>` id and binds what binds when
  * the chart starts - every `<data>` under early binding, the root's own under
  * late binding. The ids the datamodel already holds when this runs are the
- * host's, and a root `<data>` whose id is among them is not bound.
+ * host's, and a root `<data>` whose id is among them is not bound. The first
+ * effect is always the `datamodel_init`, taken once every id exists and
+ * before any value binds.
  */
-export function initializeDatamodel<S extends BindingState>(state: S): S {
+export function initializeDatamodel<S extends BindingState>(state: S): Bound<S> {
   const { machine } = state;
   const hostIds = new Set(state.datamodel.keys());
   const seeded = new Map(state.datamodel);
   for (const data of machine.dataElements) {
     if (!seeded.has(data.id)) seeded.set(data.id, Undefined);
   }
+  const init: DatamodelInit = {
+    kind: "datamodel_init",
+    datamodel: Object.fromEntries(seeded),
+    macrostep: state.macrostep,
+    microstep: state.microstep,
+    round: state.round,
+  };
   const rootData = new Set(stateAt(machine, 0).data);
   const dIndexes =
     machine.binding === "early" ? machine.dataElements.map((data) => data.dIndex) : [...rootData];
   const toBind = dIndexes.filter(
     (dIndex) => !(rootData.has(dIndex) && hostIds.has(dataAt(machine, dIndex).id)),
   );
-  return bindAll({ ...state, datamodel: seeded }, toBind);
+  const bound = bindAll({ ...state, datamodel: seeded }, toBind);
+  return { state: bound.state, effects: [init, ...bound.effects] };
 }
 
 /**
@@ -79,44 +104,66 @@ export function initializeDatamodel<S extends BindingState>(state: S): S {
  * `<data>` bound then too; binding it again would overwrite a value the host
  * supplied.
  */
-export function enterStateData<S extends BindingState>(state: S, stateIndex: number): S {
+export function enterStateData<S extends BindingState>(state: S, stateIndex: number): Bound<S> {
   const { machine } = state;
-  if (machine.binding === "early" || stateIndex === 0) return state;
+  if (machine.binding === "early" || stateIndex === 0) return { state, effects: [] };
   return bindAll(state, stateAt(machine, stateIndex).data);
 }
 
 // Every listed `<data>` in ascending order against one context built before
 // any binds.
-function bindAll<S extends BindingState>(state: S, dIndexes: readonly number[]): S {
-  if (dIndexes.length === 0) return state;
+function bindAll<S extends BindingState>(state: S, dIndexes: readonly number[]): Bound<S> {
+  if (dIndexes.length === 0) return { state, effects: [] };
   const context = contextOf(state);
   let current = state;
+  const effects: DatamodelChange[] = [];
   for (const dIndex of [...dIndexes].sort((a, b) => a - b)) {
-    current = bindValue(current, context, dataAt(state.machine, dIndex));
+    const bound = bindValue(current, context, dataAt(state.machine, dIndex));
+    current = bound.state;
+    effects.push(...bound.effects);
   }
-  return current;
+  return { state: current, effects };
 }
 
-// One `<data>`'s value, or its failure raised with the id left as it was.
+// One `<data>`'s value and its `datamodel_change`, or its failure raised with
+// the id left as it was and no effect. A binding writes the root, so the
+// prior value is the root's: the undefined the id was created with, or under
+// late binding whatever an `<assign>` wrote before the state's first entry.
 function bindValue<S extends BindingState>(
   state: S,
   context: EvaluationContext,
   data: CompiledData,
-): S {
+): { readonly state: S; readonly effects: readonly DatamodelChange[] } {
   const { value } = data;
   if (value.kind === "invalid") {
-    return raiseBindingError(state, data.dIndex, {
-      kind: "compile_error",
-      source: value.source,
-      message: value.message,
-    });
+    const reason = { kind: "compile_error", source: value.source, message: value.message } as const;
+    return { state: raiseBindingError(state, data.dIndex, reason), effects: [] };
   }
   if (value.kind === "src") {
-    return raiseBindingError(state, data.dIndex, { kind: "src", src: value.src });
+    const reason = { kind: "src", src: value.src } as const;
+    return { state: raiseBindingError(state, data.dIndex, reason), effects: [] };
   }
   const outcome = evaluate(context, value);
-  if (!outcome.ok) return raiseBindingError(state, data.dIndex, outcome.reason);
-  return { ...state, datamodel: new Map(state.datamodel).set(data.id, outcome.value) };
+  if (!outcome.ok) {
+    return { state: raiseBindingError(state, data.dIndex, outcome.reason), effects: [] };
+  }
+  const change: DatamodelChange = {
+    kind: "datamodel_change",
+    locationPath: [data.id],
+    locationSource: data.id,
+    newValue: outcome.value,
+    priorValue: state.datamodel.has(data.id) ? (state.datamodel.get(data.id) as Value) : Undefined,
+    dIndex: data.dIndex,
+    cIndex: null,
+    owner: null,
+    macrostep: state.macrostep,
+    microstep: state.microstep,
+    round: state.round,
+  };
+  return {
+    state: { ...state, datamodel: new Map(state.datamodel).set(data.id, outcome.value) },
+    effects: [change],
+  };
 }
 
 function raiseBindingError<S extends BindingState>(

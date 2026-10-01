@@ -538,3 +538,73 @@ the refusal of a type outside them have no counterpart here; neither do the
 datamodel effects the passes emit. The Typespecs union gains `Invoke` and
 `Autoforward`; the Decision's sentence that the core does not emit `invoke` or
 `autoforward` now holds only for the effects this Amendment does not name.
+
+## Amendment: the datamodel effects and the trace effects (2026-10-01)
+
+Status: proposed
+
+The Decision's paragraph beginning "Not every reference effect is emitted
+yet" says an Amendment adds each reference effect to the union when the code
+that emits it lands. This one adds the two datamodel effects and nine of the
+reference's ten trace effects, spelled as the reference's
+`Statifier.Effect.DatamodelChange`, `Statifier.Effect.DatamodelInit` and
+`Statifier.Effect.Trace.*` in `lib/statifier/effect/` at `v2.9.0`. Which
+effects the union carries was decided by the conductor under the operator's
+standing consent, 2026-10-01: the effects the reference's core emits from the
+places this change ports, with the reference's names and fields. The change
+that adds this Amendment adds the code: the types in `src/core/effects.ts`,
+with the gate `traced` there, and the emitting sites named below.
+
+**The datamodel effects are core effects.** They are emitted whether or not
+the position traces:
+
+| `kind` | What the host does with it | Emitted by | Reference at `v2.9.0` |
+|---|---|---|---|
+| `datamodel_init` | learns the datamodel as the chart starts: the host's values, the system variables, and every declared `<data>` id bound to undefined, before any value binds | `initializeDatamodel` (`src/core/datamodel.ts`), first of the effects starting a chart answers | `Statifier.Interpreter.Datamodel.initialize/1` |
+| `datamodel_change` | learns one successful write: `locationPath`, `locationSource`, `newValue`, `priorValue`, and the `<assign>` (`cIndex`, `owner`) or the `<data>` (`dIndex`) that made it | `executeAssign` (`src/core/content.ts`); `bindValue` (`src/core/datamodel.ts`), reached from `initializeDatamodel` and, on a state's first entry under late binding, `enterStateData` | `Statifier.Machine.Content.Assign`'s `execute/2`; `Statifier.Interpreter.Datamodel`'s `bind_value` |
+
+A write that is refused, a binding that fails, and a root `<data>` whose id
+the host supplied answer no `datamodel_change`, as the reference's do not.
+
+**The trace effects are emitted only while the position traces.** Each has
+`kind` `trace`, the reference's tag, and a `trace` field naming which one it
+is, spelled as the reference's telemetry spells it (`trace_kind` in
+`lib/statifier/telemetry.ex` at `v2.9.0`). A configuration a trace carries
+is the full configuration, ancestors included, in document order:
+
+| `trace` | Fields | Emitted by | Reference at `v2.9.0` |
+|---|---|---|---|
+| `event_dequeued` | `event`, `from` (`external` or `internal`) | `handleEvent` and `internalRound` (`src/core/interpreter.ts`) | `Trace.EventDequeued`, from `handle_event/2` and `internal_round/1` |
+| `transitions_selected` | `tIndexes`, `event` (null for an eventless selection) | `runSelected` (`src/core/interpreter.ts`), for every selection, the empty one included | `Trace.TransitionsSelected`, from `run_selected/3` |
+| `exit_set` | `indexes` in exit order, `configuration` after the exits | `exitStates` (`src/core/exit-entry.ts`) and `exitInterpreter` (`src/core/interpreter.ts`) | `Trace.ExitSet`, from `ExitEntry.exit_states/2` and `exit_interpreter/1` |
+| `content_executed` | `owner`, `cIndexes` of the block's nodes that ran | `executeBlock` (`src/core/content.ts`), an empty block included, and `runGlobalScripts` (`src/core/interpreter.ts`) with no index | `Trace.ContentExecuted`, from `Interpreter.Content.execute_block/3` and `run_global_script/3` |
+| `entry_set` | `indexes` in entry order, `configuration` after the entries | `enterStates` (`src/core/exit-entry.ts`) | `Trace.EntrySet`, from `ExitEntry.enter_states/2` |
+| `macrostep_stable` | `configuration` | `terminalEffects` (`src/core/interpreter.ts`), for a stable macrostep with the chart running | `Trace.MacrostepStable`, from `terminal_effects/2` |
+| `done` | `donedata`, `donedataError`, `configuration` at exit | `exitInterpreter` (`src/core/interpreter.ts`), just before `done` | `Trace.Done`, from `exit_interpreter/1` |
+| `invoke_pass` | `stateIndexes` walked, `invokeIds` left live | `runInvokePass` (`src/core/invoke.ts`), every time it runs | `Trace.InvokePass`, from `run_invoke_pass/1` |
+| `finalize_autoforward` | `event`, `finalized`, `forwarded` | `applyInvokePasses` (`src/core/invoke.ts`), every time it runs | `Trace.FinalizeAutoforward`, from `apply_invoke_passes/2` |
+
+Each carries the `macrostep`, `microstep` and `round` counters; an exit set
+and an entry set are stamped with the counters at the boundary before any
+state moves, and a selection's trace with the microstep it ran in, before the
+microstep it starts, as the reference's interpreter moduledoc states. The
+effects come in the reference's order relative to every other effect,
+`invoke` and `autoforward` among them: an exit set or an entry set before the
+moves it names, a block's trace after the block's own effects, a pass's trace
+after the pass's effects, and a stable macrostep's trace after the invoke
+pass that ends it.
+
+**The trace flag.** Whether a position traces is its `trace` field, which the
+exported position already carries. `start` sets it false. A drive reads it
+from the state it is given and writes it back, as the reference's position
+carries it from `import/2` onward, so a host turns tracing on by setting the
+flag in the state it passes; no call option sets it yet.
+
+Not ported. The reference's tenth trace, `conds_evaluated`, is emitted by its
+transition selection, which this change does not touch. The reference's
+`datamodel_change` for a `<send idlocation>` write, an `<invoke idlocation>`
+write and an empty `<finalize>`'s writes is not emitted either: each is
+answered by a site outside the ones named above. The Typespecs union gains
+`DatamodelInit`, `DatamodelChange` and `Trace`; the Decision's sentence that
+the core does not emit `datamodel_init`, `datamodel_change` or the trace
+effects now holds only for the effects this Amendment does not name.

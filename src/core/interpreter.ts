@@ -36,8 +36,18 @@
 // macrostep answers an `invoke` for each one it starts, and an external event
 // first runs the `<finalize>` of the live invocation it came from and answers
 // an `autoforward` for each live invocation that forwards (the invoke module).
-// The core never runs a child. The trace effects and the datamodel effects
-// the reference emits land with their vocabularies.
+// The core never runs a child.
+//
+// Starting a chart answers a `datamodel_init` first, then a
+// `datamodel_change` for each `<data>` that binds. With the position's
+// `trace` flag set, the loop answers the reference's trace effects in its
+// order: `event_dequeued` when an event is taken, `transitions_selected`
+// after every selection, the empty one included, `macrostep_stable` when a
+// macrostep ends stable with the chart running, and, when the chart stops,
+// an `exit_set` before the exits and a `done` trace just before the `done`
+// effect. A trace stamped at a selection carries the microstep the selection
+// ran in, before the microstep it starts. With the flag clear, no trace
+// effect is built.
 
 import { Undefined, type Value } from "@riddler/predicator";
 import {
@@ -62,7 +72,17 @@ import {
   transitionAt,
 } from "../machine.js";
 import { executeBlock } from "./content.js";
-import { initializeDatamodel } from "./datamodel.js";
+import { type BindingEffect, initializeDatamodel } from "./datamodel.js";
+import {
+  type Trace,
+  type TraceContentExecuted,
+  type TraceDone,
+  type TraceEventDequeued,
+  type TraceExitSet,
+  type TraceMacrostepStable,
+  type TraceTransitionsSelected,
+  traced,
+} from "./effects.js";
 import {
   cancelInvocationsForState,
   donedata,
@@ -88,11 +108,13 @@ export const MAX_MACROSTEP_ROUNDS = 10_000;
  * The interpreter's position: every field exit and entry reads and writes,
  * plus whether the chart has finished and the round budget each macrostep may
  * spend. `running` goes false when a top-level final is entered; `status`
- * becomes `done` only once `exitInterpreter` has finished.
+ * becomes `done` only once `exitInterpreter` has finished. `trace` is
+ * whether the position emits trace effects.
  */
 export interface MachineState extends InvokeState {
   readonly status: "running" | "done";
   readonly maxMacrostepRounds: RoundBudget;
+  readonly trace: boolean;
 }
 
 /**
@@ -130,7 +152,7 @@ export interface Done {
 }
 
 /** An effect the interpreter produced. */
-export type InterpreterEffect = InvokeEffect | BudgetExhausted | Done;
+export type InterpreterEffect = InvokeEffect | BindingEffect | Trace | BudgetExhausted | Done;
 
 /** What a loop function answers: the state it leaves and its effects, in order. */
 export interface Stepped {
@@ -150,6 +172,8 @@ export interface InitializeOptions {
   readonly sendTypes?: ReadonlySet<string> | null;
   /** What the host declares it can reach, or null to leave every route to the host. */
   readonly routes?: Routes | null;
+  /** Whether the position emits trace effects; false when absent. */
+  readonly trace?: boolean;
 }
 
 /** What `handleEvent` answers: the step, or a refusal when the chart has stopped. */
@@ -169,12 +193,15 @@ export type HandleOutcome =
  * final. This is macrostep 1, and the initial entry is its microstep 1.
  */
 export function initialize(machine: Machine, options: InitializeOptions): Stepped {
-  let state = beginMicrostep(beginMacrostep(newMachineState(machine, options)));
-  state = initializeDatamodel(state);
-  state = runGlobalScripts(state);
-  const entered = enterStates(state, [initialTransition(machine)]);
+  const begun = beginMicrostep(beginMacrostep(newMachineState(machine, options)));
+  const bound = initializeDatamodel(begun);
+  const scripts = runGlobalScripts(bound.state);
+  const entered = enterStates(scripts.state, [initialTransition(machine)]);
   const looped = mainEventLoop(entered.state);
-  return { state: looped.state, effects: [...entered.effects, ...looped.effects] };
+  return {
+    state: looped.state,
+    effects: [...bound.effects, ...scripts.effects, ...entered.effects, ...looped.effects],
+  };
 }
 
 /**
@@ -186,15 +213,20 @@ export function initialize(machine: Machine, options: InitializeOptions): Steppe
 export function handleEvent(state: MachineState, event: Event): HandleOutcome {
   if (!state.running) return { ok: false, reason: "not_running" };
   const begun = beginMacrostep(state);
+  const dequeued = traced<TraceEventDequeued>(begun.trace, begun, () => ({
+    trace: "event_dequeued",
+    event,
+    from: "external",
+  }));
   const withEvent = { ...begun, datamodel: putEvent(begun.datamodel, event) };
   const passed = applyInvokePasses(withEvent, event);
   const selected = selectTransitions(passed.state, event);
-  const ran = runSelected(selected.state, selected.transitions);
+  const ran = runSelected(selected.state, selected.transitions, event);
   const looped = mainEventLoop(ran.state);
   return {
     ok: true,
     state: looped.state,
-    effects: [...passed.effects, ...ran.effects, ...looped.effects],
+    effects: [...dequeued, ...passed.effects, ...ran.effects, ...looped.effects],
   };
 }
 
@@ -227,6 +259,7 @@ function newMachineState(machine: Machine, options: InitializeOptions): MachineS
     running: true,
     status: "running",
     maxMacrostepRounds: options.maxMacrostepRounds ?? MAX_MACROSTEP_ROUNDS,
+    trace: options.trace ?? false,
   };
 }
 
@@ -253,9 +286,12 @@ function initialTransition(machine: Machine): CompiledTransition {
 // `executeGlobalScriptElement`: each `<script>` child of `<scxml>` in document
 // order, each against the datamodel the one before it left. A script that
 // did not compile, or whose run fails, raises `error.execution`; what a
-// failing run wrote before it stopped is kept.
-function runGlobalScripts(state: MachineState): MachineState {
+// failing run wrote before it stopped is kept. With tracing on, each script
+// answers a `content_executed` trace after it runs, naming no node: a
+// `<script>` child of `<scxml>` has no node index.
+function runGlobalScripts(state: MachineState): Stepped {
   let current = state;
+  const effects: InterpreterEffect[] = [];
   state.machine.globalScripts.forEach((script, index) => {
     const origin = { kind: "global_script", index } as const;
     if ("kind" in script) {
@@ -265,13 +301,20 @@ function runGlobalScripts(state: MachineState): MachineState {
         message: script.message,
       };
       current = enqueue(current, executionError(origin, current, reason));
-      return;
+    } else {
+      const outcome = runProgram(contextOf(current), script);
+      current = { ...current, datamodel: outcome.data };
+      if (!outcome.ok) current = enqueue(current, executionError(origin, current, outcome.reason));
     }
-    const outcome = runProgram(contextOf(current), script);
-    current = { ...current, datamodel: outcome.data };
-    if (!outcome.ok) current = enqueue(current, executionError(origin, current, outcome.reason));
+    effects.push(
+      ...traced<TraceContentExecuted>(current.trace, current, () => ({
+        trace: "content_executed",
+        owner: origin,
+        cIndexes: [],
+      })),
+    );
   });
-  return current;
+  return { state: current, effects };
 }
 
 // ---------------------------------------------------------------------------
@@ -313,7 +356,8 @@ export function executeTransitionContent(
       round: current.round,
     };
     const owner = { kind: "transition", tIndex: t.tIndex } as const;
-    const outcome = executeBlock(contextOf(current), t.content, { owner, counters }, current.sends);
+    const sink = { owner, counters, trace: current.trace };
+    const outcome = executeBlock(contextOf(current), t.content, sink, current.sends);
     current = {
       ...current,
       datamodel: outcome.context.data,
@@ -344,28 +388,50 @@ export function runRound(state: MachineState): Round {
   if (!begun.running) return { quiescent: true, state: begun, effects: [] };
   const eventless = selectEventlessTransitions(begun);
   if (eventless.transitions.length > 0) {
-    return { quiescent: false, ...runSelected(eventless.state, eventless.transitions) };
+    return { quiescent: false, ...runSelected(eventless.state, eventless.transitions, null) };
   }
   return internalRound(eventless.state);
 }
 
-// The internal event half of a round: the oldest queued event becomes
-// `_event` and the transitions it enables are taken; an empty queue ends the
-// macrostep.
+// The internal event half of a round: the empty eventless selection answers
+// its trace, then the oldest queued event becomes `_event` and the
+// transitions it enables are taken; an empty queue ends the macrostep.
 function internalRound(state: MachineState): Round {
   const [event, ...rest] = state.internalQueue;
-  if (event === undefined) return { quiescent: true, state, effects: [] };
+  const probe = runSelected(state, [], null);
+  if (event === undefined) return { quiescent: true, ...probe };
+  const dequeued = traced<TraceEventDequeued>(state.trace, state, () => ({
+    trace: "event_dequeued",
+    event,
+    from: "internal",
+  }));
   const withEvent = { ...state, internalQueue: rest, datamodel: putEvent(state.datamodel, event) };
   const selected = selectTransitions(withEvent, event);
-  return { quiescent: false, ...runSelected(selected.state, selected.transitions) };
+  const ran = runSelected(selected.state, selected.transitions, event);
+  return {
+    quiescent: false,
+    state: ran.state,
+    effects: [...probe.effects, ...dequeued, ...ran.effects],
+  };
 }
 
 // `if not enabledTransitions.isEmpty(): microstep(enabledTransitions)`, the
-// tail every selection shares; the microstep counter advances only when
-// something is taken.
-function runSelected(state: MachineState, transitions: readonly CompiledTransition[]): Stepped {
-  if (transitions.length === 0) return { state, effects: [] };
-  return microstep(beginMicrostep(state), transitions);
+// tail every selection shares, after the selection's trace; the microstep
+// counter advances only when something is taken, so the trace carries the
+// microstep the selection ran in.
+function runSelected(
+  state: MachineState,
+  transitions: readonly CompiledTransition[],
+  event: Event | null,
+): Stepped {
+  const selected = traced<TraceTransitionsSelected>(state.trace, state, () => ({
+    trace: "transitions_selected",
+    tIndexes: transitions.map((t) => t.tIndex),
+    event,
+  }));
+  if (transitions.length === 0) return { state, effects: selected };
+  const stepped = microstep(beginMicrostep(state), transitions);
+  return { state: stepped.state, effects: [...selected, ...stepped.effects] };
 }
 
 /** How a macrostep's rounds ended: stable (or stopped), or out of budget. */
@@ -407,10 +473,17 @@ function fold(state: MachineState, budget: RoundBudget): Folded {
   }
 }
 
-// A stable macrostep answers nothing more; a spent budget answers
+// A stable macrostep answers its `macrostep_stable` trace while the chart
+// runs, and nothing once it has stopped; a spent budget answers
 // `budget_exhausted`.
 function terminalEffects(state: MachineState, outcome: Outcome): InterpreterEffect[] {
-  if (outcome === "quiescent") return [];
+  if (outcome === "quiescent") {
+    if (!state.running) return [];
+    return traced<TraceMacrostepStable>(state.trace, state, () => ({
+      trace: "macrostep_stable",
+      configuration: documentOrder(state.configuration),
+    }));
+  }
   return [
     {
       kind: "budget_exhausted",
@@ -462,7 +535,8 @@ export function mainEventLoop(state: MachineState): Stepped {
  * `<onexit>` blocks and cancelling its live invocations, with no history
  * recorded; the top-level final among them, if any, yields the donedata.
  * `done` is answered last, the status becomes `done`, and the internal queue
- * is emptied, taking any event the exits raised with it.
+ * is emptied, taking any event the exits raised with it. With tracing on,
+ * an `exit_set` trace comes first and a `done` trace just before `done`.
  */
 export function exitInterpreter(state: MachineState): Stepped {
   const configurationAtExit = documentOrder(state.configuration);
@@ -484,7 +558,19 @@ export function exitInterpreter(state: MachineState): Stepped {
       dataError = collected.error;
     }
   }
-  effects.push({
+  const exited = current;
+  const exitSet = traced<TraceExitSet>(state.trace, state, () => ({
+    trace: "exit_set",
+    indexes: exitOrder(state.configuration),
+    configuration: documentOrder(exited.configuration),
+  }));
+  const doneTrace = traced<TraceDone>(exited.trace, exited, () => ({
+    trace: "done",
+    donedata: data,
+    donedataError: dataError,
+    configuration: configurationAtExit,
+  }));
+  const done: Done = {
     kind: "done",
     donedata: data,
     donedataError: dataError,
@@ -492,8 +578,11 @@ export function exitInterpreter(state: MachineState): Stepped {
     macrostep: current.macrostep,
     microstep: current.microstep,
     round: current.round,
-  });
-  return { state: { ...current, status: "done", internalQueue: [] }, effects };
+  };
+  return {
+    state: { ...current, status: "done", internalQueue: [] },
+    effects: [...exitSet, ...effects, ...doneTrace, done],
+  };
 }
 
 // The top-level final's donedata, and the data of the first `error.execution`
