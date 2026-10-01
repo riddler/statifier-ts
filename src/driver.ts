@@ -453,6 +453,19 @@ export function isDone(state: State): DoneStatus {
   return { ok: true, done: true, donedata: donedata.value, configuration };
 }
 
+/**
+ * A state decoded over its chart and written again, as every call that moves
+ * a chart writes the state it answers, with nothing driven and no effect.
+ * Refused as the other calls refuse a state. Internal: the position module's
+ * import builds its state through it, so an imported state is in the form a
+ * drive leaves.
+ */
+export function rewrite(chart: Chart, state: State): DriveResult {
+  const opened = open(chart, state, {});
+  if (!opened.ok) return opened;
+  return answer(opened.live, []);
+}
+
 // ---------------------------------------------------------------------------
 // The working form
 // ---------------------------------------------------------------------------

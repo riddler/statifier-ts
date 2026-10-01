@@ -203,6 +203,41 @@ function done(value: unknown, at: string): string | null {
 const isRoundBudget: Check = (value) =>
   value === "infinity" || (Number.isInteger(value) && (value as number) > 0);
 
+type FieldCheck = readonly [string, (value: unknown, at: string) => string | null];
+
+// The reference's required export keys (`@required_export_keys` in
+// `Statifier.Position`), spelled in camel case, in the order its
+// `check_shapes/1` checks them. An exported position is these fields beside
+// `identity`, and a driver state holds them first.
+const POSITION_FIELDS: readonly FieldCheck[] = [
+  ["configuration", plain(isStringList)],
+  ["enteredStates", plain(isStringList)],
+  ["statesToInvoke", plain(isStringList)],
+  ["historyValues", record(plain(isStringList))],
+  ["activeInvocations", list(activeInvocation)],
+  ["invokeCounter", plain(isCount)],
+  ["sendCounter", plain(isCount)],
+  ["timerCounter", plain(isCount)],
+  ["datamodel", record(plain(isString))],
+  ["running", plain(isBoolean)],
+  ["status", plain(oneOf("running", "done"))],
+  ...COUNTERS,
+  ["trace", plain(isBoolean)],
+  ["maxMacrostepRounds", plain(isRoundBudget)],
+];
+
+/** The required keys of an exported position, in the order they are checked. */
+export const POSITION_KEYS: readonly string[] = POSITION_FIELDS.map(([field]) => field);
+
+/**
+ * The first required field of an exported position whose type is wrong, by
+ * its path into the position, or null when every one has the shape. A key
+ * that is not required is not looked at.
+ */
+export function positionShapeFailure(position: unknown): string | null {
+  return firstFailure("", position, POSITION_FIELDS);
+}
+
 /**
  * The first field of a driver state whose presence or type is wrong, by its
  * path into the state, or null when the whole state has the shape.
@@ -210,20 +245,7 @@ const isRoundBudget: Check = (value) =>
 export function stateShapeFailure(state: unknown): string | null {
   return firstFailure("", state, [
     ["identity", identity],
-    ["configuration", plain(isStringList)],
-    ["enteredStates", plain(isStringList)],
-    ["statesToInvoke", plain(isStringList)],
-    ["historyValues", record(plain(isStringList))],
-    ["activeInvocations", list(activeInvocation)],
-    ["invokeCounter", plain(isCount)],
-    ["sendCounter", plain(isCount)],
-    ["timerCounter", plain(isCount)],
-    ["datamodel", record(plain(isString))],
-    ["running", plain(isBoolean)],
-    ["status", plain(oneOf("running", "done"))],
-    ...COUNTERS,
-    ["trace", plain(isBoolean)],
-    ["maxMacrostepRounds", plain(isRoundBudget)],
+    ...POSITION_FIELDS,
     ["sessionId", plain(isString)],
     ["nowMs", plain(isTime)],
     ["timers", list(timer)],

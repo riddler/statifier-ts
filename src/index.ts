@@ -2,8 +2,10 @@
 //
 // The version of the build a host is running; `compile`, which turns SCXML
 // text into a Chart - its identity and the compiled Machine the interpreter
-// will run; and the driver's calls, which start a chart, send it events,
-// move its virtual clock, and read its configuration and whether it is done.
+// will run; the driver's calls, which start a chart, send it events, move
+// its virtual clock, and read its configuration and whether it is done; and
+// position export and import, a running chart's state in the string-id
+// vocabulary out and back in.
 
 import { version as packageVersion } from "../package.json";
 
@@ -42,6 +44,16 @@ export {
   step,
 } from "./driver.js";
 export type { Machine } from "./machine.js";
+export {
+  type ExportedPosition,
+  type ExportRefused,
+  type ExportResult,
+  exportPosition,
+  type ImportRefused,
+  type ImportResult,
+  importPosition,
+  type MalformedExport,
+} from "./position.js";
 
 /**
  * The version of this build, as `package.json` carries it.
