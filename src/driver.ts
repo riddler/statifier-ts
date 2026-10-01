@@ -177,7 +177,7 @@ export interface State {
   readonly macrostep: number;
   readonly microstep: number;
   readonly round: number;
-  /** Nothing emits trace effects yet, so this stays false. */
+  /** Whether the chart answers trace effects: `start` sets it false, and it is carried as it stands. */
   readonly trace: boolean;
   readonly maxMacrostepRounds: RoundBudget;
 
@@ -848,7 +848,7 @@ function encodeState(codec: Codec, live: Live): State {
     macrostep: core.macrostep,
     microstep: core.microstep,
     round: core.round,
-    trace: false,
+    trace: core.trace,
     maxMacrostepRounds: core.maxMacrostepRounds,
     sessionId: live.sessionId,
     nowMs: live.nowMs,
@@ -1019,6 +1019,7 @@ function decodeState(decoder: Decoder, chart: Chart, state: State, options: Driv
     running: state.running,
     status: state.status,
     maxMacrostepRounds: state.maxMacrostepRounds,
+    trace: state.trace,
   };
   return {
     chart,

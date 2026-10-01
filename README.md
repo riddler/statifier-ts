@@ -90,12 +90,12 @@ loan.identity.version; // => "3"
 const started = start(loan, { sessionId: "loan-copy-17" });
 if (!started.ok) throw new Error(started.reason);
 configuration(started.state); // => ["on_loan"]
-started.effects.map((effect) => effect.kind); // => ["send_delayed"]
+started.effects.map((effect) => effect.kind); // => ["datamodel_init", "datamodel_change", "send_delayed"]
 
 // step(chart, state, event, opts?) takes one external event.
 const renewed = step(loan, started.state, { name: "loan.renew" });
 if (!renewed.ok) throw new Error(renewed.reason);
-renewed.effects.map((effect) => effect.kind); // => ["cancel", "send_delayed"]
+renewed.effects.map((effect) => effect.kind); // => ["cancel", "datamodel_change", "send_delayed"]
 
 // advance(chart, state, ms, opts?) moves the virtual clock and fires every
 // delayed send due by then.
@@ -223,14 +223,23 @@ these:
 | `send` | delivers the event now, by its target and type |
 | `send_delayed` | learns of an event due later: the driver holds it as a pending timer until `advance` reaches it, or hands it to the host's processor when its type is registered |
 | `cancel` | drops the pending delayed send its `sendId` names, if any |
+| `invoke` | starts the invocation `invokeId` names; the core runs none |
+| `autoforward` | delivers `event`, unchanged, to the live invocation `invokeId` names |
 | `cancel_invoke` | stops the live invocation its `invokeId` names |
 | `log` | records the label and the evaluated value |
+| `datamodel_init` | learns the datamodel as the chart starts, before any `<data>` value binds |
+| `datamodel_change` | learns one datamodel write: the path, the new and the prior value, and the `<assign>` or `<data>` that made it |
 | `budget_exhausted` | learns a macrostep spent its round budget; the chart still runs |
 | `done` | learns the chart stopped, with the top-level final's donedata |
+| `trace` | follows the interpreter step by step; emitted only while the state's `trace` flag is set, which `start` leaves false |
 
-The reference's `invoke`, `autoforward`, `datamodel_init`,
-`datamodel_change` and trace effects are not emitted yet; a host that ignores
-a `kind` it does not know keeps working as they arrive.
+A trace effect's `trace` field says which one it is: `event_dequeued`,
+`transitions_selected`, `exit_set`, `content_executed`, `entry_set`,
+`macrostep_stable`, `done`, `invoke_pass` or `finalize_autoforward`. The
+reference's `conds_evaluated` trace is not emitted yet, nor the
+`datamodel_change` it answers for an `idlocation` write or an empty
+`<finalize>`'s writes; a host that ignores a `kind` it does not know keeps
+working as they arrive.
 
 A send whose type the host registers is handed to the host's processor. The
 processors are passed in `opts.sendTypes` on `start` and on every later call,

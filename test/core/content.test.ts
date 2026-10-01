@@ -122,7 +122,7 @@ describe("<assign>", () => {
       [assign(0, "renewals", "renewals + 1"), log(1, "renewals")],
       [["renewals", 1]],
     );
-    expect(outcome.effects.map(loggedValue)).toEqual([2]);
+    expect(outcome.effects.filter((e) => e.kind === "log").map(loggedValue)).toEqual([2]);
     expect(outcome.context.data.get("renewals")).toBe(2);
   });
 
@@ -372,7 +372,10 @@ describe("<foreach>", () => {
       [overHolds([assign(1, "holds", "[]"), log(2, "hold")], null)],
       [["holds", ["c-1", "c-2"]]],
     );
-    expect(outcome.effects.map(loggedValue)).toEqual(["c-1", "c-2"]);
+    expect(outcome.effects.filter((e) => e.kind === "log").map(loggedValue)).toEqual([
+      "c-1",
+      "c-2",
+    ]);
   });
 
   // Sabotage: discarding the context on a body failure in executeForeach
@@ -490,7 +493,12 @@ describe("a block", () => {
       type: "platform",
       cause: { origin: { kind: "content", cIndex: 3, owner: SINK.owner }, ...SINK.counters },
     });
-    expect(outcome.effects.map((effect) => effect.cIndex)).toEqual([2]);
+    expect(
+      outcome.effects.map((effect) => [effect.kind, "cIndex" in effect ? effect.cIndex : null]),
+    ).toEqual([
+      ["datamodel_change", 1],
+      ["log", 2],
+    ]);
     expect(outcome.context.data.get("renewals")).toBe(2);
   });
 
@@ -516,5 +524,120 @@ describe("a block", () => {
       raised: [],
       sends: INITIAL_SEND_STATE,
     });
+  });
+});
+
+describe("the datamodel change an <assign> answers", () => {
+  // statifier-ex v2.9.0, lib/statifier/machine/content/assign.ex: a write
+  // that lands answers one datamodel_change with the resolved path, the
+  // author's text, the new and prior values, the node and its block.
+  // Sabotage: dropping the datamodel_change push in executeAssign turns this red.
+  it("names the path, the author's text, both values, the node and its block", () => {
+    const outcome = run([assign(4, " renewals ", "renewals + 1")], [["renewals", 1]]);
+    expect(outcome.effects).toEqual([
+      {
+        kind: "datamodel_change",
+        locationPath: ["renewals"],
+        locationSource: " renewals ",
+        newValue: 2,
+        priorValue: 1,
+        dIndex: null,
+        cIndex: 4,
+        owner: SINK.owner,
+        ...SINK.counters,
+      },
+    ]);
+  });
+
+  // Sabotage: reading the prior value with `?? Undefined` (so a stored null
+  // reads as undefined) turns this red.
+  it("keeps a prior null as null", () => {
+    const outcome = run([assign(0, "fines", "3")], [["fines", null]]);
+    expect(outcome.effects).toMatchObject([{ kind: "datamodel_change", priorValue: null }]);
+  });
+
+  // Sabotage: pushing the datamodel_change before writeLocation is checked
+  // in executeAssign turns this red.
+  it("is not answered for a write that is refused", () => {
+    const outcome = run([assign(0, "fines", "1")], [["renewals", 1]]);
+    expect(outcome.effects).toEqual([]);
+    expect(outcome.raised.map((event) => event.name)).toEqual(["error.execution"]);
+  });
+
+  // Sabotage: dropping the datamodel_change push in executeAssign turns this
+  // red as well: a nested <assign> answers its change like any other.
+  it("is answered by an <assign> nested in an <if>, in document order", () => {
+    const outcome = run(
+      [
+        {
+          kind: "if",
+          cIndex: 0,
+          branches: [{ cond: expr("true"), content: [assign(1, "renewals", "renewals + 1")] }],
+        },
+        log(2, "renewals"),
+      ],
+      [["renewals", 1]],
+    );
+    expect(outcome.effects.map((effect) => effect.kind)).toEqual(["datamodel_change", "log"]);
+  });
+});
+
+describe("the content_executed trace a block answers", () => {
+  const TRACED: RaiseSink = { ...SINK, trace: true };
+
+  function traced(block: ContentNode[], entries: [string, Value][] = []) {
+    return executeBlock(evaluationContext(data(entries), NO_STATES), block, TRACED);
+  }
+
+  // statifier-ex v2.9.0, lib/statifier/interpreter/content.ex: the trace is
+  // appended after the block's own effects and names the nodes that ran.
+  // Sabotage: putting the trace ahead of the block's effects in executeBlock
+  // turns this red.
+  it("comes after the block's effects, naming every node that ran, in order", () => {
+    const outcome = traced([log(3, "renewals"), raise(5, "loan.renewed")], [["renewals", 1]]);
+    expect(outcome.effects).toEqual([
+      { kind: "log", label: null, value: 1, cIndex: 3, owner: SINK.owner, ...SINK.counters },
+      {
+        kind: "trace",
+        trace: "content_executed",
+        owner: SINK.owner,
+        cIndexes: [3, 5],
+        ...SINK.counters,
+      },
+    ]);
+  });
+
+  // Sabotage: recording a node as run only once it succeeds (the push after
+  // the failure check in executeBlock) turns this red.
+  it("names the failing node and none after it", () => {
+    const outcome = traced(
+      [raise(0, "loan.renewed"), assign(1, "fines", "1"), raise(2, "loan.returned")],
+      [["renewals", 1]],
+    );
+    expect(outcome.effects).toMatchObject([{ trace: "content_executed", cIndexes: [0, 1] }]);
+  });
+
+  // statifier-ex v2.9.0, content.ex: "An empty block still goes through the
+  // trace gate".
+  // Sabotage: returning early for an empty block in executeBlock turns this red.
+  it("is answered for an empty block, naming no node", () => {
+    expect(traced([]).effects).toEqual([
+      {
+        kind: "trace",
+        trace: "content_executed",
+        owner: SINK.owner,
+        cIndexes: [],
+        ...SINK.counters,
+      },
+    ]);
+  });
+
+  // Sabotage: making the trace gate in traced answer for an unset flag
+  // turns this red.
+  it("is not answered when the position does not trace", () => {
+    expect(run([log(0, "1")]).effects.map((effect) => effect.kind)).toEqual(["log"]);
+    expect(
+      executeBlock(evaluationContext(data([]), NO_STATES), [], { ...SINK, trace: false }).effects,
+    ).toEqual([]);
   });
 });

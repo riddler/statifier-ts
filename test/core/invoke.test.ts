@@ -12,6 +12,7 @@
 import { Undefined, type Value } from "@riddler/predicator";
 import { describe, expect, it } from "vitest";
 import { compile } from "../../src/compiler.js";
+import type { TraceFinalizeAutoforward, TraceInvokePass } from "../../src/core/effects.js";
 import {
   handleEvent,
   type InterpreterEffect,
@@ -126,7 +127,7 @@ describe("the invoke pass", () => {
       <state id="loan"><invoke id="notice" type="scxml"/></state>
     </scxml>`;
     const { effects } = start(source);
-    expect(effects.map((e) => e.kind)).toEqual(["log", "invoke"]);
+    expect(effects.map((e) => e.kind)).toEqual(["datamodel_init", "log", "invoke"]);
   });
 
   // A state entered and left inside one macrostep never reaches the pass:
@@ -530,7 +531,12 @@ describe("finalize", () => {
   it("runs before selection, so a condition reads what it wrote", () => {
     const after = deliver(start(TWO_NOTICES), external("notice.sent", { invokeid: "notice" }));
     expect(ids(after.state)).toEqual(["noticed"]);
-    expect(after.effects.map((e) => e.kind)).toEqual(["log", "cancel_invoke", "cancel_invoke"]);
+    expect(after.effects.map((e) => e.kind)).toEqual([
+      "datamodel_change",
+      "log",
+      "cancel_invoke",
+      "cancel_invoke",
+    ]);
   });
 
   // An event from no invocation runs no finalize.
@@ -719,7 +725,7 @@ describe("autoforward", () => {
   it("finalizes and forwards an event from the same invocation, finalize first", () => {
     const after = deliver(start(FORWARDING), external("notice.sent", { invokeid: "notice" }));
     expect(dm(after.state, "noticeRan")).toBe(true);
-    expect(after.effects.map((e) => e.kind)).toEqual(["log", "autoforward"]);
+    expect(after.effects.map((e) => e.kind)).toEqual(["datamodel_change", "log", "autoforward"]);
   });
 
   // An invocation that is not live is never forwarded to.
@@ -769,7 +775,107 @@ describe("done.invoke", () => {
       external(`done.invoke.${invokeId}`, { invokeid: invokeId, data: { status: "sent" } }),
     );
     expect(dm(done.state, "outcome")).toBe("sent");
-    expect(done.effects).toMatchObject([{ kind: "log", label: "notice", value: "sent" }]);
+    expect(done.effects).toMatchObject([
+      { kind: "datamodel_change", locationPath: ["outcome"], newValue: "sent" },
+      { kind: "log", label: "notice", value: "sent" },
+    ]);
     expect(active(done.state)).toEqual([[`${idx(done.state.machine, "loan")}:0`, invokeId]]);
   });
 });
+
+// ---------------------------------------------------------------------------
+// The passes' traces
+// ---------------------------------------------------------------------------
+
+function startTraced(source: string): Stepped {
+  return initialize(machineOf(source), { sessionId: "desk", trace: true });
+}
+
+function passTraces(effects: readonly InterpreterEffect[]): TraceInvokePass[] {
+  return effects.filter(
+    (e): e is TraceInvokePass => e.kind === "trace" && e.trace === "invoke_pass",
+  );
+}
+
+function finalizeTraces(effects: readonly InterpreterEffect[]): TraceFinalizeAutoforward[] {
+  return effects.filter(
+    (e): e is TraceFinalizeAutoforward => e.kind === "trace" && e.trace === "finalize_autoforward",
+  );
+}
+
+describe("the invoke pass's trace", () => {
+  // statifier-ex v2.9.0, lib/statifier/effect/trace/invoke_pass.ex: the
+  // states walked, one that owns no <invoke> included, and the ids of the
+  // invocations started and left live.
+  // Sabotage: listing every invoke effect's id in liveInvokeIds, live or
+  // not, turns this red.
+  it("names the states walked in entry order and only the invocations left live", () => {
+    const { effects, state } = startTraced(OPEN_LOAN);
+    const { machine } = state;
+    const [pass] = passTraces(effects);
+    expect(pass?.stateIndexes).toEqual([
+      0,
+      idx(machine, "loan"),
+      idx(machine, "notice"),
+      idx(machine, "transfer"),
+    ]);
+    expect(pass?.invokeIds).toEqual(["patron-notice"]);
+    expect(tags(effects).slice(-5)).toEqual([
+      "invoke",
+      "invoke",
+      "invoke",
+      "trace:invoke_pass",
+      "trace:macrostep_stable",
+    ]);
+  });
+
+  // statifier-ex v2.9.0, invoke_pass.ex: "Emitted every time the pass runs,
+  // even when both lists are empty".
+  // Sabotage: answering nothing for an empty pass in runInvokePass turns
+  // this red.
+  it("is answered when the pass has no state to walk", () => {
+    const begun = startTraced(FORWARDING);
+    const next = deliver(begun, external("loan.update"));
+    expect(passTraces(next.effects)).toMatchObject([{ stateIndexes: [], invokeIds: [] }]);
+  });
+});
+
+describe("the finalize and autoforward pass's trace", () => {
+  // statifier-ex v2.9.0, lib/statifier/effect/trace/finalize_autoforward.ex:
+  // the invocations finalized and forwarded to, after the pass's effects.
+  // Sabotage: leaving finalized empty in applyInvokePasses turns this red.
+  it("names the invocation finalized and those forwarded to, after the pass's effects", () => {
+    const event = external("notice.sent", { invokeid: "notice" });
+    const next = deliver(startTraced(FORWARDING), event);
+    expect(finalizeTraces(next.effects)).toMatchObject([
+      { event, finalized: ["notice"], forwarded: ["notice"] },
+    ]);
+    expect(tags(next.effects).slice(0, 7)).toEqual([
+      "trace:event_dequeued",
+      "datamodel_change",
+      "log",
+      "trace:content_executed",
+      "autoforward",
+      "trace:finalize_autoforward",
+      "trace:transitions_selected",
+    ]);
+  });
+
+  // statifier-ex v2.9.0, lib/statifier/interpreter.ex, `apply_invoke_passes/2`:
+  // with no live invocation the pass still answers its trace, both lists
+  // empty.
+  // Sabotage: answering nothing in applyInvokePasses's empty short cut turns
+  // this red.
+  it("is answered with both lists empty when no invocation is live", () => {
+    const event = external("copy.returned");
+    const next = deliver(
+      startTraced(`<scxml ${SCXML} initial="desk"><state id="desk"/></scxml>`),
+      event,
+    );
+    expect(finalizeTraces(next.effects)).toMatchObject([{ event, finalized: [], forwarded: [] }]);
+  });
+});
+
+function tags(effects: readonly InterpreterEffect[]): string[] {
+  return effects.map((e) => (e.kind === "trace" ? `trace:${e.trace}` : e.kind));
+}

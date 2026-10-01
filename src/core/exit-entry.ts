@@ -41,9 +41,13 @@
 // index, which is what running it needs.
 //
 // An invocation the invoke pass started is cancelled when its state exits,
-// after the state's `<onexit>` blocks. The trace effects the reference emits
-// for an exit set, an entry set and each block land with the trace
-// vocabulary.
+// after the state's `<onexit>` blocks.
+//
+// With tracing on, `exitStates` answers an `exit_set` trace first and
+// `enterStates` an `entry_set` trace first, each stamped with the counters as
+// they stand before any state moves and carrying the configuration as it
+// stands after every state has; each block answers its `content_executed`
+// trace through the block runner.
 //
 // A state's first entry is read from the states ever entered, which entry
 // keeps: on it, the state's own `<data>` binds (under late binding) before
@@ -81,7 +85,8 @@ import {
   transitionAt,
 } from "../machine.js";
 import { type ContentNode, type Effect, executeBlock, type Invalid } from "./content.js";
-import { enterStateData } from "./datamodel.js";
+import { type BindingEffect, enterStateData } from "./datamodel.js";
+import { type TraceEntrySet, type TraceExitSet, traced } from "./effects.js";
 import {
   computeExitSet,
   getEffectiveTargetStates,
@@ -109,6 +114,8 @@ export interface ExitEntryState extends SelectionState {
   /** The id of each live invocation, keyed by `invocationKey`. */
   readonly activeInvocations: ReadonlyMap<string, string>;
   readonly running: boolean;
+  /** Whether the position traces: only a set flag emits trace effects. */
+  readonly trace?: boolean;
 }
 
 /** The key `activeInvocations` holds an invocation under: its state and its position there. */
@@ -130,7 +137,7 @@ export interface CancelInvoke {
 }
 
 /** An effect exit or entry produced. */
-export type ExitEntryEffect = Effect | CancelInvoke;
+export type ExitEntryEffect = Effect | CancelInvoke | BindingEffect | TraceExitSet | TraceEntrySet;
 
 /** What a function that moves the configuration answers: the state it leaves and its effects. */
 export interface Moved<S extends ExitEntryState> {
@@ -163,7 +170,13 @@ export function exitStates<S extends ExitEntryState>(
     current = departed.state;
     effects.push(...departed.effects);
   }
-  return { state: current, effects };
+  const exited = current;
+  const trace = traced<TraceExitSet>(state.trace, state, () => ({
+    trace: "exit_set",
+    indexes: statesToExit,
+    configuration: documentOrder(exited.configuration),
+  }));
+  return { state: current, effects: [...trace, ...effects] };
 }
 
 // The history-recording loop: every history child of every exiting state,
@@ -407,14 +420,21 @@ export function enterStates<S extends ExitEntryState>(
   transitions: readonly CompiledTransition[],
 ): Moved<S> {
   const entrySet = computeEntrySet(state, transitions);
+  const entryOrder = documentOrder(entrySet.statesToEnter);
   let current = state;
   const effects: ExitEntryEffect[] = [];
-  for (const s of documentOrder(entrySet.statesToEnter)) {
+  for (const s of entryOrder) {
     const arrived = arrive(current, s, entrySet);
     current = arrived.state;
     effects.push(...arrived.effects);
   }
-  return { state: current, effects };
+  const entered = current;
+  const trace = traced<TraceEntrySet>(state.trace, state, () => ({
+    trace: "entry_set",
+    indexes: entryOrder,
+    configuration: documentOrder(entered.configuration),
+  }));
+  return { state: current, effects: [...trace, ...effects] };
 }
 
 // One state's entry, in the pseudocode's order.
@@ -424,12 +444,12 @@ function arrive<S extends ExitEntryState>(state: S, s: number, entrySet: EntrySe
   const firstEntry = !state.enteredStates.has(s);
   const enteredStates = new Set(state.enteredStates).add(s);
   const joined = { ...state, configuration, statesToInvoke, enteredStates };
-  const bound = firstEntry ? enterStateData(joined, s) : joined;
-  const onentry = runOnentryBlocks(bound, s);
+  const bound = firstEntry ? enterStateData(joined, s) : { state: joined, effects: [] };
+  const onentry = runOnentryBlocks(bound.state, s);
   const defaults = runDefaultEntry(onentry.state, s, entrySet);
   return {
     state: raiseCompletionEvents(defaults.state, s),
-    effects: [...onentry.effects, ...defaults.effects],
+    effects: [...bound.effects, ...onentry.effects, ...defaults.effects],
   };
 }
 
@@ -618,7 +638,8 @@ export function runBlock<S extends ExitEntryState>(
   owner: Owner,
 ): Moved<S> {
   const counters = { macrostep: state.macrostep, microstep: state.microstep, round: state.round };
-  const outcome = executeBlock(contextOf(state), content, { owner, counters }, state.sends);
+  const sink = { owner, counters, trace: state.trace === true };
+  const outcome = executeBlock(contextOf(state), content, sink, state.sends);
   return {
     state: {
       ...state,

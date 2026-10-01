@@ -23,9 +23,13 @@
 // the invoke types it implements, and refuses a type outside that set; no
 // such declaration exists here yet, so every invocation is judged as the
 // reference judges one in a session that declared none. The effect is
-// answered for any type; only the built-in SCXML type is recorded live. The
-// reference's trace and datamodel effects are not emitted here, as nowhere
-// else in this core.
+// answered for any type; only the built-in SCXML type is recorded live.
+//
+// With tracing on, each pass answers its trace last, every time it runs, the
+// pass that finds nothing to do included: `invoke_pass` and
+// `finalize_autoforward`. The `datamodel_change` the reference answers for an
+// `idlocation` write and for an empty `<finalize>`'s writes is not emitted
+// here.
 
 import { typeName, type Value } from "@riddler/predicator";
 import {
@@ -46,6 +50,7 @@ import {
   stateAt,
 } from "../machine.js";
 import type { Invalid } from "./content.js";
+import { type TraceFinalizeAutoforward, type TraceInvokePass, traced } from "./effects.js";
 import {
   contextOf,
   type ExitEntryEffect,
@@ -103,7 +108,12 @@ export interface Autoforward {
 }
 
 /** An effect the invoke passes produced. */
-export type InvokeEffect = ExitEntryEffect | Invoke | Autoforward;
+export type InvokeEffect =
+  | ExitEntryEffect
+  | Invoke
+  | Autoforward
+  | TraceInvokePass
+  | TraceFinalizeAutoforward;
 
 /** What a pass answers: the state it leaves and its effects, in order. */
 export interface Passed<S extends InvokeState> {
@@ -140,11 +150,11 @@ export function builtInInvokeType(type: Value): boolean {
  * answers nothing; its siblings are unaffected.
  */
 export function runInvokePass<S extends InvokeState>(state: S): Passed<S> {
-  if (state.statesToInvoke.size === 0) return { state, effects: [] };
+  const stateOrder = documentOrder(state.statesToInvoke);
   let current = state;
   let context = contextOf(state);
   const effects: InvokeEffect[] = [];
-  for (const s of documentOrder(state.statesToInvoke)) {
+  for (const s of stateOrder) {
     const owner = stateAt(state.machine, s);
     for (const invoke of owner.invoke) {
       const started = invokeOne(current, context, owner, invoke);
@@ -153,7 +163,29 @@ export function runInvokePass<S extends InvokeState>(state: S): Passed<S> {
       effects.push(...started.effects);
     }
   }
-  return { state: { ...current, statesToInvoke: new Set<number>() }, effects };
+  const passed = current;
+  const trace = traced<TraceInvokePass>(state.trace, passed, () => ({
+    trace: "invoke_pass",
+    stateIndexes: stateOrder,
+    invokeIds: liveInvokeIds(passed, effects),
+  }));
+  if (stateOrder.length === 0) return { state, effects: trace };
+  return {
+    state: { ...current, statesToInvoke: new Set<number>() },
+    effects: [...effects, ...trace],
+  };
+}
+
+// The ids of the invocations the pass left live, in the order it started
+// them: an invocation of a type the core does not record live is left out.
+function liveInvokeIds(state: InvokeState, effects: readonly InvokeEffect[]): string[] {
+  return effects.flatMap((effect) =>
+    effect.kind === "invoke" &&
+    state.activeInvocations.get(invocationKey(effect.stateIndex, effect.invokeIndex)) ===
+      effect.invokeId
+      ? [effect.invokeId]
+      : [],
+  );
 }
 
 interface Started<S extends InvokeState> extends Passed<S> {
@@ -294,7 +326,9 @@ function resolveContent(context: EvaluationContext, content: Expr | null): Resol
  * and forwards does both, its `<finalize>` first.
  */
 export function applyInvokePasses<S extends InvokeState>(state: S, event: Event): Passed<S> {
-  if (state.activeInvocations.size === 0) return { state, effects: [] };
+  if (state.activeInvocations.size === 0) {
+    return { state, effects: finalizeTrace(state, event, [], []) };
+  }
   let current = state;
   const effects: InvokeEffect[] = [];
   for (const s of documentOrder(state.configuration)) {
@@ -319,7 +353,33 @@ export function applyInvokePasses<S extends InvokeState>(state: S, event: Event)
       }
     }
   }
-  return { state: current, effects };
+  const passed = current;
+  const forwarded = effects.flatMap((effect) =>
+    effect.kind === "autoforward" ? [effect.invokeId] : [],
+  );
+  const finalized = [
+    ...new Set([...state.activeInvocations.values()].filter((id) => id === event.invokeid)),
+  ];
+  return {
+    state: current,
+    effects: [...effects, ...finalizeTrace(passed, event, finalized, forwarded)],
+  };
+}
+
+// The pass's trace: the live invocations whose id the event carried, and
+// those it was forwarded to.
+function finalizeTrace(
+  state: InvokeState,
+  event: Event,
+  finalized: readonly string[],
+  forwarded: readonly string[],
+): TraceFinalizeAutoforward[] {
+  return traced<TraceFinalizeAutoforward>(state.trace, state, () => ({
+    trace: "finalize_autoforward",
+    event,
+    finalized,
+    forwarded,
+  }));
 }
 
 // `applyFinalize`: no `<finalize>` does nothing; an empty one writes the
