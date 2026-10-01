@@ -32,11 +32,11 @@
 //   `error.execution` then, so a chart whose only defect is one of these
 //   still loads.
 //
-// A `<script>` compiles to an `Invalid` too, always: the reference compiles
-// its body as a statement program, and the expression language this package
-// pins compiles expressions only. Every chart with a script still loads, and
-// each script fails when it runs. This is a placeholder until how the port
-// runs scripts is decided.
+// A `<script>`'s body, in-line or top-level, compiles as a statement program
+// through the expression language's program compiler, as the reference's
+// `compile_program/3` does. Its failure is deferred, as an `<assign>`'s is: the
+// script compiles to an `Invalid` that raises `error.execution` when it runs,
+// so a chart whose only defect is a script body still loads.
 //
 // A `<send>`'s literal attributes fold to literals, and its `id` and
 // `idlocation` stay as written: whether its target and type can be carried
@@ -44,6 +44,7 @@
 
 import {
   compile as compileExpression,
+  compileProgramWithSpans,
   type ParseError as ExpressionParseError,
   evaluate as evaluateExpression,
   fromHost,
@@ -163,14 +164,17 @@ function invalidOf(error: CompilerError): Invalid {
 }
 
 /**
- * The message a `<script>` fails with until scripts can run: the pinned
- * expression language compiles expressions and not statement programs.
+ * A `<script>`'s body compiled as a statement program, or the `Invalid` that
+ * raises `error.execution` when the script runs, carrying the message the
+ * reference writes for a body that did not compile. It compiles with spans,
+ * as the reference does; what it keeps is the instructions and the source,
+ * which is what runs.
  */
-export const SCRIPT_UNSUPPORTED =
-  "a <script> body is a statement program, and the pinned expression language compiles expressions only";
-
-function scriptPlaceholder(script: Script): Invalid {
-  return { kind: "invalid", source: script.text, message: SCRIPT_UNSUPPORTED };
+function compileScript(script: Script): CompiledProgram | Invalid {
+  const source = script.text;
+  const compiled = compileProgramWithSpans(source);
+  if (compiled.ok) return { program: compiled.instructions, source };
+  return { kind: "invalid", source, message: compileErrorMessage(source, compiled.error) };
 }
 
 /**
@@ -269,7 +273,7 @@ export function compileDocument(chart: Document): CompilerResult {
   };
 
   const transitions = walk.transitions.map((pending) => buildTransition(walk, pending));
-  const globalScripts: (CompiledProgram | Invalid)[] = chart.scripts.map(scriptPlaceholder);
+  const globalScripts: (CompiledProgram | Invalid)[] = chart.scripts.map(compileScript);
 
   const errors = [
     ...walk.transitionErrors,
@@ -476,7 +480,7 @@ function compileContent(walk: Walk, node: DocumentContentNode): ContentNode {
     case "foreach":
       return compileForeach(walk, node, cIndex);
     case "script":
-      return { kind: "script", cIndex, program: scriptPlaceholder(node) };
+      return { kind: "script", cIndex, program: compileScript(node) };
     case "send":
       return compileSend(walk, node, cIndex);
     case "cancel":

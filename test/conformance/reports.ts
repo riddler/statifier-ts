@@ -9,8 +9,13 @@
 import { mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { CorpusSuite, SuiteReport } from "../../scripts/lib/corpus.mjs";
-import { CONFORMANCE_ROOT, loadManifest, loadSuites } from "../../scripts/lib/corpus.mjs";
+import type { CorpusSuite, RegistryEntry, SuiteReport } from "../../scripts/lib/corpus.mjs";
+import {
+  CONFORMANCE_ROOT,
+  indexCases,
+  loadManifest,
+  loadSuites,
+} from "../../scripts/lib/corpus.mjs";
 import { type RunCase, runSuite } from "./runner.js";
 
 /** Where reports are written: `reports/` at the repository root. */
@@ -54,5 +59,22 @@ export function writeReports(reports: readonly SuiteReport[], dir: string = REPO
     const path = join(dir, `${report.suite}.json`);
     writeFileSync(path, `${JSON.stringify(report, null, 2)}\n`);
     return path;
+  });
+}
+
+/**
+ * The gap list's lines: each case not yet claimed, with the features it
+ * needs in the corpus's own words (its `required_features`, the reference's
+ * feature detector's atoms). A case no suite here holds is named as such.
+ */
+export function gapLines(gap: readonly RegistryEntry[], suites: readonly CorpusSuite[]): string[] {
+  const cases = indexCases(suites);
+  return gap.map((entry) => {
+    const testCase = cases.get(entry.case_id);
+    if (testCase === undefined) return `${entry.case_id}: not in the vendored corpus`;
+    const features = testCase.required_features;
+    return features.length === 0
+      ? `${entry.case_id}: needs no named feature`
+      : `${entry.case_id}: needs ${features.join(", ")}`;
   });
 }

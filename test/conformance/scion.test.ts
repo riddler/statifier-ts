@@ -6,7 +6,7 @@
 
 import { describe, expect, it } from "vitest";
 import type { CorpusCase, CorpusStep } from "../../scripts/lib/corpus.mjs";
-import { type Chart, compile, SCRIPT_UNSUPPORTED } from "../../src/compiler.js";
+import { type Chart, compile } from "../../src/compiler.js";
 import { type DriveResult, type State, start } from "../../src/driver.js";
 import {
   activeLeaves,
@@ -128,20 +128,32 @@ describe("the comparison", () => {
   });
 });
 
-describe("the reasons a case fails with before it runs", () => {
-  // Sabotage: emptying the unsupported-feature table lets the case run to a
-  // mismatch instead, and this goes red on the reason. It was run and reverted.
-  it("names a feature this package does not run in the corpus's word, and why", () => {
-    const outcome = runScionCase(
-      scionCase(ROUTE, ["depot"], [], ["basic_states", "script_elements"]),
-    );
-    expect(outcome).toEqual({
-      result: "fail",
-      reason: `missing feature script_elements: ${SCRIPT_UNSUPPORTED}`,
-    });
-    expect(SCRIPT_UNSUPPORTED).toContain("pinned expression language compiles expressions only");
+describe("a case that requires script elements", () => {
+  // Sabotage: compiling every <script> body to an Invalid again turns this
+  // red: the scan count stays 0 and the parcel goes to `held`.
+  it("runs a case that requires script elements, the script deciding the route", () => {
+    const source = `<scxml ${SCXML} initial="depot">
+      <datamodel><data id="scans" expr="0"/></datamodel>
+      <state id="depot">
+        <transition event="parcel.scanned" target="sorting">
+          <script>scans = scans + 1; if scans == 1 { lane = "north" }</script>
+        </transition>
+      </state>
+      <state id="sorting">
+        <transition cond="lane == 'north'" target="north_van"/>
+        <transition target="held"/>
+      </state>
+      <state id="north_van"/>
+      <state id="held"/>
+    </scxml>`;
+    const features = ["basic_states", "script_elements"];
+    expect(
+      runScionCase(scionCase(source, ["depot"], [on("parcel.scanned", ["north_van"])], features)),
+    ).toEqual({ result: "pass" });
   });
+});
 
+describe("the reasons a case fails with before it runs", () => {
   it("names a source that does not compile, with the compiler's reason", () => {
     const outcome = runScionCase(scionCase("<scxml", ["depot"]));
     expect(outcome.result).toBe("fail");

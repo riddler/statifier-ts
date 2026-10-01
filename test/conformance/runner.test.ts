@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { CorpusCase, CorpusSuite } from "../../scripts/lib/corpus.mjs";
 import { loadManifest, loadSuites, reportFindings } from "../../scripts/lib/corpus.mjs";
-import { SCRIPT_UNSUPPORTED } from "../../src/compiler.js";
+import { gapLines } from "./reports.js";
 import { type RunCase, runSuite, suiteNotDriven } from "./runner.js";
 
 const manifest = loadManifest();
@@ -14,27 +14,14 @@ function suiteNamed(name: string): CorpusSuite {
 }
 
 describe("the runner over the vendored corpus", () => {
-  // The three scion cases a `<script>` body decides; every other scion case
-  // passes through the interpreter.
-  const SCRIPT_CASES = ["scion/script/test0", "scion/script/test1", "scion/script/test2"];
-
   // Sabotage: making the default case runner fail every case with one reason
-  // turns this red on the count of passes. It was run and reverted.
-  it("drives every scion case: each a pass, or a fail with the reason, and no third value", () => {
+  // turns this red on the failures. It was run and reverted.
+  it("drives every scion case through the interpreter, and every one passes", () => {
     const report = runSuite(suiteNamed("scion"), manifest.corpus_hash);
     expect(report.suite).toBe("scion");
     expect(report.corpus_hash).toBe(manifest.corpus_hash);
     expect(report.results).toHaveLength(119);
-    const failed = report.results.filter((result) => result.result !== "pass");
-    expect(failed).toEqual(
-      SCRIPT_CASES.map((id) => ({
-        case_id: id,
-        suite: "scion",
-        result: "fail",
-        reason: `missing feature script_elements: ${SCRIPT_UNSUPPORTED}`,
-      })),
-    );
-    expect(report.results.filter((result) => result.result === "pass")).toHaveLength(116);
+    expect(report.results.filter((result) => result.result !== "pass")).toEqual([]);
   });
 
   it("fails every case of a suite it does not drive yet, naming the suite", () => {
@@ -109,5 +96,40 @@ describe("the runner with a case runner handed in", () => {
     expect(() => runSuite(small, manifest.corpus_hash, silent)).toThrow(
       /neither a pass nor a fail with a reason/,
     );
+  });
+});
+
+describe("the gap list", () => {
+  // Sabotage: printing only the case id, as the list did before, turns this
+  // red on every line. It was run and reverted.
+  it("names each unclaimed case with the features it needs, in the corpus's words", () => {
+    const script = suiteNamed("scion").cases.find(
+      (testCase) => testCase.id === "scion/script/test0",
+    );
+    if (script === undefined) throw new Error("no scion/script/test0 in the vendored corpus");
+    const lines = gapLines(
+      [
+        { case_id: "scion/script/test0", suite: "scion" },
+        { case_id: "scion/parcel/route9", suite: "scion" },
+      ],
+      suites,
+    );
+    expect(lines).toEqual([
+      `scion/script/test0: needs ${script.required_features.join(", ")}`,
+      "scion/parcel/route9: not in the vendored corpus",
+    ]);
+    expect(lines[0]).toContain("script_elements");
+  });
+
+  it("says so when a case names no feature", () => {
+    const [first] = suiteNamed("scion").cases;
+    if (first === undefined) throw new Error("an empty scion suite");
+    const bare = { ...first, required_features: [] };
+    expect(
+      gapLines(
+        [{ case_id: first.id, suite: "scion" }],
+        [{ ...suiteNamed("scion"), cases: [bare] }],
+      ),
+    ).toEqual([`${first.id}: needs no named feature`]);
   });
 });

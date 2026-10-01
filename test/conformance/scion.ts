@@ -41,17 +41,13 @@
 // two knobs. Only the event's name is sent, as the reference's harness sends
 // only the name.
 //
-// A case that needs a feature this package does not run fails naming the
-// feature in the corpus's own word for it (a `required_features` entry, the
-// reference's feature detector's atom) and saying why, rather than being run
-// to a mismatch. Today that is `script_elements`: a `<script>` body is a
-// statement program, and the expression language this package is pinned to
-// compiles expressions only.
+// Every case runs: no feature the scion suite requires is one this package
+// does not run, so no case is failed before it starts.
 //
 // Like the runner, this reaches nothing outside the language.
 
 import type { CorpusCase } from "../../scripts/lib/corpus-rules.d.mts";
-import { type Chart, compile, SCRIPT_UNSUPPORTED } from "../../src/compiler.js";
+import { type Chart, compile } from "../../src/compiler.js";
 import { advance, type DriveResult, type State, start, step } from "../../src/driver.js";
 import { isAtomic } from "../../src/machine.js";
 import type { CaseOutcome } from "./runner.js";
@@ -61,14 +57,6 @@ export const SETTLE_WINDOW_MS = 100;
 
 /** How long, in virtual ms after an event, the runner waits for the expectation. */
 export const CONFIGURATION_DEADLINE_MS = 4000;
-
-/**
- * The features, in the corpus's words, that this package does not run, and
- * why. A case requiring one fails with the feature named.
- */
-export const UNSUPPORTED_FEATURES: ReadonlyMap<string, string> = new Map([
-  ["script_elements", SCRIPT_UNSUPPORTED],
-]);
 
 /** What a comparison found: the leaves, or the sentence saying why they cannot be compared. */
 type Leaves =
@@ -195,14 +183,6 @@ function compileFailure(testCase: CorpusCase): { chart: Chart } | { reason: stri
 
 /** Runs one scion case: a pass, or a fail whose reason names the step and both leaf sets. */
 export function runScionCase(testCase: CorpusCase): CaseOutcome {
-  const missing = testCase.required_features.filter((feature) => UNSUPPORTED_FEATURES.has(feature));
-  if (missing.length > 0) {
-    const reasons = missing.map(
-      (feature) => `missing feature ${feature}: ${UNSUPPORTED_FEATURES.get(feature)}`,
-    );
-    return { result: "fail", reason: reasons.join("; ") };
-  }
-
   const compiled = compileFailure(testCase);
   if ("reason" in compiled) return { result: "fail", reason: compiled.reason };
   const { chart } = compiled;

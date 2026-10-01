@@ -69,9 +69,8 @@ corpus is copied byte for byte from the reference at a named tag, recorded in
 `conformance/registry.json`, lists the cases this package claims to pass -
 written only by a run that observed the pass, and never narrowed. A claim is
 the exact set of its entries: this package claims the scion suite with the
-entries that registry lists, and not yet the three scion cases whose
-`<script>` body the pinned expression language does not compile, nor any
-case of the other suites.
+entries that registry lists, which are every case of that suite, and not yet
+any case of the other suites.
 [`conformance/README.md`](conformance/README.md) says how the copy, the
 check, the runner and the ratchet work.
 

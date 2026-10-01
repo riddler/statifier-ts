@@ -6,9 +6,10 @@
 // `reports/<suite>.json` for each, and prints for each suite how many cases
 // passed and failed. Then it prints what is not yet claimed: every case the
 // reference's own registry claims, for the suites run, that this package's
-// registry does not. That list is the distance between this package and the
-// reference, read off the two registries; it changes only when the ratchet
-// writes an entry here or a refresh moves the corpus.
+// registry does not, each with the features it needs. That list is the
+// distance between this package and the reference, read off the two
+// registries; it changes only when the ratchet writes an entry here or a
+// refresh moves the corpus.
 //
 // The exit is 0 whatever the cases answered: a failing case is a report line,
 // and what holds a claim is the registry check, not this run.
@@ -21,10 +22,11 @@ import {
   loadManifest,
   loadReferenceRegistry,
   loadRegistry,
+  loadSuites,
   REGISTRY_FILE,
   unclaimed,
 } from "../../scripts/lib/corpus.mjs";
-import { runVendored, writeReports } from "./reports.js";
+import { gapLines, runVendored, writeReports } from "./reports.js";
 
 function readSuites(argv: readonly string[]): string[] {
   const names: string[] = [];
@@ -66,4 +68,4 @@ const gap = unclaimed(loadReferenceRegistry(), registry, suitesRun);
 process.stdout.write(
   `\nwhat is not yet claimed: ${gap.length} cases the reference's registry claims and this package's does not (${suitesRun.join(", ")})\n`,
 );
-for (const entry of gap) process.stdout.write(`  ${entry.case_id}\n`);
+for (const line of gapLines(gap, loadSuites())) process.stdout.write(`  ${line}\n`);
