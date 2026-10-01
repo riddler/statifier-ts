@@ -12,10 +12,10 @@ allowBuilds:
   esbuild: true
 
 # pnpm 12 declines to install a version younger than its minimum release age.
-# The one runtime dependency was pinned at the version the registry answered
-# when this package was bootstrapped, which was younger than that age, so pnpm
-# wrote the exception below for that exact version. It names one version, not
-# the package: a later version of the dependency waits out the age like any
-# other, and once this one is older than the age the entry changes nothing.
+# The one runtime dependency was last raised to a version the registry had
+# published the same day, which was younger than that age, so pnpm wrote the
+# exception below for that exact version. It names one version, not the
+# package: a later version of the dependency waits out the age like any other,
+# and once this one is older than the age the entry changes nothing.
 minimumReleaseAgeExclude:
-  - '@riddler/predicator@0.3.0'
+  - '@riddler/predicator@0.4.0'

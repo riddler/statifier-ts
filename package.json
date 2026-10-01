@@ -55,7 +55,7 @@
     "resolution": "node scripts/legacy-resolution.mjs"
   },
   "dependencies": {
-    "@riddler/predicator": "^0.3.0"
+    "@riddler/predicator": "^0.4.0"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.13",

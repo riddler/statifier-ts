@@ -10,9 +10,15 @@
 // `Duration.to_string/1` writes for its duration, since there is no such
 // writer here.
 
-import { Duration, type DurationParts, evaluate, parseDuration } from "@riddler/predicator";
+import {
+  Duration,
+  type DurationParts,
+  durationToMilliseconds,
+  evaluate,
+  parseDuration,
+} from "@riddler/predicator";
 import { describe, expect, it } from "vitest";
-import { delayToMs, durationToMs, normalizeLeadingDot } from "../src/duration.js";
+import { delayToMs, normalizeLeadingDot } from "../src/duration.js";
 
 /** One assertion of the reference table: a text and the parts it parses to, or null for a refusal. */
 type Row = readonly [test: string, text: string, parts: DurationParts | null];
@@ -119,15 +125,21 @@ describe("the reference's duration table", () => {
       } else if (parts === null) {
         expect(delayToMs(text)).toStrictEqual({ ok: false, reason: "invalid_delay", value: text });
       } else {
-        expect(delayToMs(text)).toStrictEqual({ ok: true, ms: durationToMs(new Duration(parts)) });
+        expect(delayToMs(text)).toStrictEqual({
+          ok: true,
+          ms: durationToMilliseconds(new Duration(parts)),
+        });
       }
     });
   });
 });
 
-describe("durationToMs", () => {
-  // Sabotage: weighing any one unit wrongly, or leaving a unit out of the sum,
-  // turns its row red.
+describe("a duration value as a delay", () => {
+  // The weights are the reference's (`Predicator.Duration.to_milliseconds/1`
+  // in predicator-ex at v9.4.2): the conversion is the dependency's, and these
+  // rows pin it to the reference's numbers.
+  // Sabotage: a wrong weight for any one unit in the conversion, or a unit
+  // left out of the sum, turns its row red.
   it.each([
     [{ milliseconds: 1 }, 1],
     [{ seconds: 1 }, 1_000],
@@ -138,13 +150,14 @@ describe("durationToMs", () => {
     [{ months: 1 }, 2_592_000_000],
     [{ years: 1 }, 31_536_000_000],
   ] as const)("weighs %j as %i ms, as the reference converts it", (parts, ms) => {
-    expect(durationToMs(new Duration(parts))).toBe(ms);
+    expect(delayToMs(new Duration(parts))).toStrictEqual({ ok: true, ms });
   });
 
-  // Sabotage: leaving years out of the sum turns this red.
+  // Sabotage: converting a duration value by anything but its whole sum
+  // (years left out, say) turns this red.
   it("sums every part", () => {
     expect(
-      durationToMs(
+      delayToMs(
         new Duration({
           years: 1,
           months: 1,
@@ -156,9 +169,11 @@ describe("durationToMs", () => {
           milliseconds: 1,
         }),
       ),
-    ).toBe(
-      31_536_000_000 + 2_592_000_000 + 604_800_000 + 86_400_000 + 3_600_000 + 60_000 + 1_000 + 1,
-    );
+    ).toStrictEqual({
+      ok: true,
+      ms:
+        31_536_000_000 + 2_592_000_000 + 604_800_000 + 86_400_000 + 3_600_000 + 60_000 + 1_000 + 1,
+    });
   });
 });
 
