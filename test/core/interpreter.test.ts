@@ -499,18 +499,30 @@ describe("a <data> that fails to bind", () => {
 });
 
 describe("the <script> children of <scxml>", () => {
-  // The compiler holds every such script as one that did not compile, so
-  // starting the chart raises error.execution for it, as the reference raises
-  // for a script whose body did not compile.
+  // The compiler holds a script whose body did not compile as one, so
+  // starting the chart raises error.execution for it, as the reference raises.
   // Sabotage: skipping the global scripts turns this red.
   it("raise error.execution when they did not compile", () => {
     const { state } = start(`<scxml ${SCXML} initial="desk">
-      <script>fines = 0</script>
+      <script>fines =</script>
       <state id="desk"><transition event="error.execution" target="flagged"/></state>
       <state id="flagged"/>
     </scxml>`);
     expect(leaves(state)).toEqual(["flagged"]);
     const event = state.datamodel.get("_event") as { data: { kind: string } };
     expect(event.data.kind).toBe("compile_error");
+  });
+
+  // Sabotage: compiling every script body to an Invalid again turns this red:
+  // no fine is written and the chart takes error.execution to `flagged`.
+  it("run in document order, each against the datamodel the one before it left", () => {
+    const { state } = start(`<scxml ${SCXML} initial="desk">
+      <script>fines = 2</script>
+      <script>fines = fines + 1</script>
+      <state id="desk"><transition event="error.execution" target="flagged"/></state>
+      <state id="flagged"/>
+    </scxml>`);
+    expect(leaves(state)).toEqual(["desk"]);
+    expect(state.datamodel.get("fines")).toBe(3);
   });
 });

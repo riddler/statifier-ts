@@ -61,8 +61,7 @@ value and no case is left out. The runner drives each scion case through the
 interpreter, compares the active leaf set after the start and after each
 event as the reference's harness does, and moves a virtual clock by the two
 knobs ADR-0003 fixes (a settle window of 100 ms before each event, a
-deadline of 4000 ms after it); a case that needs a feature this package does
-not run fails naming the feature. A case of the w3c or statifier suite fails
+deadline of 4000 ms after it). A case of the w3c or statifier suite fails
 with the reason that its suite is not driven yet.
 
 **Ratchet.** `pnpm ratchet` reads only the reports the last run wrote. It
@@ -83,6 +82,7 @@ claims and no entries, and the check says that no claim is made.
 The reference's own registry, inside the copy, lists the cases the reference
 passes. The difference between it and this package's registry is what this
 package does not yet claim, and `pnpm conformance` prints it after every run,
-for the suites it ran. This package's registry claims scion entries only, so
-that list is the three scion cases a `<script>` body decides and every w3c
-and statifier case of the reference's registry.
+for the suites it ran, each case with the features it needs: its
+`required_features`, in the corpus's own words. This package's registry
+claims every scion case and no other, so that list is every w3c and
+statifier case of the reference's registry.

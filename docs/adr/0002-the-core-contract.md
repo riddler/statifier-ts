@@ -434,3 +434,26 @@ reaches into it anyway takes on that churn.
 The position's proof is the package agreeing with itself. It shows nothing lost
 on the way out and back, not that the export matches the reference's; that
 needs corpus cases the reference does not emit yet.
+
+## Note: script bodies compile (2026-10-01)
+
+Three passages name a condition rather than a lasting rule: the Context bullet
+naming `SCRIPT_UNSUPPORTED` and `scriptPlaceholder`, the Context's sentence
+that scripts were ruled to stay a placeholder, and the Decision's paragraph "A
+`<script>` raises `error.execution` until scripts can compile". Each holds
+until the pinned expression language compiles statement programs. That holds
+from `@riddler/predicator` 0.4.0, which exports `compileProgramWithSpans` and
+which `package.json` pins at `^0.4.0` on `main` at `a85c0e4`. When that
+release was pinned, script bodies were to compile through it, ruled by the
+operator, 2026-10-01.
+
+The change that adds this Note does so. `compileScript` in `src/compiler.ts`
+compiles every `<script>` body, top-level and in-line, as a statement program,
+as the reference's `compile_program/3` in
+`lib/statifier/compiler/expressions.ex` at `v2.9.0` does, and
+`SCRIPT_UNSUPPORTED` and `scriptPlaceholder` no longer exist. A body that does
+not compile is deferred as the reference defers it: it compiles to an
+`Invalid` that raises `error.execution` when the script runs, carrying the
+reference's message, and the chart still loads. The Consequences paragraph
+beginning "A chart with a `<script>` compiles and runs" now holds only for a
+script whose body did not compile.

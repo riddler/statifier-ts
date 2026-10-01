@@ -6,8 +6,9 @@
 // and returned, a branch's desk and stacks, and the loan events the chart
 // raises about it.
 
+import { compileProgram, type Program } from "@riddler/predicator";
 import { describe, expect, it } from "vitest";
-import { type CompilerError, compile, SCRIPT_UNSUPPORTED } from "../src/compiler.js";
+import { type CompilerError, compile } from "../src/compiler.js";
 import type { ContentNode } from "../src/core/content.js";
 import type { Expr } from "../src/datamodel.js";
 import { compile as publicCompile } from "../src/index.js";
@@ -33,6 +34,12 @@ function stateOf(machine: Machine, id: string) {
   const state = machine.states[index];
   if (state === undefined) throw new Error(`no state at ${index}`);
   return state;
+}
+
+function programOf(source: string): Program {
+  const compiled = compileProgram(source);
+  if (!compiled.ok) throw new Error(`fixture program does not compile: ${source}`);
+  return compiled.instructions;
 }
 
 function staticValue(expr: unknown): unknown {
@@ -301,22 +308,43 @@ describe("executable content", () => {
     expect(values).toEqual(['<copy barcode="9"/>', [1, 2], "north wing", null]);
   });
 
-  // Sabotage: answering an empty compiled program instead of the placeholder
-  // turns this red.
-  it("compiles every <script> to the placeholder that fails when it runs", () => {
+  // Sabotage: compiling a body with the expression compiler instead of the
+  // program compiler turns this red, since an assignment is not an expression.
+  it("compiles every <script> body, top-level and in-line, as a statement program", () => {
+    const inline = "\n        renewals = renewals + 1;\n      ";
     const machine = machineOf(`<scxml ${SCXML}>
       <datamodel><data id="renewals" expr="0"/></datamodel>
       <script>renewals = 1</script>
-      <state id="s"><onentry><script>renewals = renewals + 1</script></onentry></state>
+      <state id="s"><onentry><script>${inline}</script></onentry></state>
     </scxml>`);
     expect(machine.globalScripts).toEqual([
-      { kind: "invalid", source: "renewals = 1", message: SCRIPT_UNSUPPORTED },
+      { program: programOf("renewals = 1"), source: "renewals = 1" },
     ]);
     expect(stateOf(machine, "s").onentry[0]?.content[0]).toEqual({
       kind: "script",
       cIndex: 0,
-      program: { kind: "invalid", source: "renewals = renewals + 1", message: SCRIPT_UNSUPPORTED },
+      program: { program: programOf(inline), source: inline },
     });
+  });
+
+  // Sabotage: pushing a body that does not compile onto the load-time errors
+  // turns this red: the chart would not load.
+  it("defers a <script> body that does not compile to when it runs, with the reference's message", () => {
+    const machine = machineOf(`<scxml ${SCXML}>
+      <script>renewals =</script>
+      <state id="s"><onentry><script>if renewals { </script></onentry></state>
+    </scxml>`);
+    const global = machine.globalScripts[0];
+    expect(global).toMatchObject({ kind: "invalid", source: "renewals =" });
+    expect(global !== undefined && "message" in global ? global.message : null).toMatch(
+      /^failed to compile expression "renewals =": .+ \(predicator line 1, column \d+\)$/,
+    );
+    const node = stateOf(machine, "s").onentry[0]?.content[0];
+    const program = node?.kind === "script" ? node.program : null;
+    expect(program).toMatchObject({ kind: "invalid", source: "if renewals { " });
+    expect(program !== null && "message" in program ? program.message : null).toMatch(
+      /^failed to compile expression "if renewals \{ ": .+ \(predicator line 1, column \d+\)$/,
+    );
   });
 
   // Sabotage: compiling <send> and <cancel> to no node (dropping them from

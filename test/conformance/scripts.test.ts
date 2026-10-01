@@ -152,13 +152,13 @@ describe("the registry check", () => {
   it("fails on an entry the corpus has but that does not pass today", () => {
     const path = join(root, "registry.json");
     const registry = JSON.parse(readFileSync(path, "utf8"));
-    registry.claims = ["scion"];
-    registry.entries = [{ case_id: "scion/script/test0", suite: "scion" }];
+    registry.claims = ["w3c-mandatory"];
+    registry.entries = [{ case_id: "w3c/test144", suite: "w3c" }];
     writeFileSync(path, `${JSON.stringify(registry, null, 2)}\n`);
     const result = run("scripts/registry-check.mjs", true);
     expect(result.status).toBe(1);
     expect(result.stderr).toContain(
-      "the ratchet: scion/script/test0 fails today: missing feature script_elements",
+      "the ratchet: w3c/test144 fails today: the w3c suite is not driven yet",
     );
   });
 
