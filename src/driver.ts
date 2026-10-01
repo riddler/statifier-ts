@@ -91,6 +91,7 @@ import {
   SCXML_EVENT_PROCESSOR,
   scxmlLocation,
 } from "./datamodel.js";
+import { stateShapeFailure } from "./driver-shape.js";
 import type { Machine } from "./machine.js";
 
 // ---------------------------------------------------------------------------
@@ -273,12 +274,15 @@ export type DriveRefusal =
   | "invalid_duration";
 
 /**
- * What failed in a malformed state: a state name the chart does not hold, the
- * field whose tagged-value text did not decode, or the pending timer whose
- * send is not a delayed one. A field is written as a path into the state,
- * such as `datamodel.renewals` or `timers[0].send.data`.
+ * What failed in a malformed state: a field missing or of the wrong type
+ * (checked over the whole state before anything decodes), a state name the
+ * chart does not hold, the field whose tagged-value text did not decode, or
+ * the pending timer whose send is not a delayed one. A field is written as a
+ * path into the state, such as `datamodel.renewals` or `timers[0].send.data`;
+ * a state that is not an object at all is the field `state`.
  */
 export type MalformedDetail =
+  | { readonly kind: "bad_shape"; readonly field: string }
   | { readonly kind: "unknown_state"; readonly name: string }
   | { readonly kind: "undecodable_value"; readonly field: string }
   | { readonly kind: "not_a_delayed_send"; readonly field: string };
@@ -298,24 +302,22 @@ export type DriveResult =
   | DriveRefused;
 
 /**
- * Whether the chart has stopped, and with what. A stopped chart whose stored
- * donedata does not decode answers `ok: false` with the malformed detail
- * rather than a stand-in value.
+ * Whether the chart has stopped, and with what. A state without the driver
+ * state's shape, or a stopped chart whose stored donedata does not decode,
+ * answers `ok: false` with the malformed detail rather than a stand-in value.
  */
 export type DoneStatus =
-  | { readonly done: false }
+  | { readonly ok: true; readonly done: false }
   | {
-      readonly done: true;
       readonly ok: true;
+      readonly done: true;
       readonly donedata: Value;
       readonly configuration: readonly string[];
     }
   | {
-      readonly done: true;
       readonly ok: false;
       readonly reason: "malformed_state";
       readonly detail: MalformedDetail;
-      readonly configuration: readonly string[];
     };
 
 // ---------------------------------------------------------------------------
@@ -437,14 +439,18 @@ export function configuration(state: State): readonly string[] {
 
 /** Whether the chart has stopped and, when it has, the top-level final's donedata. */
 export function isDone(state: State): DoneStatus {
-  if (state.done === null) return { done: false };
+  const badShape = stateShapeFailure(state);
+  if (badShape !== null) {
+    return { ok: false, reason: "malformed_state", detail: { kind: "bad_shape", field: badShape } };
+  }
+  if (state.done === null) return { ok: true, done: false };
   const { configuration } = state.done;
   const donedata = decodeTagged(state.done.donedata);
   if (!donedata.ok) {
     const detail: MalformedDetail = { kind: "undecodable_value", field: "done.donedata" };
-    return { done: true, ok: false, reason: "malformed_state", detail, configuration };
+    return { ok: false, reason: "malformed_state", detail };
   }
-  return { done: true, ok: true, donedata: donedata.value, configuration };
+  return { ok: true, done: true, donedata: donedata.value, configuration };
 }
 
 // ---------------------------------------------------------------------------
@@ -856,7 +862,13 @@ function sameIdentity(a: ChartIdentity, b: ChartIdentity): boolean {
   return a.contentHash === b.contentHash && a.name === b.name && a.version === b.version;
 }
 
+// The state's shape is checked first, over every field, so nothing below
+// reads a field that is missing or of the wrong type.
 function open(chart: Chart, state: State, options: DriveOptions): Opened {
+  const badShape = stateShapeFailure(state);
+  if (badShape !== null) {
+    return { ok: false, reason: "malformed_state", detail: { kind: "bad_shape", field: badShape } };
+  }
   if (!sameIdentity(chart.identity, state.identity)) return { ok: false, reason: "chart_mismatch" };
   const decoder: Decoder = { detail: null };
   const live = decodeState(decoder, chart, state, options);

@@ -94,7 +94,7 @@ describe("start, step and configuration", () => {
     const out = send(LOAN, started.state, "checkout");
     expect(configuration(out.state)).toEqual(["active", "on_loan"]);
     expect(kinds(out.effects)).toEqual(["send_delayed"]);
-    expect(isDone(out.state)).toEqual({ done: false });
+    expect(isDone(out.state)).toEqual({ ok: true, done: false });
   });
 
   // Sabotage: writing the state's lists in document order (the sort removed
@@ -162,8 +162,8 @@ describe("start, step and configuration", () => {
     const done = send(LOAN, renewed.state, "return");
     expect(kinds(done.effects)).toContain("done");
     expect(isDone(done.state)).toEqual({
-      done: true,
       ok: true,
+      done: true,
       donedata: { renewals: 1 },
       configuration: ["returned"],
     });
@@ -557,12 +557,97 @@ describe("isDone", () => {
     const done = send(LOAN, loaned.state, "return").state;
     if (done.done === null) throw new Error("not done");
     expect(isDone({ ...done, done: { ...done.done, donedata: "{" } })).toEqual({
-      done: true,
       ok: false,
       reason: "malformed_state",
       detail: { kind: "undecodable_value", field: "done.donedata" },
-      configuration: ["returned"],
     });
+  });
+});
+
+describe("the state's shape", () => {
+  function badShape(field: string) {
+    return { ok: false, reason: "malformed_state", detail: { kind: "bad_shape", field } };
+  }
+
+  function without(state: State, field: string): State {
+    const copy: Record<string, unknown> = { ...state };
+    delete copy[field];
+    return copy as unknown as State;
+  }
+
+  function reshaped(state: State, changes: Record<string, unknown>): State {
+    return { ...state, ...changes } as unknown as State;
+  }
+
+  // Sabotage: answering the shape refusal with the field `state` whatever
+  // failed, or skipping the check in isDone, turns this red.
+  it("refuses a state that is not a driver state at all, on step, advance and isDone", () => {
+    const empty = {} as unknown as State;
+    expect(step(LOAN, empty, { name: "checkout" })).toEqual(badShape("identity"));
+    expect(advance(LOAN, empty, 10)).toEqual(badShape("identity"));
+    expect(isDone(empty)).toEqual(badShape("identity"));
+    expect(step(LOAN, null as unknown as State, { name: "checkout" })).toEqual(badShape("state"));
+  });
+
+  // Sabotage: answering the shape refusal with the field `state` whatever
+  // failed turns this red.
+  it("names a missing field", () => {
+    const { state } = begin(LOAN);
+    for (const field of ["timers", "datamodel", "identity", "configuration"]) {
+      expect(step(LOAN, without(state, field), { name: "checkout" })).toEqual(badShape(field));
+      expect(advance(LOAN, without(state, field), 10)).toEqual(badShape(field));
+    }
+  });
+
+  // Sabotage: naming a datamodel entry without its key turns this red.
+  it("names a datamodel value that is not tagged-value text", () => {
+    const { state } = begin(LOAN);
+    const broken = reshaped(state, { datamodel: { ...state.datamodel, n: 5 } });
+    expect(step(LOAN, broken, { name: "checkout" })).toEqual(badShape("datamodel.n"));
+  });
+
+  // Sabotage: accepting any number-like clock (the type check on nowMs
+  // removed) turns this red: the clock becomes "100300".
+  it("refuses a clock that is not a non-negative number", () => {
+    const { state } = begin(LOAN);
+    expect(advance(LOAN, reshaped(state, { nowMs: "100" }), 300)).toEqual(badShape("nowMs"));
+    expect(advance(LOAN, reshaped(state, { nowMs: -1 }), 300)).toEqual(badShape("nowMs"));
+  });
+
+  // Sabotage: accepting any string as the status turns this red.
+  it("refuses a status or running flag outside its values", () => {
+    const { state } = begin(LOAN);
+    expect(step(LOAN, reshaped(state, { status: "paused" }), { name: "x" })).toEqual(
+      badShape("status"),
+    );
+    expect(step(LOAN, reshaped(state, { running: "yes" }), { name: "x" })).toEqual(
+      badShape("running"),
+    );
+  });
+
+  // Sabotage: checking a timer's fields without its send record turns this
+  // red.
+  it("names the first bad field inside a pending timer and a queued event", () => {
+    const { state } = send(LOAN, begin(LOAN).state, "checkout");
+    const [timer] = state.timers;
+    if (timer === undefined) throw new Error("no timer");
+    const badTimer = { ...timer, send: { ...timer.send, owner: { kind: "elsewhere" } } };
+    expect(advance(LOAN, reshaped(state, { timers: [badTimer] }), 0)).toEqual(
+      badShape("timers[0].send.owner.kind"),
+    );
+    const queued = { name: "checkout", type: "external", data: "null", cause: { origin: {} } };
+    expect(step(LOAN, reshaped(state, { externalQueue: [queued] }), { name: "x" })).toEqual(
+      badShape("externalQueue[0].cause.origin.kind"),
+    );
+  });
+
+  // Sabotage: refusing a state that has every field right (the round budget
+  // check made to refuse "infinity") turns this red.
+  it("accepts every state the driver itself writes", () => {
+    const started = begin(LOAN, { maxMacrostepRounds: "infinity" });
+    const loaned = send(LOAN, viaJson(started.state), "checkout");
+    expect(isDone(viaJson(loaned.state))).toEqual({ ok: true, done: false });
+    expect(advance(LOAN, viaJson(loaned.state), 2000).ok).toBe(true);
   });
 });
 
