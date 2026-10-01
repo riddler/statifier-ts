@@ -37,6 +37,7 @@ pnpm corpus:check     # the four hashes agree (a gate stage)
 pnpm conformance      # run the corpus, write reports/<suite>.json, print what is not yet claimed
 pnpm ratchet          # record in registry.json the cases the last run passed
 pnpm registry         # the registry check (a gate stage)
+pnpm position         # the position round-trip property over the scion suite (a gate stage)
 ```
 
 **Refresh.** Moving the copy to another tag is a change of its own, reviewed
@@ -76,6 +77,39 @@ the reference's `RATCHET.md` - the pin, rule 1, the claims, every entry passing
 when run today, and something to check - and fails on a file the ratchet would
 not have written. Before the first entry the registry carries the pin, no
 claims and no entries, and the check says that no claim is made.
+
+## The position round trip
+
+`pnpm position` holds `exportPosition` and `importPosition` to a round-trip
+property over the scion suite, and `pnpm conformance` prints the same counts
+after a run of that suite. For each case it drives the chart as the scion
+runner does and takes a point after the start and after every step. At each
+point it exports the position, writes it to JSON text and reads it back,
+compiles the case's source again into a fresh chart, imports the position
+into it, and drives the remaining steps on the imported state the same way.
+At the point and after every later step the imported state must hold what
+the unbroken drive holds: every field a position carries, the configuration
+first, and whether the chart has stopped. A carried point that disagrees
+fails the stage, named with its case, its step and the field.
+
+A point the export cannot carry is counted with its reason, not compared:
+the export's own refusals (`internal_queue_not_empty`, `unnameable_states`),
+and the driver state a position does not hold - a pending timer
+(`pending_timers`), an external event not yet taken, a delayed send a
+processor holds, a spent round budget. ADR-0002 says why pending timers are
+driver state and not position fields.
+
+A chart already stopped at the point is compared by the configuration the
+state holds, whether it is running, its status and whether `isDone` answers
+stopped, and not by the configuration it stopped in: that one travels in the
+done effect, never in the position, so the imported state answers the
+position's own configuration there.
+
+**This is a self-consistency claim.** It shows the package agreeing with
+itself, nothing lost on the way out and back; it does not show that the
+export matches the reference's, and nothing here claims parity with the
+reference's export. That needs corpus cases that assert the exported position
+after a step, which the reference does not emit yet.
 
 ## What is not yet claimed
 

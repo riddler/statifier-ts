@@ -1,7 +1,7 @@
-// The corpus check and the registry check, run as the gate runs them, against
-// a copy of the conformance directory a test has altered. The copy lives in a
-// temporary directory and is removed after each test; nothing here touches
-// this repository's own conformance directory.
+// The corpus check, the registry check and the position round-trip stage, run
+// as the gate runs them, against a copy of the conformance directory a test
+// has altered. The copy lives in a temporary directory and is removed after
+// each test; nothing here touches this repository's own conformance directory.
 
 import { spawnSync } from "node:child_process";
 import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -168,5 +168,27 @@ describe("the registry check", () => {
     const result = run("scripts/registry-check.mjs", true);
     expect(result.status).toBe(1);
     expect(result.stderr).toContain("not in the encoding the ratchet writes");
+  });
+});
+
+describe("the position round-trip stage", () => {
+  it("passes on the corpus as vendored and prints the points, the agreements and each reason", () => {
+    const result = run("scripts/position-check.mjs", true);
+    expect(result.stderr).toBe("");
+    expect(result.status).toBe(0);
+    expect(result.stdout).toMatch(/^position: \d+ points over \d+ scion cases \(/);
+    expect(result.stdout).toMatch(/position: \d+ round trips agree, 0 disagree\n/);
+    expect(result.stdout).toMatch(/position: \d+ points not carried/);
+  });
+
+  // Sabotage: answering success when the suite is empty, as a property over
+  // no point vacuously holds, turns this red. It was run and reverted.
+  it("fails when the corpus holds no scion case, rather than holding over nothing", () => {
+    const path = join(root, "statifier", "corpus", "scion.json");
+    const corpus = JSON.parse(readFileSync(path, "utf8"));
+    writeFileSync(path, JSON.stringify({ ...corpus, cases: [] }));
+    const result = run("scripts/position-check.mjs", true);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("position: the vendored corpus holds no scion case to run");
   });
 });
