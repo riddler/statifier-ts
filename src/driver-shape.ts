@@ -240,12 +240,27 @@ export function positionShapeFailure(position: unknown): string | null {
   return firstFailure("", position, POSITION_FIELDS);
 }
 
-/**
- * The first field of a driver state whose presence or type is wrong, by its
- * path into the state, or null when the whole state has the shape.
- */
-export function stateShapeFailure(state: unknown): string | null {
-  return firstFailure("", state, [
+function mail(value: unknown, at: string): string | null {
+  return firstFailure(at, value, [
+    ["kind", plain(oneOf("completed", "event", "done"))],
+    ["invokeId", plain(isString)],
+    ["event", (v, a) => (v === null ? null : queuedEvent(v, a))],
+  ]);
+}
+
+// An invocation holds its child's whole state, checked as the state is.
+function invocation(value: unknown, at: string): string | null {
+  return firstFailure(at, value, [
+    ["invokeId", plain(isString)],
+    ["autoforward", plain(isBoolean)],
+    ["completed", plain(isBoolean)],
+    ["source", plain(orNull(isString))],
+    ["state", (v, a) => (v === null ? null : driverState(v, a))],
+  ]);
+}
+
+function driverState(value: unknown, at: string): string | null {
+  return firstFailure(at, value, [
     ["identity", identity],
     ...POSITION_FIELDS,
     ["sessionId", plain(isString)],
@@ -257,5 +272,17 @@ export function stateShapeFailure(state: unknown): string | null {
     ["heldSends", record(plain(isStringList))],
     ["halted", plain(oneOf(null, "budget_exhausted"))],
     ["done", done],
+    ["invokedAs", plain(orNull(isString))],
+    ["invocations", list(invocation)],
+    ["mailbox", list(mail)],
   ]);
+}
+
+/**
+ * The first field of a driver state whose presence or type is wrong, by its
+ * path into the state, or null when the whole state has the shape. A child
+ * session's state, nested under its invocation, is checked the same way.
+ */
+export function stateShapeFailure(state: unknown): string | null {
+  return driverState(state, "");
 }

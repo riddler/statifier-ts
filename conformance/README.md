@@ -95,11 +95,11 @@ suites through one function (`test_scxml/4` in
 `lib/statifier/testing/case.ex` at `v2.9.0`), and the runner drives them
 through one drive: a w3c case carries no step and expects its chart to rest
 in the `pass` state once it has run as far as it can. A w3c case that needs
-`<invoke>`, which this package does not run yet, fails before it is driven,
-naming the feature, `invoke_elements` in the reference's feature names: the
-reference's harness runs `<invoke>`, and its rule for a feature a harness
-does not run is to fail the case before it starts, so that the feature never
-passes as a test it did not run (ADR-0003 decision 6).
+`<invoke>` is driven with its child run in process by the driver, on the
+same virtual clock, as the reference's harness drives it through a session.
+The reference's rule for a feature a harness does not run - fail the case
+before it starts, so that the feature never passes as a test it did not run
+(ADR-0003 decision 6) - stays in the runner, and names no feature now.
 
 The reference's runner routes a statifier case by whether it carries a `host`
 object (`run_case/1` in `lib/mix/statifier/corpus/runner.ex` at `v2.9.0`).
@@ -190,18 +190,12 @@ This package's registry claims every scion case and the w3c and statifier
 cases a run observed to pass; the claims `w3c-mandatory`, `w3c-optional` and
 `statifier` are exactly those entries, and a w3c or statifier case with no
 entry is one this package does not claim to pass. What the run fails in the
-w3c suite falls in three groups:
+w3c suite falls in two groups:
 
-- the cases that need `<invoke>`, each failing before it is driven with
-  `invoke_elements` named;
 - `w3c/test329`, which the reference claims and which fails here on the
   configuration the chart rests in;
 - `w3c/test330` and `w3c/test552`, which the reference's registry does not
   list, and which fail here on the configuration the chart rests in.
-
-A case that needs `<invoke>` fails even when its chart would reach the
-expected configuration with no invocation run, as `w3c/test187` would on its
-timeout guard: a pass there would claim a feature this package does not run.
 
 What the run fails in the statifier suite falls in three groups, each named
 under "Run" above:

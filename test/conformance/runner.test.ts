@@ -50,30 +50,22 @@ describe("the runner over the vendored corpus", () => {
     }
   });
 
-  // Sabotage: answering a w3c fail without the feature it needs turns this red
-  // on every invoke case. It was run and reverted.
-  it("names the feature it does not run in every w3c fail of a case that needs it", () => {
+  // Sabotage: restoring `invoke_elements` to the features not run turns this
+  // red on every invoke case, each failed before its drive.
+  it("drives every w3c case, an invoke case included, and every fail is the comparison's", () => {
     const report = runSuite(suiteNamed("w3c"), manifest.corpus_hash);
     const cases = new Map(suiteNamed("w3c").cases.map((testCase) => [testCase.id, testCase]));
-    const fails = report.results.filter((result) => result.result === "fail");
-    expect(fails.length).toBeGreaterThan(0);
-    const needing = suiteNamed("w3c")
-      .cases.filter((testCase) => featuresNotRun(testCase).length > 0)
+    const invoking = suiteNamed("w3c")
+      .cases.filter((testCase) => testCase.required_features.includes("invoke_elements"))
       .map((testCase) => testCase.id);
-    expect(needing.length).toBeGreaterThan(0);
-    expect(fails.map((result) => result.case_id)).toEqual(expect.arrayContaining(needing));
-    for (const result of fails) {
-      const testCase = cases.get(result.case_id);
-      if (testCase === undefined) throw new Error(`${result.case_id} is not in the w3c suite`);
-      const missing = featuresNotRun(testCase);
-      if (missing.length > 0) {
-        expect(result.reason).toBe(
-          `depends on a feature this package does not run: ${missing.join(", ")}`,
-        );
-      } else {
-        expect(result.reason).toMatch(/^the initial configuration: expected active leaf states /);
-      }
+    expect(invoking.length).toBeGreaterThan(0);
+    for (const testCase of suiteNamed("w3c").cases) expect(featuresNotRun(testCase)).toEqual([]);
+    for (const result of report.results.filter((candidate) => candidate.result === "fail")) {
+      expect(cases.get(result.case_id)?.required_features).not.toContain("invoke_elements");
+      expect(result.reason).toMatch(/^the initial configuration: expected active leaf states /);
     }
+    const passed = report.results.filter((result) => result.result === "pass");
+    expect(passed.map((result) => result.case_id)).toEqual(expect.arrayContaining(invoking));
   });
 
   // Sabotage: answering the statifier suite with the not-driven reason turns

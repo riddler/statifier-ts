@@ -8,7 +8,7 @@
 
 import { compileProgram, type Program } from "@riddler/predicator";
 import { describe, expect, it } from "vitest";
-import { type CompilerError, compile } from "../src/compiler.js";
+import { type CompilerError, compile, compileInvokeContent } from "../src/compiler.js";
 import type { ContentNode } from "../src/core/content.js";
 import type { Expr } from "../src/datamodel.js";
 import { compile as publicCompile } from "../src/index.js";
@@ -748,5 +748,39 @@ describe("compile", () => {
     );
     if (result.ok) throw new Error("compiled");
     expect(result.errors.map((e) => e.reason)).toEqual(["param_no_value"]);
+  });
+});
+
+describe("invoke content markup", () => {
+  const COURIER = '<scxml version="1.0" initial="van"><state id="van"/></scxml>';
+
+  // Sabotage: compiling content markup without the relaxed rule turns this
+  // red: the courier's root declares no namespace.
+  it("compiles a root that declares no namespace, as SCXML", () => {
+    const result = compileInvokeContent(COURIER);
+    if (!result.ok) throw new Error(JSON.stringify(result.errors));
+    expect(result.chart.machine.idToIndex.has("van")).toBe(true);
+    expect(result.chart.identity.name).toBeNull();
+  });
+
+  // Sabotage: relaxing every compile, not only content markup, turns this red.
+  it("leaves the top-level compile refusing a root with no namespace", () => {
+    const result = compile(COURIER);
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.errors.map((e) => e.reason)).toEqual(["bad_namespace"]);
+  });
+
+  // Sabotage: dropping every root error under the relaxed rule, the version's
+  // with the namespace's, turns this red.
+  it("still refuses a root in another namespace, and a root with no version", () => {
+    const foreign = compileInvokeContent(
+      '<scxml xmlns="http://example.org/parcels" version="1.0"><state id="van"/></scxml>',
+    );
+    expect(foreign.ok).toBe(false);
+    if (!foreign.ok) expect(foreign.errors.map((e) => e.reason)).toEqual(["foreign_element"]);
+    const unversioned = compileInvokeContent('<scxml initial="van"><state id="van"/></scxml>');
+    expect(unversioned.ok).toBe(false);
+    if (!unversioned.ok) expect(unversioned.errors.map((e) => e.reason)).toEqual(["bad_version"]);
   });
 });

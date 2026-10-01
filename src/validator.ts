@@ -133,16 +133,43 @@ export type ValidationResult =
   | { readonly ok: false; readonly errors: readonly ValidationError[] };
 
 /**
+ * What `validate` takes beside the chart. `invokeContentMarkup` relaxes the
+ * root's namespace rule for invoke content markup, as the reference's
+ * `invoke_content_markup: true` does (its ADR-0042 at v2.9.0): a root that
+ * declares no namespace at all is in the SCXML namespace, since inline content
+ * with no declaration is placed there. A root declaring a different namespace
+ * is still refused, and so is any other rule. Only the driver's compile of an
+ * invocation's content sets it.
+ */
+export interface ValidateOptions {
+  readonly invokeContentMarkup?: boolean;
+}
+
+/**
  * Holds `chart` to every rule that gates compilation. `source` must be the
  * text `chart` was lowered from: the enumerated attributes are read back
  * out of it.
  *
  * Answers the chart, unchanged, when no rule is broken; otherwise every error
  * found, in source order.
+ *
+ * Sabotage: keeping the no-namespace error under `invokeContentMarkup` turns
+ * the compiler test that compiles content markup with no namespace red.
  */
-export function validate(chart: Document, source: string): ValidationResult {
+export function validate(
+  chart: Document,
+  source: string,
+  options: ValidateOptions = {},
+): ValidationResult {
   const index = buildIndex(chart);
-  const errors = CHECKS.flatMap((check) => check(chart, index, source));
+  const errors = CHECKS.flatMap((check) => check(chart, index, source)).filter(
+    (error) =>
+      !(
+        options.invokeContentMarkup === true &&
+        error.reason === "bad_namespace" &&
+        error.uri === null
+      ),
+  );
   if (errors.length === 0) return { ok: true, document: chart };
   // A stable sort, so errors at one offset keep the order the checks ran in.
   const sorted = [...errors].sort((a, b) => a.location.startOffset - b.location.startOffset);

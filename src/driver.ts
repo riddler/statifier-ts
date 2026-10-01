@@ -15,7 +15,8 @@
 // spelled in camel case as the rest of this package spells the reference's
 // fields, plus the driver's own: the session id, the virtual clock, the
 // pending timers, the external queue, the internal queue, the delayed sends
-// processors hold, the budget halt and the stopped chart's donedata.
+// processors hold, the budget halt, the stopped chart's donedata, and the
+// session's invocations with each child's own state, nested.
 // `JSON.stringify` then `JSON.parse` answers a state that steps exactly as
 // the original does.
 //
@@ -46,16 +47,49 @@
 // Routing, as the reference's planner and session route a send: no target
 // joins this session's external queue, and so does this session's own
 // `#_scxml_` address; `#_internal` is delivered onto the internal queue and
-// the chart runs to a stable configuration again; a parent, another session
-// or an invocation names nothing this driver can reach, so the send fails
-// with `error.communication` on the internal queue. Before each drive the
-// driver declares what it can reach - this session's own id, no parent and no
-// invocation - as the reference's session stamps its routes, so the core
-// refuses an immediate send to anything else where the send runs: the block
-// stops and `error.communication` joins the internal queue ahead of anything
-// the rest of the block would have raised. A delayed send's route is judged
-// here when its timer fires. A delivery onto the internal queue runs after
-// the effects of the drive that produced it, as the reference defers it.
+// the chart runs to a stable configuration again; `#_parent` from an invoked
+// child, and `#_<invokeid>` naming a live invocation, deliver as external
+// events (below); another session, a parent the session does not have, or an
+// invocation that is not live names nothing this driver can reach, so the
+// send fails with `error.communication` on the internal queue. Before each
+// drive the driver declares what it can reach - this session's own id,
+// whether it has a parent, and the ids of its live invocations - as the
+// reference's session stamps its routes, so the core refuses an immediate
+// send to anything else where the send runs: the block stops and
+// `error.communication` joins the internal queue ahead of anything the rest
+// of the block would have raised. A delayed send's route is judged here when
+// its timer fires. A delivery onto the internal queue runs after the effects
+// of the drive that produced it, as the reference defers it.
+//
+// Invocations, as the reference's session and its built-in `scxml` handler
+// run them (`Statifier.Session`, `Statifier.Session.Invocations`,
+// `Statifier.Invoke.Source` and `Statifier.Invoke.Handler.Scxml` at v2.9.0),
+// with one session tree in place of processes. An `invoke` effect of the
+// SCXML type is recorded live under its id, then its content is compiled
+// with the relaxed namespace rule and started as a child session with its
+// own id (the parent's, a dot and the invoke id), its datamodel seeded from
+// the params a root `<data>` of the child names; a content that is not
+// markup, or does not compile, raises `error.communication` and leaves the id
+// recorded with no child, as the reference's table keeps it. Any other type
+// raises `error.execution` and records nothing. A child runs on the parent's
+// virtual clock and is stepped by this driver, never by a timer, a thread or
+// I/O: starting it, an event sent to it and an autoforwarded event each run
+// it to a stable configuration at once, and its timers fire with the
+// parent's, in due-then-scheduled order across the whole tree.
+//
+// What a child sends its parent - an event to `#_parent`, stamped with the
+// invoke id; a notice that it reached a top-level final, ahead of everything
+// its final batch sends; and `done.invoke.<id>` with its donedata - waits in
+// the parent's mailbox and is taken once the parent's own external queue is
+// empty, one entry at a time, as the reference's session takes a message
+// only after its own inbox drains. An entry whose invocation is no longer
+// live is discarded there, as the reference discards it at drain; the done
+// event retires its invocation once taken. A `cancel_invoke` retires the
+// invocation and stops its child, running the child's `<onexit>` handlers,
+// unless the child already said it completed, which leaves the entry for
+// its done event. An `autoforward` delivers the event, unchanged, to a live
+// child. A child is started with no registered send type, and its effects
+// are not among a call's effects: those are the host's session's own.
 //
 // Registered send types. The processors a host registers are passed with
 // every call, as the reference re-stamps its send types before each drive:
@@ -68,11 +102,12 @@
 // reference halts its session: further external events are queued and not
 // taken, and pending timers still fire.
 
-import { Undefined, type Value } from "@riddler/predicator";
+import { typeName, Undefined, type Value } from "@riddler/predicator";
 import { decodeTagged, encodeTagged } from "@riddler/predicator/tagged";
-import type { Chart, ChartIdentity } from "./compiler.js";
+import { type Chart, type ChartIdentity, compileInvokeContent } from "./compiler.js";
 import {
   type Done,
+  exitInterpreter,
   handleEvent,
   type InterpreterEffect,
   initialize,
@@ -80,6 +115,7 @@ import {
   mainEventLoop,
   type RoundBudget,
 } from "./core/interpreter.js";
+import { builtInInvokeType, type Invoke } from "./core/invoke.js";
 import {
   type Cancel,
   classifyType,
@@ -98,7 +134,7 @@ import {
   scxmlLocation,
 } from "./datamodel.js";
 import { stateShapeFailure } from "./driver-shape.js";
-import type { Machine } from "./machine.js";
+import { type Machine, stateAt } from "./machine.js";
 
 // ---------------------------------------------------------------------------
 // The public shapes
@@ -154,6 +190,32 @@ export interface ActiveInvocation {
 }
 
 /**
+ * An invocation the driver holds live: its id, whether it autoforwards,
+ * whether its child has said it reached a top-level final, the content
+ * markup its child was compiled from, and the child's own state. `source`
+ * and `state` are both null when the content could not start a child: the
+ * id stays live, as the reference's table keeps it, and nothing answers.
+ */
+export interface InvocationRecord {
+  readonly invokeId: string;
+  readonly autoforward: boolean;
+  readonly completed: boolean;
+  readonly source: string | null;
+  readonly state: State | null;
+}
+
+/**
+ * What a child has sent its parent and the parent has not taken yet: the
+ * notice that it reached a top-level final (`completed`, no event), an
+ * event sent to `#_parent` (`event`), or its `done.invoke.<id>` (`done`).
+ */
+export interface MailRecord {
+  readonly kind: "completed" | "event" | "done";
+  readonly invokeId: string;
+  readonly event: QueuedEvent | null;
+}
+
+/**
  * A running chart's state: a plain JSON value. The first block of fields is
  * the reference's string-id position export; the rest are the driver's own.
  */
@@ -183,10 +245,17 @@ export interface State {
 
   /** The id the host minted for the session. */
   readonly sessionId: string;
-  /** The virtual clock, in milliseconds since the chart started. */
+  /**
+   * The virtual clock, in milliseconds since the chart started. A child's
+   * state carries its host session's clock, which every session of the tree
+   * shares; only the host session's is read.
+   */
   readonly nowMs: number;
   readonly timers: readonly PendingTimer[];
-  /** How many timers have ever been scheduled: the next one's sequence. */
+  /**
+   * How many timers have ever been scheduled, in the whole tree: the next
+   * one's sequence. A child's state carries its host session's.
+   */
   readonly timerSequence: number;
   /** External events not yet taken, oldest first. */
   readonly externalQueue: readonly QueuedEvent[];
@@ -198,6 +267,12 @@ export interface State {
   readonly halted: "budget_exhausted" | null;
   /** Set once the chart has stopped. */
   readonly done: DoneRecord | null;
+  /** The invoke id this session runs as in its parent; null for a host's session. */
+  readonly invokedAs: string | null;
+  /** The live invocations, in the order they started. */
+  readonly invocations: readonly InvocationRecord[];
+  /** What the children have sent and this session has not taken, oldest first. */
+  readonly mailbox: readonly MailRecord[];
 }
 
 /** What the state keeps of a stopped chart. */
@@ -345,28 +420,18 @@ export type DoneStatus =
  */
 export function start(chart: Chart, options: StartOptions): DriveResult {
   const processors = options.sendTypes ?? {};
-  const stepped = initialize(chart.machine, {
+  const out: InterpreterEffect[] = [];
+  const live = launch({
+    chart,
     sessionId: options.sessionId,
     datamodel: new Map(Object.entries(options.datamodel ?? {})),
     maxMacrostepRounds: options.maxMacrostepRounds ?? 10_000,
-    sendTypes: registeredSet(processors),
-    routes: routesOf(options.sessionId),
+    clock: { nowMs: 0, sequence: 0 },
+    processors,
+    out,
+    parent: null,
+    invokedAs: null,
   });
-  const live: Live = {
-    chart,
-    core: stepped.state,
-    sessionId: options.sessionId,
-    nowMs: 0,
-    timers: [],
-    timerSequence: 0,
-    externalQueue: [],
-    heldSends: new Map(),
-    halted: null,
-    done: null,
-  };
-  const out: InterpreterEffect[] = [];
-  perform(live, stepped.effects, processors, out);
-  drain(live, processors, out);
   return answer(live, out);
 }
 
@@ -389,21 +454,21 @@ export function step(
   event: HostEvent,
   options: DriveOptions = {},
 ): DriveResult {
-  const opened = open(chart, state, options);
+  const out: InterpreterEffect[] = [];
+  const opened = open(chart, state, options, out);
   if (!opened.ok) return opened;
   const live = opened.live;
   if (!live.core.running) return { ok: false, reason: "not_running" };
-  const processors = options.sendTypes ?? {};
   live.externalQueue.push({ name: event.name, type: "external", data: event.data ?? Undefined });
-  const out: InterpreterEffect[] = [];
-  drain(live, processors, out);
+  drain(live);
   return answer(live, out);
 }
 
 /**
  * Moves the virtual clock forward `ms` milliseconds, firing every pending
  * timer due by then in due-then-scheduled order, each run to completion
- * before the next.
+ * before the next. The timers of the chart's invoked children fire on the
+ * same clock, in the same order.
  *
  * `sendTypes` must name the same set of types for a session's whole life.
  * A send's type is judged against the processors passed with each call, so
@@ -421,21 +486,23 @@ export function advance(
   options: DriveOptions = {},
 ): DriveResult {
   if (!Number.isFinite(ms) || ms < 0) return { ok: false, reason: "invalid_duration" };
-  const opened = open(chart, state, options);
+  const out: InterpreterEffect[] = [];
+  const opened = open(chart, state, options, out);
   if (!opened.ok) return opened;
   const live = opened.live;
-  const processors = options.sendTypes ?? {};
-  const until = live.nowMs + ms;
-  const out: InterpreterEffect[] = [];
+  const until = live.clock.nowMs + ms;
   for (;;) {
-    const next = nextDue(live.timers, until);
+    const next = nextDue(live, until);
     if (next === undefined) break;
-    live.timers = live.timers.filter((timer) => timer !== next);
-    live.nowMs = next.dueMs;
-    fire(live, next.send, processors, out);
-    drain(live, processors, out);
+    const { session, timer } = next;
+    session.timers = session.timers.filter((pending) => pending !== timer);
+    live.clock.nowMs = timer.dueMs;
+    fire(session, timer.send);
+    // The session the timer fired in runs to a stable configuration, then
+    // each session above it takes what its child sent.
+    for (let at: Live | null = session; at !== null; at = at.parent) drain(at);
   }
-  live.nowMs = until;
+  live.clock.nowMs = until;
   return answer(live, out);
 }
 
@@ -473,9 +540,10 @@ export function isDone(state: State): DoneStatus {
  * drive leaves.
  */
 export function rewrite(chart: Chart, state: State): DriveResult {
-  const opened = open(chart, state, {});
+  const out: InterpreterEffect[] = [];
+  const opened = open(chart, state, {}, out);
   if (!opened.ok) return opened;
-  return answer(opened.live, []);
+  return answer(opened.live, out);
 }
 
 // ---------------------------------------------------------------------------
@@ -484,18 +552,44 @@ export function rewrite(chart: Chart, state: State): DriveResult {
 
 // The state decoded for one call: the core's own state, the driver's fields
 // with their values decoded, and the chart. Mutated in place during the call
-// and encoded once at its end.
+// and encoded once at its end. A child session is a `Live` of its own, held
+// by its parent's invocation and pointing back at that parent; every session
+// of one tree shares one clock.
 interface Live {
   readonly chart: Chart;
   core: MachineState;
   readonly sessionId: string;
-  nowMs: number;
+  readonly clock: Clock;
   timers: LiveTimer[];
-  timerSequence: number;
   externalQueue: Event[];
   heldSends: Map<string, string[]>;
   halted: "budget_exhausted" | null;
   done: { readonly donedata: Value; readonly configuration: readonly number[] } | null;
+  /** The invoke id this session runs as in its parent; null for the host's session. */
+  readonly invokedAs: string | null;
+  /** The session that invoked this one; null for the host's session. */
+  readonly parent: Live | null;
+  /** The live invocations by id, in the order they started. */
+  invocations: Map<string, Invocation>;
+  /** What the children sent and this session has not taken, oldest first. */
+  mailbox: Mail[];
+  /**
+   * Set while a cancelled child runs its exit: it neither announces its
+   * completion nor returns a done event, as the reference's cancel overrides
+   * its halt. What its `<onexit>` sends `#_parent` is sent, and discarded by
+   * the parent, which has already retired the invocation.
+   */
+  cancelled: boolean;
+  /** The processors this session hands registered sends to: the host's, or none for a child. */
+  readonly processors: SendProcessors;
+  /** Where this session's effects are reported: the call's own for the host's session. */
+  readonly out: InterpreterEffect[];
+}
+
+// The virtual clock and the sequence timers are scheduled in, one per tree.
+interface Clock {
+  nowMs: number;
+  sequence: number;
 }
 
 interface LiveTimer {
@@ -505,10 +599,86 @@ interface LiveTimer {
   readonly send: SendDelayed;
 }
 
-// What this driver can reach, declared to the core before each drive: its own
-// session id, and no parent or invocation, since it runs no child session.
-function routesOf(sessionId: string): Routes {
-  return { sessions: new Set([sessionId]), parent: false, invokes: new Set() };
+// A live invocation. `child` is null when its content could not start one.
+interface Invocation {
+  readonly invokeId: string;
+  readonly autoforward: boolean;
+  completed: boolean;
+  readonly source: string | null;
+  readonly child: Live | null;
+}
+
+type Mail =
+  | { readonly kind: "completed"; readonly invokeId: string }
+  | { readonly kind: "event" | "done"; readonly invokeId: string; readonly event: Event };
+
+// What starting a session takes: the host's session or an invoked child.
+interface Launch {
+  readonly chart: Chart;
+  readonly sessionId: string;
+  readonly datamodel: Map<string, Value>;
+  readonly maxMacrostepRounds?: RoundBudget;
+  readonly clock: Clock;
+  readonly processors: SendProcessors;
+  readonly out: InterpreterEffect[];
+  readonly parent: Live | null;
+  readonly invokedAs: string | null;
+}
+
+// Starts a session and runs it to a stable configuration. A child's
+// invocation is recorded before it runs, so what it sends while starting
+// reaches a live invocation.
+function launch(spec: Launch, register?: (live: Live) => void): Live {
+  const stepped = initialize(spec.chart.machine, {
+    sessionId: spec.sessionId,
+    datamodel: spec.datamodel,
+    ...(spec.maxMacrostepRounds === undefined
+      ? {}
+      : { maxMacrostepRounds: spec.maxMacrostepRounds }),
+    sendTypes: registeredSet(spec.processors),
+    routes: {
+      sessions: new Set([spec.sessionId]),
+      parent: spec.invokedAs !== null,
+      invokes: new Set(),
+    },
+  });
+  const live: Live = {
+    chart: spec.chart,
+    core: stepped.state,
+    sessionId: spec.sessionId,
+    clock: spec.clock,
+    timers: [],
+    externalQueue: [],
+    heldSends: new Map(),
+    halted: null,
+    done: null,
+    invokedAs: spec.invokedAs,
+    parent: spec.parent,
+    invocations: new Map(),
+    mailbox: [],
+    cancelled: false,
+    processors: spec.processors,
+    out: spec.out,
+  };
+  register?.(live);
+  perform(live, stepped.effects);
+  drain(live);
+  return live;
+}
+
+// What this session can reach, declared to the core before each drive: its
+// own session id, whether it has a parent, and the ids of its live
+// invocations, as the reference's session stamps its routes.
+function routesOf(live: Live): Routes {
+  return {
+    sessions: new Set([live.sessionId]),
+    parent: live.invokedAs !== null,
+    invokes: new Set(live.invocations.keys()),
+  };
+}
+
+function stamp(live: Live): void {
+  live.core = { ...live.core, sends: { ...live.core.sends, routes: routesOf(live) } };
 }
 
 function registeredSet(processors: SendProcessors): ReadonlySet<string> | null {
@@ -516,17 +686,33 @@ function registeredSet(processors: SendProcessors): ReadonlySet<string> | null {
   return types.length === 0 ? null : new Set(types);
 }
 
-// The earliest timer due by `until`, the first scheduled among equals.
-function nextDue(timers: readonly LiveTimer[], until: number): LiveTimer | undefined {
-  let best: LiveTimer | undefined;
-  for (const timer of timers) {
-    if (timer.dueMs > until) continue;
-    if (
-      best === undefined ||
-      timer.dueMs < best.dueMs ||
-      (timer.dueMs === best.dueMs && timer.sequence < best.sequence)
-    ) {
-      best = timer;
+// Every session of the tree, the host's first and each child after its
+// parent, in the order the invocations started.
+function sessionsOf(live: Live): Live[] {
+  const all = [live];
+  for (const invocation of live.invocations.values()) {
+    if (invocation.child !== null) all.push(...sessionsOf(invocation.child));
+  }
+  return all;
+}
+
+// The earliest timer due by `until` anywhere in the tree, the first scheduled
+// among equals.
+function nextDue(
+  root: Live,
+  until: number,
+): { readonly session: Live; readonly timer: LiveTimer } | undefined {
+  let best: { session: Live; timer: LiveTimer } | undefined;
+  for (const session of sessionsOf(root)) {
+    for (const timer of session.timers) {
+      if (timer.dueMs > until) continue;
+      if (
+        best === undefined ||
+        timer.dueMs < best.timer.dueMs ||
+        (timer.dueMs === best.timer.dueMs && timer.sequence < best.timer.sequence)
+      ) {
+        best = { session, timer };
+      }
     }
   }
   return best;
@@ -537,60 +723,102 @@ function nextDue(timers: readonly LiveTimer[], until: number): LiveTimer | undef
 // ---------------------------------------------------------------------------
 
 // Takes the external queue one event per macrostep, while the chart runs and
-// no macrostep has spent its budget.
-function drain(live: Live, processors: SendProcessors, out: InterpreterEffect[]): void {
+// no macrostep has spent its budget; once it is empty, takes the mailbox one
+// entry at a time, each run to completion before the next.
+function drain(live: Live): void {
   while (live.halted === null && live.core.running) {
     const [event, ...rest] = live.externalQueue;
-    if (event === undefined) return;
-    live.externalQueue = rest;
-    const outcome = handleEvent(live.core, event);
-    if (!outcome.ok) return;
-    live.core = outcome.state;
-    perform(live, outcome.effects, processors, out);
+    if (event !== undefined) {
+      live.externalQueue = rest;
+      take(live, event);
+      continue;
+    }
+    const [mail, ...later] = live.mailbox;
+    if (mail === undefined) return;
+    live.mailbox = later;
+    takeMail(live, mail);
+  }
+}
+
+// One external event, one macrostep.
+function take(live: Live, event: Event): void {
+  stamp(live);
+  const outcome = handleEvent(live.core, event);
+  if (!outcome.ok) return;
+  live.core = outcome.state;
+  perform(live, outcome.effects);
+}
+
+// One mailbox entry. An entry whose invocation is no longer live is
+// discarded, as the reference's session discards it at drain; the done event
+// retires its invocation once it has been taken.
+function takeMail(live: Live, mail: Mail): void {
+  const invocation = live.invocations.get(mail.invokeId);
+  if (invocation === undefined) return;
+  switch (mail.kind) {
+    case "completed":
+      invocation.completed = true;
+      return;
+    case "event":
+      take(live, mail.event);
+      return;
+    case "done":
+      take(live, mail.event);
+      live.invocations.delete(mail.invokeId);
+      return;
   }
 }
 
 // Acts on a batch of effects in order. A delivery onto the internal queue
 // runs the chart at once, but its own effects are acted on after the batch,
-// as the reference defers them.
-function perform(
-  live: Live,
-  effects: readonly InterpreterEffect[],
-  processors: SendProcessors,
-  out: InterpreterEffect[],
-): void {
+// as the reference defers them. A child whose batch stops it tells its
+// parent first, ahead of everything the batch sends, as the reference's
+// session announces its completion.
+function perform(live: Live, effects: readonly InterpreterEffect[]): void {
+  if (
+    live.parent !== null &&
+    live.invokedAs !== null &&
+    !live.cancelled &&
+    effects.some((effect) => effect.kind === "done")
+  ) {
+    live.parent.mailbox.push({ kind: "completed", invokeId: live.invokedAs });
+  }
   let batch = effects;
   while (batch.length > 0) {
     const deferred: InterpreterEffect[] = [];
     for (const effect of batch) {
-      out.push(effect);
-      deferred.push(...performOne(live, effect, processors));
+      live.out.push(effect);
+      deferred.push(...performOne(live, effect));
     }
     batch = deferred;
   }
 }
 
-function performOne(
-  live: Live,
-  effect: InterpreterEffect,
-  processors: SendProcessors,
-): readonly InterpreterEffect[] {
+function performOne(live: Live, effect: InterpreterEffect): readonly InterpreterEffect[] {
   switch (effect.kind) {
     case "send":
-      if (registered(live, processors, effect)) return handOff(live, processors, effect);
+      if (registered(live, effect)) return handOff(live, effect);
       return route(live, effect);
     case "send_delayed":
-      if (registered(live, processors, effect)) return handOff(live, processors, effect);
+      if (registered(live, effect)) return handOff(live, effect);
       live.timers.push({
         sendId: effect.sendId,
-        dueMs: live.nowMs + effect.delayMs,
-        sequence: live.timerSequence,
+        dueMs: live.clock.nowMs + effect.delayMs,
+        sequence: live.clock.sequence,
         send: effect,
       });
-      live.timerSequence += 1;
+      live.clock.sequence += 1;
       return [];
     case "cancel":
-      cancelSend(live, processors, effect);
+      cancelSend(live, effect);
+      return [];
+    case "invoke":
+      return invoke(live, effect);
+    case "cancel_invoke":
+      cancelInvocation(live, effect.invokeId);
+      return [];
+    case "autoforward":
+      deliverToChild(live.invocations.get(effect.invokeId), effect.event);
       return [];
     case "done":
       stopped(live, effect);
@@ -603,39 +831,35 @@ function performOne(
   }
 }
 
-function registered(live: Live, processors: SendProcessors, send: Send | SendDelayed): boolean {
+function registered(live: Live, send: Send | SendDelayed): boolean {
   return (
     classifyType(live.core.sends.sendTypes, send.type) === "registered" &&
     typeof send.type === "string" &&
-    Object.hasOwn(processors, send.type)
+    Object.hasOwn(live.processors, send.type)
   );
 }
 
 // A registered type's send: handed to its processor with the event a
 // delivery would carry, and, when delayed, held under its send id.
-function handOff(
-  live: Live,
-  processors: SendProcessors,
-  send: Send | SendDelayed,
-): readonly InterpreterEffect[] {
+function handOff(live: Live, send: Send | SendDelayed): readonly InterpreterEffect[] {
   const type = send.type as string;
   if (send.kind === "send_delayed") {
     const held = live.heldSends.get(send.sendId) ?? [];
     live.heldSends.set(send.sendId, [...new Set([...held, type])].sort(byCodeUnit));
   }
-  processorFor(processors, type)?.deliver(send, deliveredEvent(send, live.sessionId));
+  processorFor(live.processors, type)?.deliver(send, deliveredEvent(send, live.sessionId));
   return [];
 }
 
 // A `<cancel>`: every pending timer under the id goes, and each processor
 // holding a delayed send under it is told once.
-function cancelSend(live: Live, processors: SendProcessors, cancel: Cancel): void {
+function cancelSend(live: Live, cancel: Cancel): void {
   live.timers = live.timers.filter((timer) => timer.sendId !== cancel.sendId);
   if (typeof cancel.sendId !== "string") return;
   const held = live.heldSends.get(cancel.sendId);
   if (held === undefined) return;
   live.heldSends.delete(cancel.sendId);
-  for (const type of held) processorFor(processors, type)?.cancel?.(cancel);
+  for (const type of held) processorFor(live.processors, type)?.cancel?.(cancel);
 }
 
 // The processor registered for a type on this call, read as an own key only.
@@ -644,11 +868,22 @@ function processorFor(processors: SendProcessors, type: string): SendProcessor |
 }
 
 // The chart stopped: its donedata and final configuration are kept, and its
-// pending timers and queued external events discarded.
+// pending timers, queued external events, untaken mail and the invocations
+// its exit left (the completed ones) discarded. A child that stopped on its
+// own returns `done.invoke.<id>` to its parent.
 function stopped(live: Live, done: Done): void {
   live.done = { donedata: done.donedata, configuration: done.configuration };
   live.timers = [];
   live.externalQueue = [];
+  live.mailbox = [];
+  live.invocations = new Map();
+  if (live.parent !== null && live.invokedAs !== null && !live.cancelled) {
+    live.parent.mailbox.push({
+      kind: "done",
+      invokeId: live.invokedAs,
+      event: doneInvokeEvent(live.parent.sessionId, live.invokedAs, done.donedata),
+    });
+  }
 }
 
 // An immediate built-in send, routed now.
@@ -669,6 +904,20 @@ function route(live: Live, send: Send | SendDelayed): readonly InterpreterEffect
         data: send.data,
         sendid: authorSendId(send),
       });
+    case "parent":
+      if (live.parent === null || live.invokedAs === null) return communicationError(live, send);
+      live.parent.mailbox.push({
+        kind: "event",
+        invokeId: live.invokedAs,
+        event: { ...deliveredEvent(send, live.sessionId), invokeid: live.invokedAs },
+      });
+      return [];
+    case "invoke": {
+      const invocation = live.invocations.get(target.invokeId);
+      if (invocation === undefined) return communicationError(live, send);
+      deliverToChild(invocation, deliveredEvent(send, live.sessionId));
+      return [];
+    }
     default:
       return communicationError(live, send);
   }
@@ -676,13 +925,8 @@ function route(live: Live, send: Send | SendDelayed): readonly InterpreterEffect
 
 // A fired timer's send, routed as an immediate one is; a self-addressed one
 // joins the external queue and is taken by the drain that follows.
-function fire(
-  live: Live,
-  send: SendDelayed,
-  processors: SendProcessors,
-  out: InterpreterEffect[],
-): void {
-  perform(live, route(live, send), processors, out);
+function fire(live: Live, send: SendDelayed): void {
+  perform(live, route(live, send));
 }
 
 // A send to something this driver cannot reach: `error.communication` on the
@@ -705,6 +949,7 @@ function deliverInternal(
   fields: { readonly data: Value; readonly sendid: string | undefined },
 ): readonly InterpreterEffect[] {
   if (!live.core.running) return [];
+  stamp(live);
   const { macrostep, microstep, round } = live.core;
   const event: Event = {
     name: typeof name === "string" ? name : "",
@@ -742,6 +987,131 @@ function deliveredEvent(send: Send | SendDelayed, sessionId: string): Event {
     origintype: SCXML_EVENT_PROCESSOR,
     ...(sendid === undefined ? {} : { sendid }),
   };
+}
+
+// ---------------------------------------------------------------------------
+// Invocations
+// ---------------------------------------------------------------------------
+
+// An `invoke` effect, as the reference's planner and its built-in `scxml`
+// handler take it: a type other than the SCXML type raises `error.execution`
+// and records nothing; the SCXML type is recorded live, then its content is
+// compiled and started as a child. A content that is not markup, or that
+// does not compile, raises `error.communication` and leaves the invocation
+// live with no child; `src` is never dereferenced, so an invocation with no
+// content fails the same way.
+function invoke(live: Live, effect: Invoke): readonly InterpreterEffect[] {
+  const origin: Origin = {
+    kind: "invoke",
+    stateIndex: effect.stateIndex,
+    invokeIndex: effect.invokeIndex,
+  };
+  const failure: { readonly data: Value; readonly sendid: undefined } = {
+    data: Undefined,
+    sendid: undefined,
+  };
+  if (!builtInInvokeType(effect.type)) {
+    return deliverInternal(live, "platform", "error.execution", origin, failure);
+  }
+  const record = (child: Live | null, source: string | null): void => {
+    live.invocations.set(effect.invokeId, {
+      invokeId: effect.invokeId,
+      autoforward: effect.autoforward,
+      completed: false,
+      source,
+      child,
+    });
+  };
+  record(null, null);
+  const source = typeof effect.content === "string" ? effect.content : null;
+  const chart = source === null ? null : childChart(live.chart, source);
+  if (source === null || chart === null) {
+    return deliverInternal(live, "platform", "error.communication", origin, failure);
+  }
+  launch(
+    {
+      chart,
+      sessionId: `${live.sessionId}.${effect.invokeId}`,
+      datamodel: seed(effect.params, chart.machine),
+      clock: live.clock,
+      processors: {},
+      out: [],
+      parent: live,
+      invokedAs: effect.invokeId,
+    },
+    (child) => record(child, source),
+  );
+  return [];
+}
+
+// The reference's `Invocations.seed_datamodel/2`: only the params a root
+// `<data>` of the child names, the rest dropped.
+function seed(params: Value, machine: Machine): Map<string, Value> {
+  if (typeName(params) !== "map") return new Map();
+  const ids = new Set(
+    stateAt(machine, 0).data.map((dIndex) => machine.dataElements[dIndex]?.id ?? ""),
+  );
+  const named = params as { readonly [key: string]: Value };
+  return new Map(Object.entries(named).filter(([name]) => ids.has(name)));
+}
+
+// A `cancel_invoke`: the invocation is retired, then its child stops, its
+// active states' `<onexit>` handlers running as the reference's
+// `Interpreter.cancel/1` runs them. A child that already said it completed
+// is left for its done event to retire, and an id that names nothing live is
+// a no-op.
+function cancelInvocation(live: Live, invokeId: string): void {
+  const invocation = live.invocations.get(invokeId);
+  if (invocation === undefined || invocation.completed) return;
+  live.invocations.delete(invokeId);
+  const child = invocation.child;
+  if (child === null || !child.core.running) return;
+  child.cancelled = true;
+  const exited = exitInterpreter({ ...child.core, running: false });
+  child.core = exited.state;
+  perform(child, exited.effects);
+}
+
+// An event for a child: joins its external queue and the child runs to a
+// stable configuration. Nothing reaches an invocation with no child, or a
+// child that has stopped.
+function deliverToChild(invocation: Invocation | undefined, event: Event): void {
+  const child = invocation?.child;
+  if (child === null || child === undefined || !child.core.running) return;
+  child.externalQueue.push(event);
+  drain(child);
+}
+
+// The reference's `Invoke.Answer.done/4`: built by the parent, so its
+// origin is the parent's own address.
+function doneInvokeEvent(parentSessionId: string, invokeId: string, donedata: Value): Event {
+  return {
+    name: `done.invoke.${invokeId}`,
+    type: "external",
+    data: donedata,
+    invokeid: invokeId,
+    origin: scxmlLocation(parentSessionId),
+    origintype: SCXML_EVENT_PROCESSOR,
+  };
+}
+
+// The child charts compiled from content markup, by source, for each parent
+// chart: a state names its children's sources, and decoding it compiles each
+// once per chart rather than once per call.
+const childCharts = new WeakMap<Chart, Map<string, Chart | null>>();
+
+function childChart(parent: Chart, source: string): Chart | null {
+  let charts = childCharts.get(parent);
+  if (charts === undefined) {
+    charts = new Map();
+    childCharts.set(parent, charts);
+  }
+  const cached = charts.get(source);
+  if (cached !== undefined) return cached;
+  const compiled = compileInvokeContent(source);
+  const chart = compiled.ok ? compiled.chart : null;
+  charts.set(source, chart);
+  return chart;
 }
 
 // ---------------------------------------------------------------------------
@@ -818,6 +1188,24 @@ function encodeSend(codec: Codec, send: Send | SendDelayed): SendRecord {
   };
 }
 
+function encodeInvocation(codec: Codec, invocation: Invocation): InvocationRecord {
+  return {
+    invokeId: invocation.invokeId,
+    autoforward: invocation.autoforward,
+    completed: invocation.completed,
+    source: invocation.child === null ? null : invocation.source,
+    state: invocation.child === null ? null : encodeState(codec, invocation.child),
+  };
+}
+
+function encodeMail(codec: Codec, mail: Mail): MailRecord {
+  return {
+    kind: mail.kind,
+    invokeId: mail.invokeId,
+    event: mail.kind === "completed" ? null : encodeEvent(codec, mail.event),
+  };
+}
+
 function encodeState(codec: Codec, live: Live): State {
   const { machine } = live.chart;
   const core = live.core;
@@ -851,14 +1239,14 @@ function encodeState(codec: Codec, live: Live): State {
     trace: core.trace,
     maxMacrostepRounds: core.maxMacrostepRounds,
     sessionId: live.sessionId,
-    nowMs: live.nowMs,
+    nowMs: live.clock.nowMs,
     timers: live.timers.map((timer) => ({
       sendId: timer.sendId,
       dueMs: timer.dueMs,
       sequence: timer.sequence,
       send: encodeSend(codec, timer.send),
     })),
-    timerSequence: live.timerSequence,
+    timerSequence: live.clock.sequence,
     externalQueue: live.externalQueue.map((event) => encodeEvent(codec, event)),
     internalQueue: core.internalQueue.map((event) => encodeEvent(codec, event)),
     heldSends: Object.fromEntries([...live.heldSends].sort(([a], [b]) => byCodeUnit(a, b))),
@@ -870,6 +1258,11 @@ function encodeState(codec: Codec, live: Live): State {
             donedata: text(codec, live.done.donedata),
             configuration: names(machine, live.done.configuration),
           },
+    invokedAs: live.invokedAs,
+    invocations: [...live.invocations.values()].map((invocation) =>
+      encodeInvocation(codec, invocation),
+    ),
+    mailbox: live.mailbox.map((mail) => encodeMail(codec, mail)),
   };
 }
 
@@ -895,14 +1288,21 @@ function sameIdentity(a: ChartIdentity, b: ChartIdentity): boolean {
 
 // The state's shape is checked first, over every field, so nothing below
 // reads a field that is missing or of the wrong type.
-function open(chart: Chart, state: State, options: DriveOptions): Opened {
+function open(chart: Chart, state: State, options: DriveOptions, out: InterpreterEffect[]): Opened {
   const badShape = stateShapeFailure(state);
   if (badShape !== null) {
     return { ok: false, reason: "malformed_state", detail: { kind: "bad_shape", field: badShape } };
   }
   if (!sameIdentity(chart.identity, state.identity)) return { ok: false, reason: "chart_mismatch" };
   const decoder: Decoder = { detail: null };
-  const live = decodeState(decoder, chart, state, options);
+  const clock: Clock = { nowMs: state.nowMs, sequence: state.timerSequence };
+  const live = decodeState(decoder, chart, state, {
+    at: "",
+    clock,
+    processors: options.sendTypes ?? {},
+    out,
+    parent: null,
+  });
   if (decoder.detail !== null) {
     return { ok: false, reason: "malformed_state", detail: decoder.detail };
   }
@@ -974,8 +1374,70 @@ function decodeTimer(decoder: Decoder, timer: PendingTimer, field: string): Live
   return { sendId: timer.sendId, dueMs: timer.dueMs, sequence: timer.sequence, send };
 }
 
-function decodeState(decoder: Decoder, chart: Chart, state: State, options: DriveOptions): Live {
+// A mailbox entry: an event for every kind but the completion notice.
+function decodeMail(decoder: Decoder, record: MailRecord, field: string): Mail {
+  if (record.kind === "completed") return { kind: "completed", invokeId: record.invokeId };
+  if (record.event === null) {
+    fail(decoder, { kind: "bad_shape", field: `${field}.event` });
+    return { kind: "completed", invokeId: record.invokeId };
+  }
+  return {
+    kind: record.kind,
+    invokeId: record.invokeId,
+    event: decodeEvent(decoder, record.event, `${field}.event`),
+  };
+}
+
+// Where one session of the tree is decoded: its path into the whole state,
+// the tree's clock, its processors and effect sink, and its parent.
+interface Place {
+  readonly at: string;
+  readonly clock: Clock;
+  readonly processors: SendProcessors;
+  readonly out: InterpreterEffect[];
+  readonly parent: Live | null;
+}
+
+// An invocation and its child: the child's chart is compiled from the
+// recorded source, which must be the chart the child's state was made by.
+// A source and a state are both present or both null; a source that does
+// not compile to that chart is a field of the wrong shape.
+function decodeInvocation(
+  decoder: Decoder,
+  record: InvocationRecord,
+  parent: Live,
+  place: Place,
+): Invocation {
+  const at = place.at;
+  const invocation = (child: Live | null, source: string | null): Invocation => ({
+    invokeId: record.invokeId,
+    autoforward: record.autoforward,
+    completed: record.completed,
+    source,
+    child,
+  });
+  if (record.source === null || record.state === null) {
+    if (record.source !== record.state) fail(decoder, { kind: "bad_shape", field: `${at}.source` });
+    return invocation(null, null);
+  }
+  const chart = childChart(parent.chart, record.source);
+  if (chart === null || !sameIdentity(chart.identity, record.state.identity)) {
+    fail(decoder, { kind: "bad_shape", field: `${at}.source` });
+    return invocation(null, null);
+  }
+  const child = decodeState(decoder, chart, record.state, {
+    ...place,
+    at: `${at}.state.`,
+    processors: {},
+    out: [],
+    parent,
+  });
+  return invocation(child, record.source);
+}
+
+function decodeState(decoder: Decoder, chart: Chart, state: State, place: Place): Live {
   const { machine } = chart;
+  const at = place.at;
   // The root is active, and entered, whenever any state is.
   const rooted = (list: readonly string[]): Set<number> =>
     new Set(list.length === 0 ? [] : [0, ...indexes(decoder, machine, list)]);
@@ -997,11 +1459,11 @@ function decodeState(decoder: Decoder, chart: Chart, state: State, options: Driv
     historyValues,
     datamodel: new Map(
       Object.entries(state.datamodel).map(
-        ([root, t]) => [root, value(decoder, t, `datamodel.${root}`)] as const,
+        ([root, t]) => [root, value(decoder, t, `${at}datamodel.${root}`)] as const,
       ),
     ),
     internalQueue: state.internalQueue.map((event, i) =>
-      decodeEvent(decoder, event, `internalQueue[${i}]`),
+      decodeEvent(decoder, event, `${at}internalQueue[${i}]`),
     ),
     macrostep: state.macrostep,
     microstep: state.microstep,
@@ -1009,8 +1471,8 @@ function decodeState(decoder: Decoder, chart: Chart, state: State, options: Driv
     sends: {
       sendCounter: state.sendCounter,
       timerCounter: state.timerCounter,
-      sendTypes: registeredSet(options.sendTypes ?? {}),
-      routes: routesOf(state.sessionId),
+      sendTypes: registeredSet(place.processors),
+      routes: null,
     },
     statesToInvoke: new Set(indexes(decoder, machine, state.statesToInvoke)),
     enteredStates: rooted(state.enteredStates),
@@ -1021,15 +1483,14 @@ function decodeState(decoder: Decoder, chart: Chart, state: State, options: Driv
     maxMacrostepRounds: state.maxMacrostepRounds,
     trace: state.trace,
   };
-  return {
+  const live: Live = {
     chart,
     core,
     sessionId: state.sessionId,
-    nowMs: state.nowMs,
-    timers: state.timers.map((timer, i) => decodeTimer(decoder, timer, `timers[${i}]`)),
-    timerSequence: state.timerSequence,
+    clock: place.clock,
+    timers: state.timers.map((timer, i) => decodeTimer(decoder, timer, `${at}timers[${i}]`)),
     externalQueue: state.externalQueue.map((event, i) =>
-      decodeEvent(decoder, event, `externalQueue[${i}]`),
+      decodeEvent(decoder, event, `${at}externalQueue[${i}]`),
     ),
     heldSends: new Map(Object.entries(state.heldSends).map(([id, types]) => [id, [...types]])),
     halted: state.halted,
@@ -1037,8 +1498,24 @@ function decodeState(decoder: Decoder, chart: Chart, state: State, options: Driv
       state.done === null
         ? null
         : {
-            donedata: value(decoder, state.done.donedata, "done.donedata"),
+            donedata: value(decoder, state.done.donedata, `${at}done.donedata`),
             configuration: indexes(decoder, machine, state.done.configuration),
           },
+    invokedAs: state.invokedAs,
+    parent: place.parent,
+    invocations: new Map(),
+    mailbox: state.mailbox.map((mail, i) => decodeMail(decoder, mail, `${at}mailbox[${i}]`)),
+    cancelled: false,
+    processors: place.processors,
+    out: place.out,
   };
+  for (const [i, record] of state.invocations.entries()) {
+    const invocation = decodeInvocation(decoder, record, live, {
+      ...place,
+      at: `${at}invocations[${i}]`,
+    });
+    live.invocations.set(invocation.invokeId, invocation);
+  }
+  stamp(live);
+  return live;
 }
