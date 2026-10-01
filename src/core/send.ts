@@ -3,12 +3,12 @@
 //
 // Ported from the reference's send and cancel nodes and the two modules they
 // consult (`Statifier.Machine.Content.Send`, `Statifier.Machine.Content.Cancel`,
-// `Statifier.Send.Target`, `Statifier.Send.Types` and `Statifier.EventData` in
-// statifier-ex at v2.9.0). The core delivers nothing and schedules nothing. A
-// `<send>` answers one effect describing the message - `Send` when it goes
-// now, `SendDelayed` with the delay in milliseconds when it waits - and the
-// host delivers it, to the session's own external queue or anywhere else. A
-// `<cancel>` answers a `Cancel` naming the send id; matching it against what
+// `Statifier.Send.Target`, `Statifier.Send.Routes`, `Statifier.Send.Types` and
+// `Statifier.EventData` in statifier-ex at v2.9.0). The core delivers nothing
+// and schedules nothing. A `<send>` answers one effect describing the
+// message - `Send` when it goes now, `SendDelayed` with the delay in
+// milliseconds when it waits - and the host delivers it, to the session's own
+// external queue or anywhere else. A `<cancel>` answers a `Cancel` naming the send id; matching it against what
 // is pending is the host's too.
 //
 // A `<send>` resolves its arguments in a fixed order - the event, the target,
@@ -19,9 +19,12 @@
 // `idlocation` written. Only then are the target and type judged; a send the
 // SCXML processor cannot carry is refused in the core, keeping the minted id
 // and the `idlocation` write, and the block stops on `error.execution` naming
-// that id. Reachability of a resolved target, and re-entering a failed
-// delivery as `error.communication`, are the host's: the core has no view of
-// what exists to receive a message.
+// that id. An immediate send of the SCXML processor whose target the
+// host's declared routes do not reach is refused the same way, and the block
+// stops on `error.communication` naming that id, as the reference's send node
+// judges a route against the snapshot its session stamps. With no routes
+// declared the core makes no judgement; a delayed send's route, and
+// re-entering a failed delivery as `error.communication`, stay the host's.
 
 import {
   compile,
@@ -99,16 +102,25 @@ export interface CancelNode {
  * ordinal sequence stamped on every delayed send, every cancel and every
  * immediate send of a registered type; the first ordinal is 1. Neither is
  * ever reset. `sendTypes` is the set of send types the host registered a
- * processor for, or null when it registered none.
+ * processor for, or null when it registered none. `routes` is what the host
+ * declared it can reach, or null when it declared nothing; like `sendTypes`
+ * it is stamped by the driver before each drive and never travels in a
+ * position.
  */
 export interface SendState {
   readonly sendCounter: number;
   readonly timerCounter: number;
   readonly sendTypes: ReadonlySet<string> | null;
+  readonly routes: Routes | null;
 }
 
 /** A session's send state before its first send. */
-export const INITIAL_SEND_STATE: SendState = { sendCounter: 0, timerCounter: 0, sendTypes: null };
+export const INITIAL_SEND_STATE: SendState = {
+  sendCounter: 0,
+  timerCounter: 0,
+  sendTypes: null,
+  routes: null,
+};
 
 // ---------------------------------------------------------------------------
 // The effects
@@ -200,6 +212,35 @@ export function parseTarget(target: Value): Route {
 }
 
 /**
+ * What a host declares it can reach, at the moment of one drive: the session
+ * ids a `#_scxml_` target may name, whether the session has a parent, and the
+ * invocations a `#_` target may name. The session itself and its internal
+ * queue need no entry. The reference's `Statifier.Send.Routes`.
+ */
+export interface Routes {
+  readonly sessions: ReadonlySet<string>;
+  readonly parent: boolean;
+  readonly invokes: ReadonlySet<string>;
+}
+
+/** Whether the declared routes reach a parsed target. */
+export function reachable(routes: Routes, route: Route): boolean {
+  switch (route.kind) {
+    case "self":
+    case "internal":
+      return true;
+    case "session":
+      return routes.sessions.has(route.sessionId);
+    case "parent":
+      return routes.parent;
+    case "invoke":
+      return routes.invokes.has(route.invokeId);
+    case "invalid":
+      return false;
+  }
+}
+
+/**
  * How a resolved `type` is carried: by the SCXML processor, by a processor
  * the host registered, or not at all.
  */
@@ -239,6 +280,24 @@ export function rejectReason(
   if (typeClass === "registered") return null;
   if (parseTarget(target).kind === "invalid") return { kind: "invalid_target", target };
   return null;
+}
+
+/**
+ * Why the declared routes cannot carry a send, or null when they can or
+ * nothing was declared. Only an immediate send of the SCXML processor is
+ * judged: a delayed one is routed when its timer fires, and a registered
+ * type's target is its processor's own.
+ */
+function unreachableReason(
+  target: Value,
+  type: Value,
+  delayMs: number | null,
+  state: SendState,
+): ExecutionReason | null {
+  if (state.routes === null || delayMs !== null) return null;
+  if (classifyType(state.sendTypes, type) !== "built_in") return null;
+  if (reachable(state.routes, parseTarget(target))) return null;
+  return { kind: "unreachable_target", target };
 }
 
 // ---------------------------------------------------------------------------
@@ -408,7 +467,9 @@ export function executeSend(
     written = write.context;
   }
 
-  const rejected = rejectReason(target.value, type.value, next.sendTypes);
+  const rejected =
+    rejectReason(target.value, type.value, next.sendTypes) ??
+    unreachableReason(target.value, type.value, delay.ms, next);
   if (rejected !== null) {
     return {
       ok: false,

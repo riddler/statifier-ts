@@ -48,9 +48,14 @@
 // `#_scxml_` address; `#_internal` is delivered onto the internal queue and
 // the chart runs to a stable configuration again; a parent, another session
 // or an invocation names nothing this driver can reach, so the send fails
-// with `error.communication` on the internal queue. A delivery onto the
-// internal queue runs after the effects of the drive that produced it, as
-// the reference defers it.
+// with `error.communication` on the internal queue. Before each drive the
+// driver declares what it can reach - this session's own id, no parent and no
+// invocation - as the reference's session stamps its routes, so the core
+// refuses an immediate send to anything else where the send runs: the block
+// stops and `error.communication` joins the internal queue ahead of anything
+// the rest of the block would have raised. A delayed send's route is judged
+// here when its timer fires. A delivery onto the internal queue runs after
+// the effects of the drive that produced it, as the reference defers it.
 //
 // Registered send types. The processors a host registers are passed with
 // every call, as the reference re-stamps its send types before each drive:
@@ -79,6 +84,7 @@ import {
   type Cancel,
   classifyType,
   parseTarget,
+  type Routes,
   type Send,
   type SendDelayed,
 } from "./core/send.js";
@@ -344,6 +350,7 @@ export function start(chart: Chart, options: StartOptions): DriveResult {
     datamodel: new Map(Object.entries(options.datamodel ?? {})),
     maxMacrostepRounds: options.maxMacrostepRounds ?? 10_000,
     sendTypes: registeredSet(processors),
+    routes: routesOf(options.sessionId),
   });
   const live: Live = {
     chart,
@@ -496,6 +503,12 @@ interface LiveTimer {
   readonly dueMs: number;
   readonly sequence: number;
   readonly send: SendDelayed;
+}
+
+// What this driver can reach, declared to the core before each drive: its own
+// session id, and no parent or invocation, since it runs no child session.
+function routesOf(sessionId: string): Routes {
+  return { sessions: new Set([sessionId]), parent: false, invokes: new Set() };
 }
 
 function registeredSet(processors: SendProcessors): ReadonlySet<string> | null {
@@ -997,6 +1010,7 @@ function decodeState(decoder: Decoder, chart: Chart, state: State, options: Driv
       sendCounter: state.sendCounter,
       timerCounter: state.timerCounter,
       sendTypes: registeredSet(options.sendTypes ?? {}),
+      routes: routesOf(state.sessionId),
     },
     statesToInvoke: new Set(indexes(decoder, machine, state.statesToInvoke)),
     enteredStates: rooted(state.enteredStates),

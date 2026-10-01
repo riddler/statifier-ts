@@ -303,6 +303,50 @@ describe("routing a send", () => {
     expect(logged(out.effects)).toEqual(["up"]);
   });
 
+  // Sabotage: leaving an immediate send to another session to the driver's
+  // routing after the macrostep (no routes stamped on the core) turns this
+  // red: the raise that follows the send is taken first.
+  it("takes a send's unreachable-session error before a raise that follows it", () => {
+    const chart = chartOf(`<scxml ${SCXML} initial="depot">
+    <state id="depot">
+      <onentry>
+        <send event="parcel.handover" target="#_scxml_van-9"/>
+        <raise event="parcel.loaded"/>
+      </onentry>
+      <transition event="error.communication" target="unreachable"><log expr="_event.sendid"/></transition>
+      <transition event="*" target="loaded"/>
+    </state>
+    <state id="unreachable"/>
+    <state id="loaded"/>
+  </scxml>`);
+    const out = begin(chart, { sessionId: "van-7" });
+    expect(configuration(out.state)).toEqual(["unreachable"]);
+    expect(logged(out.effects)).toEqual(["send_1"]);
+    expect(kinds(out.effects)).not.toContain("send");
+  });
+
+  // Sabotage: stamping no routes on a decoded state turns this red.
+  it("judges an unreachable session the same way after the state is read back", () => {
+    const chart = chartOf(`<scxml ${SCXML} initial="depot">
+    <state id="depot">
+      <transition event="dispatch" target="dispatching"/>
+    </state>
+    <state id="dispatching">
+      <onentry>
+        <send event="parcel.handover" target="#_scxml_van-9"/>
+        <raise event="parcel.loaded"/>
+      </onentry>
+      <transition event="error.communication" target="unreachable"/>
+      <transition event="*" target="loaded"/>
+    </state>
+    <state id="unreachable"/>
+    <state id="loaded"/>
+  </scxml>`);
+    const started = begin(chart, { sessionId: "van-7" });
+    const out = send(chart, viaJson(started.state), "dispatch");
+    expect(configuration(out.state)).toEqual(["unreachable"]);
+  });
+
   // Sabotage: dropping a send to a target this driver cannot reach, instead
   // of raising error.communication, turns this red.
   it("routes a delayed send when its timer fires", () => {

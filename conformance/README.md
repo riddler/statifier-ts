@@ -168,8 +168,8 @@ claim to pass. What the run fails in the w3c suite falls in three groups:
 
 - the cases that need `<invoke>`, each failing before it is driven with
   `invoke_elements` named;
-- `w3c/test329` and `w3c/test496`, which the reference claims and which fail
-  here on the configuration the chart rests in;
+- `w3c/test329`, which the reference claims and which fails here on the
+  configuration the chart rests in;
 - `w3c/test330` and `w3c/test552`, which the reference's registry does not
   list, and which fail here on the configuration the chart rests in.
 
