@@ -103,8 +103,13 @@
 // every call, as the reference re-stamps its send types before each drive:
 // the registered set is never stored. A send of a registered type is handed
 // to its processor's `deliver`, and is reported among the call's effects as
-// every send is; it is never routed and never scheduled, delayed or not; the processor holds a delayed one, and a
-// `<cancel>` of its send id reaches that processor's `cancel` once.
+// every send is; it is never routed and never scheduled, delayed or not; the
+// processor holds a delayed one, and a `<cancel>` of its send id reaches that
+// processor's `cancel` once. A processor is called only once the call's
+// state is written, in the order the run made the calls: a call refused
+// because a value cannot be written as tagged-value text, a host event's
+// data or a starting datamodel value among them, calls no processor, so a
+// host that retries it hands nothing twice.
 //
 // A macrostep that spends its round budget halts the driver as the
 // reference halts its session: further external events are queued and not
@@ -247,7 +252,10 @@ export interface State {
   readonly macrostep: number;
   readonly microstep: number;
   readonly round: number;
-  /** Whether the chart answers trace effects: `start` sets it false, and it is carried as it stands. */
+  /**
+   * Whether the chart answers trace effects: `start` sets it false, and it is
+   * carried as it stands.
+   */
   readonly trace: boolean;
   readonly maxMacrostepRounds: RoundBudget;
 
@@ -291,7 +299,11 @@ export interface DoneRecord {
   readonly configuration: readonly string[];
 }
 
-/** A host's processor for one registered send type. */
+/**
+ * A host's processor for one registered send type. The driver calls it once
+ * the call's state is written, in the order the run made the calls; a refused
+ * call calls no processor.
+ */
 export interface SendProcessor {
   /** Takes a send of its type, and the event a delivery of it would carry. */
   readonly deliver: (send: Send | SendDelayed, event: Event) => void;
@@ -427,7 +439,8 @@ export type DoneStatus =
  * registered type's entry in `_ioprocessors` is written at start and kept.
  */
 export function start(chart: Chart, options: StartOptions): DriveResult {
-  const processors = options.sendTypes ?? {};
+  const calls: HostCall[] = [];
+  const processors = held(options.sendTypes ?? {}, calls);
   const out: InterpreterEffect[] = [];
   const live = launch({
     chart,
@@ -440,7 +453,7 @@ export function start(chart: Chart, options: StartOptions): DriveResult {
     parent: null,
     invokedAs: null,
   });
-  return answer(live, out);
+  return answer(live, out, calls);
 }
 
 /**
@@ -462,15 +475,16 @@ export function step(
   event: HostEvent,
   options: DriveOptions = {},
 ): DriveResult {
+  const calls: HostCall[] = [];
   const out: InterpreterEffect[] = [];
-  const opened = open(chart, state, options, out);
+  const opened = open(chart, state, heldOptions(options, calls), out);
   if (!opened.ok) return opened;
   const live = opened.live;
   if (!live.core.running) return { ok: false, reason: "not_running" };
   live.externalQueue.push({ name: event.name, type: "external", data: event.data ?? Undefined });
   stamp(live);
   drain(live);
-  return answer(live, out);
+  return answer(live, out, calls);
 }
 
 /**
@@ -495,8 +509,9 @@ export function advance(
   options: DriveOptions = {},
 ): DriveResult {
   if (!Number.isFinite(ms) || ms < 0) return { ok: false, reason: "invalid_duration" };
+  const calls: HostCall[] = [];
   const out: InterpreterEffect[] = [];
-  const opened = open(chart, state, options, out);
+  const opened = open(chart, state, heldOptions(options, calls), out);
   if (!opened.ok) return opened;
   const live = opened.live;
   const until = live.clock.nowMs + ms;
@@ -513,7 +528,7 @@ export function advance(
     for (let at: Live | null = session; at !== null; at = at.parent) drain(at);
   }
   live.clock.nowMs = until;
-  return answer(live, out);
+  return answer(live, out, calls);
 }
 
 /** The active states' ids, root excluded, sorted. */
@@ -881,6 +896,41 @@ function processorFor(processors: SendProcessors, type: string): SendProcessor |
   return Object.hasOwn(processors, type) ? processors[type] : undefined;
 }
 
+// A call to a host's processor, held until the call's state is written.
+type HostCall = () => void;
+
+// The host's processors with each call held on `calls` rather than made: the
+// same types, so the registered set and `_ioprocessors` read the same, and a
+// `cancel` only where the host gave one. A type the host listed with no
+// processor stays listed and is handed nothing, as it was before.
+function held(processors: SendProcessors, calls: HostCall[]): SendProcessors {
+  const holding: Record<string, SendProcessor> = {};
+  for (const type of Object.keys(processors)) {
+    const processor = processors[type];
+    if (processor === undefined || processor === null) {
+      holding[type] = { deliver: () => {} };
+      continue;
+    }
+    holding[type] = {
+      deliver: (send, event) => {
+        calls.push(() => processor.deliver(send, event));
+      },
+      ...(processor.cancel === undefined
+        ? {}
+        : {
+            cancel: (c: Cancel) => {
+              calls.push(() => processor.cancel?.(c));
+            },
+          }),
+    };
+  }
+  return holding;
+}
+
+function heldOptions(options: DriveOptions, calls: HostCall[]): DriveOptions {
+  return { ...options, sendTypes: held(options.sendTypes ?? {}, calls) };
+}
+
 // The chart stopped: its donedata and final configuration are kept, and its
 // pending timers, queued external events, untaken mail and the invocations
 // its exit left (the completed ones) discarded. A child that stopped on its
@@ -1140,10 +1190,18 @@ interface Codec {
   failed: boolean;
 }
 
-function answer(live: Live, effects: InterpreterEffect[]): DriveResult {
+// The call's answer. The processor calls held during the call run only once
+// its state is written, in the order the call made them: a refused call hands
+// a processor nothing, so a host that retries it hands nothing twice.
+function answer(
+  live: Live,
+  effects: InterpreterEffect[],
+  calls: readonly HostCall[] = [],
+): DriveResult {
   const codec: Codec = { failed: false };
   const state = encodeState(codec, live);
   if (codec.failed) return { ok: false, reason: "unencodable_value" };
+  for (const call of calls) call();
   return { ok: true, state, effects };
 }
 
