@@ -824,7 +824,7 @@ function encodeState(codec: Codec, live: Live): State {
     statesToInvoke: names(machine, core.statesToInvoke),
     historyValues: Object.fromEntries(historyValues),
     activeInvocations,
-    invokeCounter: 0,
+    invokeCounter: core.invokeCounter,
     sendCounter: core.sends.sendCounter,
     timerCounter: core.sends.timerCounter,
     datamodel: Object.fromEntries(
@@ -1001,6 +1001,7 @@ function decodeState(decoder: Decoder, chart: Chart, state: State, options: Driv
     statesToInvoke: new Set(indexes(decoder, machine, state.statesToInvoke)),
     enteredStates: rooted(state.enteredStates),
     activeInvocations,
+    invokeCounter: state.invokeCounter,
     running: state.running,
     status: state.status,
     maxMacrostepRounds: state.maxMacrostepRounds,

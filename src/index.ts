@@ -23,6 +23,7 @@ export {
   compile,
 } from "./compiler.js";
 export type { Done, InterpreterEffect, RoundBudget } from "./core/interpreter.js";
+export type { Autoforward, Invoke } from "./core/invoke.js";
 export type { Cancel, Send, SendDelayed } from "./core/send.js";
 export type { Event } from "./datamodel.js";
 export {

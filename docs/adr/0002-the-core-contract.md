@@ -478,3 +478,63 @@ them, in the declarations' doc comments, each citing this record: `Chart` in
 `src/compiler.ts` says the identity lives on the wrapper by choice and that its
 `machine` is opaque and unstable, and `Machine` in `src/machine.ts` says it is
 opaque and unstable and exported only because a `Chart` carries one.
+
+## Amendment: the invoke effects (2026-10-01)
+
+Status: proposed
+
+The Decision's paragraph beginning "Not every reference effect is emitted
+yet" says an Amendment adds each reference effect to the union when the code
+that emits it lands. This one adds two, `invoke` and `autoforward`, spelled as
+the reference's `Statifier.Effect.Invoke` and `Statifier.Effect.Autoforward`
+in `lib/statifier/effect/` at `v2.9.0`, and makes `cancel_invoke` reachable.
+The change that adds this Amendment adds the code: the types `Invoke` and
+`Autoforward` and the functions `runInvokePass` and `applyInvokePasses` in
+`src/core/invoke.ts`.
+
+| `kind` | What the host does with it | Type |
+|---|---|---|
+| `invoke` | starts the invocation `invokeId` names, of the resolved `type`, from `src` or `content`, with `params`; the core runs none | `Invoke` (`src/core/invoke.ts`) |
+| `autoforward` | delivers `event`, unchanged, to the live invocation `invokeId` names | `Autoforward` (`src/core/invoke.ts`) |
+
+Each carries `stateIndex` and the `macrostep`, `microstep` and `round`
+counters; an `invoke` also carries `invokeIndex`, its position among its
+state's `<invoke>` elements. What starts an invocation, what aborts it and
+which invocations are live follow the reference's `Statifier.Interpreter` at
+`v2.9.0`:
+
+- `runInvokePass` ports `run_invoke_pass`: once a macrostep is stable, each
+  state entered and not left during it starts its invocations, in entry order
+  and then document order, and the states to invoke are cleared.
+- `runInvokePass` ports `invoke_one` too: the first argument that fails
+  (`type`, `src`, a `namelist` entry or `<param>`, `<content>`) or an
+  `idlocation` that cannot be written raises `error.execution` with the origin
+  `{ kind: "invoke", stateIndex, invokeIndex }` and answers no effect.
+- The id is the author's `id`, or `generate_invoke_id`'s: `inv_` and the
+  position's `invokeCounter` plus one, after the state's id and a dot. The
+  counter is the one the position already carries.
+- `applyInvokePasses` ports `apply_invoke_passes`: after `_event` is set and
+  before selection, the live invocation whose id equals the event's `invokeid`
+  runs its `<finalize>`, and each live invocation that autoforwards answers
+  `autoforward`; one that does both runs `<finalize>` first. An empty
+  `<finalize>` writes the returned values back as `auto_assign_finalize`
+  does; a write that fails raises `error.execution` with the origin
+  `{ kind: "finalize", stateIndex, invokeIndex }`.
+- An invocation is recorded live only when its type is the built-in SCXML
+  type, as `maybe_record_active_invocation` decides for a session that
+  declared no invoke types; only a live invocation is finalized, forwarded to
+  or cancelled.
+
+What stays with the driver. A `done.invoke.<id>` event and an
+`error.communication` about an invocation are raised by the reference's
+session and its invoke handlers, not its core, so the core here gives neither
+a special case: an event that arrives from an invocation is an ordinary
+external event whose `invokeid` decides which `<finalize>` runs. Running the
+child, and turning what it answers into events, are the driver's.
+
+Not ported. The reference's caller-declared invoke types (`invoke_types`) and
+the refusal of a type outside them have no counterpart here; neither do the
+`caller_context` field on `invoke` and `cancel_invoke`, nor the trace and
+datamodel effects the passes emit. The Typespecs union gains `Invoke` and
+`Autoforward`; the Decision's sentence that the core does not emit `invoke` or
+`autoforward` now holds only for the effects this Amendment does not name.

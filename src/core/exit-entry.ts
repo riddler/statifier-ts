@@ -40,11 +40,10 @@
 // The default history content is recorded as the default transition's
 // index, which is what running it needs.
 //
-// What is not here yet. An invocation is cancelled when its state exits, but
-// nothing starts an invocation, so a state's live invocations are always
-// empty and the cancel is not yet reachable; it is ported as the reference
-// writes it. The trace effects the reference emits for an exit set, an entry
-// set and each block land with the trace vocabulary.
+// An invocation the invoke pass started is cancelled when its state exits,
+// after the state's `<onexit>` blocks. The trace effects the reference emits
+// for an exit set, an entry set and each block land with the trace
+// vocabulary.
 //
 // A state's first entry is read from the states ever entered, which entry
 // keeps: on it, the state's own `<data>` binds (under late binding) before
@@ -609,9 +608,11 @@ function runBlocks<S extends ExitEntryState>(
   return { state: current, effects };
 }
 
-// One block through the block runner, against a context built from the state
-// as it stands now; what the block wrote, sent and raised is kept.
-function runBlock<S extends ExitEntryState>(
+/**
+ * One block through the block runner, against a context built from the state
+ * as it stands now; what the block wrote, sent and raised is kept.
+ */
+export function runBlock<S extends ExitEntryState>(
   state: S,
   content: readonly ContentNode[],
   owner: Owner,
@@ -658,9 +659,11 @@ function raiseError<S extends ExitEntryState>(
   return { ...state, internalQueue: [...state.internalQueue, event] };
 }
 
-// The context one evaluation site runs against: the datamodel, and `In()`
-// reading the configuration through the chart's own ids.
-function contextOf(state: ExitEntryState): EvaluationContext {
+/**
+ * The context one evaluation site runs against: the datamodel, and `In()`
+ * reading the configuration through the chart's own ids.
+ */
+export function contextOf(state: ExitEntryState): EvaluationContext {
   const states: ActiveStates = {
     indexOf: (stateId) => state.machine.idToIndex.get(stateId),
     configuration: state.configuration,

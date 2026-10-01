@@ -439,6 +439,25 @@ describe("the state as a JSON value", () => {
     expect(configuration(fired.state)).toEqual(["on_loan", "overdue"]);
   });
 
+  // A copy on loan invokes a patron notice each time the loan opens, so the
+  // invoke counter is part of what the next step reads.
+  // Sabotage: writing invokeCounter as 0 in encodeState turns this red.
+  it("keeps the invoke counter, so the next invocation's id follows the last", () => {
+    const chart = chartOf(`<scxml ${SCXML} initial="on_loan">
+      <state id="on_loan">
+        <invoke type="scxml"/>
+        <transition event="renew" target="on_loan"/>
+      </state>
+    </scxml>`);
+    const started = begin(chart);
+    expect(started.state.invokeCounter).toBe(1);
+    const renewed = send(chart, viaJson(started.state), "renew");
+    expect(renewed.effects).toMatchObject([
+      { kind: "cancel_invoke", invokeId: "on_loan.inv_1" },
+      { kind: "invoke", invokeId: "on_loan.inv_2" },
+    ]);
+  });
+
   // Sabotage: writing values with JSON.stringify (an integral float read
   // back as an integer, undefined lost) turns this red.
   it("keeps values plain JSON loses, through the tagged-value text", () => {
@@ -639,6 +658,20 @@ describe("the state's shape", () => {
     expect(step(LOAN, reshaped(state, { externalQueue: [queued] }), { name: "x" })).toEqual(
       badShape("externalQueue[0].cause.origin.kind"),
     );
+  });
+
+  // An event an invocation's start or its finalize raised names that
+  // invocation as its origin, and a state holding one is read back.
+  // Sabotage: removing `invoke` from the origin kinds driver-shape accepts
+  // turns this red.
+  it("accepts a queued event whose origin is an invocation or its finalize", () => {
+    const { state } = begin(LOAN);
+    for (const kind of ["invoke", "finalize"]) {
+      const origin = { kind, stateIndex: 1, invokeIndex: 0 };
+      const cause = { origin, macrostep: 1, microstep: 1, round: 1 };
+      const queued = { name: "error.execution", type: "platform", data: "null", cause };
+      expect(step(LOAN, reshaped(state, { externalQueue: [queued] }), { name: "x" }).ok).toBe(true);
+    }
   });
 
   // Sabotage: refusing a state that has every field right (the round budget

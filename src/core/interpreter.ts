@@ -32,10 +32,12 @@
 // - `exitInterpreter` empties the internal queue last: nothing can take an
 //   event from it once the chart has stopped, so a stopped chart is quiescent.
 //
-// What is not here yet. Nothing starts an invocation, so the invoke pass only
-// forgets the states it would have walked, and an external event meets no
-// invocation to finalize or forward to. The trace effects and the datamodel
-// effects the reference emits land with their vocabularies.
+// Invocations start as effects: the invoke pass at the end of each stable
+// macrostep answers an `invoke` for each one it starts, and an external event
+// first runs the `<finalize>` of the live invocation it came from and answers
+// an `autoforward` for each live invocation that forwards (the invoke module).
+// The core never runs a child. The trace effects and the datamodel effects
+// the reference emits land with their vocabularies.
 
 import { Undefined, type Value } from "@riddler/predicator";
 import {
@@ -64,12 +66,11 @@ import { initializeDatamodel } from "./datamodel.js";
 import {
   cancelInvocationsForState,
   donedata,
-  type ExitEntryEffect,
-  type ExitEntryState,
   enterStates,
   exitStates,
   runOnexitBlocks,
 } from "./exit-entry.js";
+import { applyInvokePasses, type InvokeEffect, type InvokeState, runInvokePass } from "./invoke.js";
 import { selectEventlessTransitions, selectTransitions } from "./selection.js";
 import { INITIAL_SEND_STATE } from "./send.js";
 
@@ -89,7 +90,7 @@ export const MAX_MACROSTEP_ROUNDS = 10_000;
  * spend. `running` goes false when a top-level final is entered; `status`
  * becomes `done` only once `exitInterpreter` has finished.
  */
-export interface MachineState extends ExitEntryState {
+export interface MachineState extends InvokeState {
   readonly status: "running" | "done";
   readonly maxMacrostepRounds: RoundBudget;
 }
@@ -129,7 +130,7 @@ export interface Done {
 }
 
 /** An effect the interpreter produced. */
-export type InterpreterEffect = ExitEntryEffect | BudgetExhausted | Done;
+export type InterpreterEffect = InvokeEffect | BudgetExhausted | Done;
 
 /** What a loop function answers: the state it leaves and its effects, in order. */
 export interface Stepped {
@@ -176,17 +177,23 @@ export function initialize(machine: Machine, options: InitializeOptions): Steppe
 
 /**
  * `mainEventLoop`'s external-event body: a new macrostep, `_event` set, the
- * transitions the event enables selected and taken, then the macrostep run
- * to a stable configuration. A stopped chart refuses the event.
+ * finalize and autoforward pass over the live invocations, the transitions
+ * the event enables selected and taken, then the macrostep run to a stable
+ * configuration. A stopped chart refuses the event.
  */
 export function handleEvent(state: MachineState, event: Event): HandleOutcome {
   if (!state.running) return { ok: false, reason: "not_running" };
   const begun = beginMacrostep(state);
   const withEvent = { ...begun, datamodel: putEvent(begun.datamodel, event) };
-  const selected = selectTransitions(withEvent, event);
+  const passed = applyInvokePasses(withEvent, event);
+  const selected = selectTransitions(passed.state, event);
   const ran = runSelected(selected.state, selected.transitions);
   const looped = mainEventLoop(ran.state);
-  return { ok: true, state: looped.state, effects: [...ran.effects, ...looped.effects] };
+  return {
+    ok: true,
+    state: looped.state,
+    effects: [...passed.effects, ...ran.effects, ...looped.effects],
+  };
 }
 
 // A fresh position: nothing entered, the counters at zero, the host's values
@@ -209,6 +216,7 @@ function newMachineState(machine: Machine, options: InitializeOptions): MachineS
     statesToInvoke: new Set(),
     enteredStates: new Set(),
     activeInvocations: new Map(),
+    invokeCounter: 0,
     running: true,
     status: "running",
     maxMacrostepRounds: options.maxMacrostepRounds ?? MAX_MACROSTEP_ROUNDS,
@@ -430,7 +438,9 @@ export function mainEventLoop(state: MachineState): Stepped {
       const exited = exitInterpreter(current);
       return { state: exited.state, effects: [...effects, ...exited.effects] };
     }
-    current = runInvokePass(current);
+    const invoked = runInvokePass(current);
+    current = invoked.state;
+    effects.push(...invoked.effects);
     if (current.internalQueue.length === 0) {
       return { state: current, effects: [...effects, ...terminalEffects(current, folded.outcome)] };
     }
@@ -438,14 +448,6 @@ export function mainEventLoop(state: MachineState): Stepped {
       return { state: current, effects: [...effects, ...terminalEffects(current, "exhausted")] };
     }
   }
-}
-
-// `for state in statesToInvoke.sort(entryOrder): ... invoke(inv)` then
-// `statesToInvoke.clear()`. Nothing starts an invocation yet, so the pass
-// only clears.
-function runInvokePass(state: MachineState): MachineState {
-  if (state.statesToInvoke.size === 0) return state;
-  return { ...state, statesToInvoke: new Set() };
 }
 
 /**
