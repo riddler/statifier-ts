@@ -21,9 +21,10 @@
 // ADR-0003 decision 6 carries the rule here. The reference itself runs every
 // feature the w3c suite requires (`feature_registry/0` in
 // `lib/statifier/testing/feature_detector.ex` marks `invoke_elements`
-// supported); this package does not run `<invoke>` yet, so a case that needs
-// it is not run at all, even one whose expectation the chart would reach
-// without the invocation.
+// supported), and so does this package now that the driver runs an invoked
+// child in process, so no feature is listed and every case is driven. The
+// rule stays: a feature added to the list fails every case that needs it
+// before the drive.
 //
 // Like the runner, this reaches nothing outside the language.
 
@@ -33,23 +34,33 @@ import { runScionCase } from "./scion.js";
 
 /**
  * The features, in the reference's names, that a w3c chart may need and this
- * package does not run yet. `invoke_elements` is `<invoke>`: no invocation is
- * started, so a child session never runs and never answers.
+ * package does not run yet: none. `invoke_elements`, `<invoke>`, was the last;
+ * the driver runs an invoked SCXML child in process.
  */
-export const FEATURES_NOT_RUN: readonly string[] = Object.freeze(["invoke_elements"]);
+export const FEATURES_NOT_RUN: readonly string[] = Object.freeze([]);
 
-/** The features a case needs that this package does not run, in corpus order. */
-export function featuresNotRun(testCase: CorpusCase): string[] {
-  return testCase.required_features.filter((feature) => FEATURES_NOT_RUN.includes(feature));
+/**
+ * The features a case needs that this package does not run, in corpus order,
+ * judged against `notRun` (the package's list unless a caller names another).
+ */
+export function featuresNotRun(
+  testCase: CorpusCase,
+  notRun: readonly string[] = FEATURES_NOT_RUN,
+): string[] {
+  return testCase.required_features.filter((feature) => notRun.includes(feature));
 }
 
 /**
  * Runs one w3c case: a fail naming every feature the case needs that this
- * package does not run, before anything is driven; otherwise the drive's pass,
- * or its fail with the comparison's finding.
+ * package does not run (`notRun`, the package's list unless a caller names
+ * another), before anything is driven; otherwise the drive's pass, or its
+ * fail with the comparison's finding.
  */
-export function runW3cCase(testCase: CorpusCase): CaseOutcome {
-  const missing = featuresNotRun(testCase);
+export function runW3cCase(
+  testCase: CorpusCase,
+  notRun: readonly string[] = FEATURES_NOT_RUN,
+): CaseOutcome {
+  const missing = featuresNotRun(testCase, notRun);
   if (missing.length > 0) {
     return {
       result: "fail",

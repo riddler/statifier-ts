@@ -608,3 +608,95 @@ answered by a site outside the ones named above. The Typespecs union gains
 `DatamodelInit`, `DatamodelChange` and `Trace`; the Decision's sentence that
 the core does not emit `datamodel_init`, `datamodel_change` or the trace
 effects now holds only for the effects this Amendment does not name.
+
+## Amendment: the driver runs an in-process SCXML child (2026-10-01)
+
+Status: proposed
+
+The invoke effects Amendment above leaves running a child, and turning what it
+answers into events, to the driver. This one decides how the driver does it:
+the invoke types it runs and the shape of a child session. The invoke surface
+matches the reference at `v2.9.0`: the SCXML type runs in process from in-line
+content or a content expression, `src` is never dereferenced, and any other
+type raises what the reference raises, ruled by the operator, 2026-10-01. The
+change that adds this Amendment adds the code: `invoke`, `launch`,
+`cancelInvocation`, `deliverToChild` and `takeMail` in `src/driver.ts`, and
+`compileInvokeContent` in `src/compiler.ts`.
+
+The invoke types the driver runs, per type:
+
+| Invoke type | What the driver does | Reference at `v2.9.0` |
+|---|---|---|
+| none, `scxml`, or `http://www.w3.org/TR/scxml/` with or without its trailing slash, with content that compiles | records the id live and starts the content as a child session | `Statifier.Invoke.Handler.Scxml.start/2`, `Statifier.Invoke.Source.resolve/2` |
+| the same types, with no content, a content that is not markup, or markup that does not compile | records the id live with no child and raises `error.communication` with the origin `{ kind: "invoke", stateIndex, invokeIndex }` | `Statifier.Session`'s `{:start_child, _, _}` instruction and its `invoke_error/4` |
+| any other type | records nothing and raises `error.execution` with the same origin | `plan_invoke/3` in `Statifier.Session.Effects`, for a session that declared no invoke types |
+
+The driver runs no other type, and a host registers none: the reference's
+invoke handlers and declared invoke types (`Statifier.Invoke.Handler`,
+`Statifier.Invoke.Types`) are not ported.
+
+The child session:
+
+- Its chart is the content markup compiled with the root's namespace rule
+  relaxed, so a root that declares no namespace compiles as SCXML and one
+  that declares another is still refused, as the reference's ADR-0042
+  decides (`compileInvokeContent` in `src/compiler.ts`). `src` is never
+  fetched.
+- Its session id is the parent's, a dot and the invoke id. The reference
+  mints a fresh id; this driver mints nothing, so the same calls answer the
+  same states.
+- Its datamodel is seeded with the params a root `<data>` of the child names,
+  and no other, as `Statifier.Session.Invocations.seed_datamodel/2` seeds it
+  (`seed` in `src/driver.ts`).
+- It runs with no registered send type, and its effects are not among a
+  call's effects, which are the host's session's own.
+- It runs on the parent's virtual clock. Its timers fire with the parent's
+  in `advance`, earliest first and, at one due time, in the order they were
+  scheduled anywhere in the tree (`nextDue` in `src/driver.ts`). No timer, no
+  thread and no I/O runs it: being started, an event sent to it and an
+  autoforwarded event each run it to a stable configuration at once
+  (`deliverToChild`).
+- The routes the driver declares to the core before each drive name the
+  session's parent when it has one and every live invocation's id
+  (`routesOf` in `src/driver.ts`), as the reference's session stamps them
+  (`stamp/1` in `Statifier.Session`). No other session is declared: the
+  reference's routes also name every session its registry holds, and this
+  driver runs no registry.
+
+What passes between a parent and a child:
+
+- A send to `#_parent` from a child delivers the event, stamped with the
+  invoke id, to its parent; a send to `#_<invokeid>` naming a live invocation
+  delivers it to the child; an autoforwarded event is delivered unchanged, as
+  `deliver/5` and the `{:forward, _, _}` instruction in `Statifier.Session`
+  deliver them. An invocation with no child takes nothing.
+- What a child sends its parent waits in the parent's mailbox and is taken
+  once the parent's own external queue is empty, one entry at a time, as the
+  reference's session takes a message only after its own inbox drains
+  (`takeMail` in `src/driver.ts`). An entry whose invocation is no longer live
+  is discarded there, as `handle_continue(:drain, _)` in `Statifier.Session`
+  discards it.
+- A child that stops on its own first tells its parent it completed, ahead of
+  everything its final batch sends (`announce_completion/3` in
+  `Statifier.Session`), then returns `done.invoke.<id>` carrying its donedata,
+  the invoke id and the parent's own address as its origin, as
+  `Statifier.Invoke.Answer.done/4` builds it. Taking the done event retires
+  the invocation.
+- A `cancel_invoke` retires the invocation and stops its child with its
+  active states' `<onexit>` handlers run, as `Statifier.Interpreter.cancel/1`
+  does (`cancelInvocation` in `src/driver.ts`). A child that already said it
+  completed is left for its done event, as `Statifier.Session.Invocations`'
+  `completed?/2` leaves it.
+
+The state. The Decision's paragraph "The state is a plain JSON value" names
+the driver's own fields; three more join them. `invokedAs` is the invoke id a
+child session runs as, null for the host's session; `invocations` lists the
+live invocations in the order they started, each with the content markup its
+child was compiled from and the child's own state nested in it, the same
+shape as the host's; `mailbox` holds what the children sent and the session
+has not taken. A state with a running child goes through JSON and steps as
+the original does, and a child's field that fails to decode is named by its
+path into the whole state. A position carries none of them: the reference's
+resumed session rebuilds its invocation table empty, so an imported state has
+no child, and a send to an invocation its position names live is refused as
+unreachable.

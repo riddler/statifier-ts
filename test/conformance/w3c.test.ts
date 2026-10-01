@@ -1,6 +1,7 @@
 // The w3c case runner: a case driven to quiescence and compared, a planted
-// wrong configuration failing, and a case that needs a feature this package
-// does not run failing before the drive, naming the feature.
+// wrong configuration failing, an invoke case driven through its child, and a
+// case that needs a feature named as not run failing before the drive,
+// naming the feature.
 //
 // The cases are the vendored corpus's own; the one chart written here is
 // parcel delivery: a parcel scanned from depot to doorstep.
@@ -19,7 +20,7 @@ function w3cCase(id: string): CorpusCase {
 }
 
 // A depot that starts a courier's session and waits for it to report the
-// parcel delivered; with no invocation run, nothing ever reports.
+// parcel delivered.
 const DEPOT = `<scxml xmlns="http://www.w3.org/2005/07/scxml" version="1.0" initial="depot">
   <state id="depot">
     <invoke type="http://www.w3.org/TR/scxml/" id="courier">
@@ -73,40 +74,45 @@ describe("a w3c case", () => {
   });
 });
 
+describe("an invoke case", () => {
+  // Sabotage: answering `#_parent` from a child with `error.communication`, as
+  // the driver did before it ran a child, turns this red: the depot never
+  // hears the parcel delivered.
+  it("is driven through its child, which answers its parent", () => {
+    expect(runW3cCase(depotCase(["basic_states", "invoke_elements"]))).toEqual({
+      result: "pass",
+    });
+  });
+
+  it("passes the vendored corpus's own, its child run on the parent's clock", () => {
+    const testCase = w3cCase("w3c/test207");
+    expect(testCase.required_features).toContain("invoke_elements");
+    expect(runW3cCase(testCase)).toEqual({ result: "pass" });
+  });
+});
+
 describe("a feature this package does not run", () => {
-  it("is invoke, in the reference's feature name", () => {
-    expect(FEATURES_NOT_RUN).toEqual(["invoke_elements"]);
-    expect(featuresNotRun(depotCase(["basic_states", "invoke_elements"]))).toEqual([
+  it("is none: invoke, the last, now runs", () => {
+    expect(FEATURES_NOT_RUN).toEqual([]);
+    expect(featuresNotRun(depotCase(["basic_states", "invoke_elements"]))).toEqual([]);
+  });
+
+  it("is judged against the list a caller names", () => {
+    const named = ["invoke_elements"];
+    expect(featuresNotRun(depotCase(["basic_states", "invoke_elements"]), named)).toEqual([
       "invoke_elements",
     ]);
-    expect(featuresNotRun(depotCase(["basic_states"]))).toEqual([]);
+    expect(featuresNotRun(depotCase(["basic_states"]), named)).toEqual([]);
   });
 
-  // Sabotage: driving the case and answering the comparison's fail, without
-  // the feature, turns this red. It was run and reverted.
-  it("fails a case that needs it before the drive, naming the feature", () => {
-    expect(runW3cCase(depotCase(["basic_states", "invoke_elements"]))).toEqual({
-      result: "fail",
-      reason: "depends on a feature this package does not run: invoke_elements",
-    });
-  });
-
-  it("is not named when the case does not declare it", () => {
-    expect(runW3cCase(depotCase(["basic_states"]))).toEqual({
-      result: "fail",
-      reason: "the initial configuration: expected active leaf states [doorstep], got [depot]",
-    });
-  });
-
-  // Sabotage: driving a case that needs the feature, as the runner did before
-  // the reference's rule was applied, turns this red: the chart rests in
-  // `pass` with no invocation run. It was run and reverted.
-  it("fails a case that needs it even when the chart would reach its expectation without it", () => {
-    const testCase = w3cCase("w3c/test187");
-    expect(testCase.required_features).toContain("invoke_elements");
-    expect(runW3cCase(testCase)).toEqual({
-      result: "fail",
-      reason: "depends on a feature this package does not run: invoke_elements",
-    });
+  // Sabotage: driving the case and answering its pass, without the feature
+  // check, turns this red.
+  it("fails a case that needs a feature named not run before the drive, naming the feature", () => {
+    expect(runW3cCase(depotCase(["basic_states", "invoke_elements"]), ["invoke_elements"])).toEqual(
+      {
+        result: "fail",
+        reason: "depends on a feature this package does not run: invoke_elements",
+      },
+    );
   });
 });

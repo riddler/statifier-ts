@@ -128,6 +128,9 @@ describe("start, step and configuration", () => {
       "heldSends",
       "halted",
       "done",
+      "invokedAs",
+      "invocations",
+      "mailbox",
     ]);
     expect(state.identity).toEqual(LOAN.identity);
     expect(state.enteredStates).toEqual(["active", "desk", "on_loan"]);

@@ -21,10 +21,11 @@
 // first block of fields, spelled in camel case, so the export is that block
 // and the chart identity, with the driver's own fields dropped: the session
 // id, the virtual clock, the pending timers, the queues, the delayed sends
-// processors hold, the budget halt and the stopped chart's donedata. The
-// import is the reverse: the position's block, the given chart's identity,
-// and the driver's fields as a fresh session leaves them - the clock at
-// zero, no timer, empty queues, nothing held, no halt - with the session id
+// processors hold, the budget halt, the stopped chart's donedata, and the
+// invocations with their children's states. The import is the reverse: the
+// position's block, the given chart's identity, and the driver's fields as a
+// fresh session leaves them - the clock at zero, no timer, empty queues,
+// nothing held, no halt, no child running - with the session id
 // read from `_sessionid`, the system variable the chart itself reads it
 // from. A stopped position (`status` "done") is what says the chart has
 // stopped, as in the reference, so the import rebuilds the driver's done
@@ -32,7 +33,11 @@
 // reference's carries it only in the done effect, never in the position),
 // so it is undefined, and the configuration is the position's own. The
 // state is then written once through the driver's own codec, so an
-// imported state is in exactly the form a drive answers.
+// imported state is in exactly the form a drive answers. A position names
+// its live invocations but carries no child: the reference's resumed
+// session rebuilds its invocation table empty (`Statifier.Session.Invocations`
+// at v2.9.0), so after an import a send to such an invocation is refused as
+// unreachable and its cancel stops nothing.
 
 import { decodeTagged } from "@riddler/predicator/tagged";
 import type { Chart, ChartIdentity } from "./compiler.js";
@@ -272,6 +277,9 @@ export function importPosition(chart: Chart, exported: unknown): ImportResult {
       position.status === "done"
         ? { donedata: UNDEFINED_TEXT, configuration: position.configuration }
         : null,
+    invokedAs: null,
+    invocations: [],
+    mailbox: [],
   });
   // Every check the rewrite makes has been made above, so a refusal here is
   // a bug in this module, not an outcome a caller handles.

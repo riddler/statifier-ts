@@ -913,11 +913,30 @@ export function chartIdentity(source: string, options: CompileOptions = {}): Cha
  * shape.
  */
 export function compile(source: string, options: CompileOptions = {}): CompileResult {
+  return pipeline(source, options, false);
+}
+
+/**
+ * Compiles an invocation's content markup into the Chart its child runs, as
+ * the reference's `Statifier.Invoke.Source.resolve/2` compiles it at v2.9.0:
+ * the same pipeline as `compile`, with the root's namespace rule relaxed so a
+ * root that declares no namespace compiles as SCXML (the reference's ADR-0042).
+ * The driver is its one caller; it is not part of the package's entry point.
+ */
+export function compileInvokeContent(source: string): CompileResult {
+  return pipeline(source, {}, true);
+}
+
+function pipeline(
+  source: string,
+  options: CompileOptions,
+  invokeContentMarkup: boolean,
+): CompileResult {
   const parsed = parseXml(source);
   if (!parsed.ok) return { ok: false, errors: [parsed.error] };
   const lowered = lower(parsed.root, source);
   if (!lowered.ok) return lowered;
-  const validated = validate(lowered.document, source);
+  const validated = validate(lowered.document, source, { invokeContentMarkup });
   if (!validated.ok) return validated;
   const compiled = compileDocument(validated.document);
   if (!compiled.ok) return compiled;

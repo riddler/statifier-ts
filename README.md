@@ -202,8 +202,9 @@ camel case (`configuration`, `enteredStates`, `historyValues`, `datamodel`,
 `@riddler/predicator`'s tagged-value text, so a date, a duration or an
 integral float survives JSON. The fields after that block are the driver's
 own: the session id, the virtual clock, the pending timers, the event
-queues, the delayed sends a host processor holds, and what it keeps of a
-stopped chart. The exported `State` type names every field.
+queues, the delayed sends a host processor holds, what it keeps of a
+stopped chart, and each live invocation with its child's own state nested
+in it. The exported `State` type names every field.
 [ADR-0002](docs/adr/0002-the-core-contract.md) is the
 record of the whole contract, with its typespecs.
 
@@ -223,9 +224,9 @@ these:
 | `send` | delivers the event now, by its target and type |
 | `send_delayed` | learns of an event due later: the driver holds it as a pending timer until `advance` reaches it, or hands it to the host's processor when its type is registered |
 | `cancel` | drops the pending delayed send its `sendId` names, if any |
-| `invoke` | starts the invocation `invokeId` names; the core runs none |
-| `autoforward` | delivers `event`, unchanged, to the live invocation `invokeId` names |
-| `cancel_invoke` | stops the live invocation its `invokeId` names |
+| `invoke` | learns an invocation started: the driver runs an SCXML child itself |
+| `autoforward` | learns an event was forwarded: the driver delivers it to the child itself |
+| `cancel_invoke` | learns the live invocation its `invokeId` names stopped: the driver stops the child itself |
 | `log` | records the label and the evaluated value |
 | `datamodel_init` | learns the datamodel as the chart starts, before any `<data>` value binds |
 | `datamodel_change` | learns one datamodel write: the path, the new and the prior value, and the `<assign>` or `<data>` that made it |
@@ -240,6 +241,18 @@ reference's `conds_evaluated` trace is not emitted yet, nor the
 `datamodel_change` it answers for an `idlocation` write or an empty
 `<finalize>`'s writes; a host that ignores a `kind` it does not know keeps
 working as they arrive.
+
+An `<invoke>` of the SCXML type runs in process: the driver compiles its
+`<content>` markup (an in-line `<scxml>` that declares no namespace is read
+as SCXML) and starts it as a child session on the parent's virtual clock,
+its datamodel seeded from the params its root `<data>` names. The child and
+the parent reach each other through `#_parent` and `#_<invokeid>`, the
+parent's `autoforward` reaches the child, the child's completion returns
+`done.invoke.<invokeid>` with its donedata, and leaving the invoking state
+cancels the child. `src` is never fetched, so an `<invoke>` with no content
+raises `error.communication`, and so does content that does not compile; an
+invoke type other than SCXML raises `error.execution`. A child's own effects
+are not among a call's effects.
 
 A send whose type the host registers is handed to the host's processor. The
 processors are passed in `opts.sendTypes` on `start` and on every later call,
@@ -362,29 +375,27 @@ hand. Its registry, `conformance/registry.json`, lists the cases this package
 claims to pass - written only by a run that observed the pass, and never
 narrowed.
 
-**The claim:** this package makes four claims, with 261 entries in its
+**The claim:** this package makes four claims, with 291 entries in its
 registry: `scion` with 119 entries out of the suite's 119 cases, `statifier`
-with 19 entries out of the suite's 28 cases, `w3c-mandatory` with 121 entries
+with 19 entries out of the suite's 28 cases, `w3c-mandatory` with 151 entries
 out of the w3c suite's 154 mandatory cases, and `w3c-optional` with 2 entries
 out of its 2 optional cases. A claim is exactly its entries: a case with no
 entry is one this package does not claim to pass.
 
-**The gap:** it does not yet claim the 31 w3c cases and the 9 statifier cases
+**The gap:** it does not yet claim the 1 w3c case and the 9 statifier cases
 the reference's own registry lists that this package's does not, nor the 2 w3c
 cases the reference's registry does not list either. `pnpm conformance` runs
 the corpus, writes one report per suite under `reports/`, and prints both
 lists, every unclaimed case with the reason the run failed it, and each case
 the reference claims with the features it needs in the corpus's own words. The
 runner drives the scion, w3c and statifier suites through the interpreter. A
-w3c case that needs `<invoke>`, which this package does not run yet, fails
-before it is driven, naming the feature, `invoke_elements`, as the reference's
-harness fails a case needing a feature it does not run. A statifier case that
-carries a host object registers its send types with the driver, and agrees
-only when the sends handed to them are exactly the ones it expects; the
-accepts case and the diff cases fail before they are driven, because this
-package does not port the reference's accepts check or its chart diff, and a
-case that asks the host to report a send failed fails because the driver
-offers a host no way to.
+w3c case that needs `<invoke>` is driven with its child run in process. A
+statifier case that carries a host object registers its send types with the
+driver, and agrees only when the sends handed to them are exactly the ones it
+expects; the accepts case and the diff cases fail before they are driven,
+because this package does not port the reference's accepts check or its chart
+diff, and a case that asks the host to report a send failed fails because the
+driver offers a host no way to.
 
 ```bash
 pnpm conformance      # run the corpus and print the gap list

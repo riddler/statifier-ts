@@ -18,8 +18,10 @@
 // (decision 8 of `docs/adr/0003-the-conformance-apparatus.md`), each from the
 // reference's harness:
 //
-// - The settle window. Before each event, while a timer is pending and the
-//   earliest falls due within 100 virtual ms of the window's start, the clock
+// - The settle window. Before each event, while a timer of the session itself
+//   is pending (the reference's settle reads its session's own pending
+//   timers, not its children's) and the earliest falls due within 100
+//   virtual ms of the window's start, the clock
 //   jumps to that timer's due time and fires it (with every other timer due
 //   then, in the order they were scheduled, and each run to completion before
 //   the next, which is how the driver's `advance` fires). A timer due later
@@ -28,9 +30,11 @@
 //   reference stops waiting the moment nothing is pending.
 // - The configuration deadline. After the start and after each event, while
 //   the active leaf set differs from the expectation, the chart has not
-//   stopped and a timer is pending whose due time is within 4000 virtual ms
-//   of the event, the clock jumps to the earliest due time and fires what is
-//   due; the comparison is made once none of that holds.
+//   stopped and a timer is pending, in the session or in a child it invoked,
+//   whose due time is within 4000 virtual ms of the event, the clock jumps to
+//   the earliest due time and fires what is due; the comparison is made once
+//   none of that holds. A child's timers count here because a child runs on
+//   the reference's real clock while its harness polls.
 //
 // The clock only ever jumps to a due time, because nothing but a firing timer
 // changes the configuration between two events; the reference's 5 ms poll and
@@ -115,10 +119,19 @@ function matches(chart: Chart, state: State, expected: readonly string[]): boole
   return leaves.ok && sameSet(leaves.ids, expected);
 }
 
-function earliestDue(state: State): number | undefined {
+// The earliest due time of a timer pending in the session itself; with
+// `children`, in any session of its tree, since an invoked child's timers run
+// on the same clock.
+function earliestDue(state: State, children = false): number | undefined {
   let earliest: number | undefined;
   for (const timer of state.timers) {
     if (earliest === undefined || timer.dueMs < earliest) earliest = timer.dueMs;
+  }
+  if (!children) return earliest;
+  for (const invocation of state.invocations) {
+    if (invocation.state === null) continue;
+    const due = earliestDue(invocation.state, true);
+    if (due !== undefined && (earliest === undefined || due < earliest)) earliest = due;
   }
   return earliest;
 }
@@ -163,7 +176,7 @@ export function awaitConfiguration(
   let current = state;
   for (;;) {
     if (matches(chart, current, expected) || current.done !== null) return current;
-    const due = earliestDue(current);
+    const due = earliestDue(current, true);
     if (due === undefined || due > deadline) return current;
     current = moved(advance(chart, current, due - current.nowMs, options), "advance");
   }
