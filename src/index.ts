@@ -30,6 +30,7 @@ export type {
   DatamodelInit,
   Trace,
   TraceContentExecuted,
+  TraceCounters,
   TraceDone,
   TraceEntrySet,
   TraceEventDequeued,
@@ -47,7 +48,7 @@ export type {
   RoundBudget,
 } from "./core/interpreter.js";
 export type { Autoforward, Invoke, InvokeEffect } from "./core/invoke.js";
-export type { Cancel, Send, SendDelayed } from "./core/send.js";
+export type { Cancel, Send, SendDelayed, SendFields } from "./core/send.js";
 export type {
   Cause,
   Event,

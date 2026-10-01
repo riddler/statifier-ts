@@ -902,29 +902,32 @@ type HostCall = () => void;
 // The host's processors with each call held on `calls` rather than made: the
 // same types, so the registered set and `_ioprocessors` read the same, and a
 // `cancel` only where the host gave one. A type the host listed with no
-// processor stays listed and is handed nothing, as it was before.
+// processor stays listed and is handed nothing, as it was before. Built as
+// own entries, so a type named `__proto__` stays a type rather than setting
+// the prototype of the object that holds them.
 function held(processors: SendProcessors, calls: HostCall[]): SendProcessors {
-  const holding: Record<string, SendProcessor> = {};
-  for (const type of Object.keys(processors)) {
-    const processor = processors[type];
-    if (processor === undefined || processor === null) {
-      holding[type] = { deliver: () => {} };
-      continue;
-    }
-    holding[type] = {
-      deliver: (send, event) => {
-        calls.push(() => processor.deliver(send, event));
-      },
-      ...(processor.cancel === undefined
-        ? {}
-        : {
-            cancel: (c: Cancel) => {
-              calls.push(() => processor.cancel?.(c));
-            },
-          }),
-    };
-  }
-  return holding;
+  return Object.fromEntries(
+    Object.keys(processors).map((type): [string, SendProcessor] => [
+      type,
+      holding(processors[type], calls),
+    ]),
+  );
+}
+
+function holding(processor: SendProcessor | undefined, calls: HostCall[]): SendProcessor {
+  if (processor === undefined || processor === null) return { deliver: () => {} };
+  return {
+    deliver: (send, event) => {
+      calls.push(() => processor.deliver(send, event));
+    },
+    ...(processor.cancel === undefined
+      ? {}
+      : {
+          cancel: (c: Cancel) => {
+            calls.push(() => processor.cancel?.(c));
+          },
+        }),
+  };
 }
 
 function heldOptions(options: DriveOptions, calls: HostCall[]): DriveOptions {

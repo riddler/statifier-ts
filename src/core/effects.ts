@@ -70,7 +70,8 @@ export interface DatamodelInit {
 // The trace effects
 // ---------------------------------------------------------------------------
 
-interface TraceCounters {
+/** The fields every trace effect carries. */
+export interface TraceCounters {
   readonly kind: "trace";
   readonly macrostep: number;
   readonly microstep: number;

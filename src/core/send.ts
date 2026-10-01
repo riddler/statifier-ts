@@ -133,7 +133,7 @@ export const INITIAL_SEND_STATE: SendState = {
  * named none; `idFromAuthor` says whether the author wrote `id` or
  * `idlocation`, the one place that distinction survives.
  */
-interface SendFields {
+export interface SendFields {
   readonly event: Value;
   readonly target: Value;
   readonly type: Value;

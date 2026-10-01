@@ -1,6 +1,6 @@
 ### Added
 
-- The entry point exports by name the types the public event and effect types reference: `Cause`, `Origin`, `Owner`, `EventType`, `ExecutionReason`, `BudgetExhausted`, `InvokeEffect`, `ExitEntryEffect`, `Effect`, `Log`, `CancelInvoke` and `BindingEffect`.
+- The entry point exports by name the types the public event and effect types reference or extend: `Cause`, `Origin`, `Owner`, `EventType`, `ExecutionReason`, `BudgetExhausted`, `InvokeEffect`, `ExitEntryEffect`, `Effect`, `Log`, `CancelInvoke`, `BindingEffect`, `SendFields` and `TraceCounters`.
 
 ### Changed
 
