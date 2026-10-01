@@ -241,6 +241,27 @@ describe("CDATA, comments and the skipped constructs", () => {
     }
   });
 
+  // A bracket inside a subset comment or PI is text too, so it does not close
+  // the subset early. The reference at v2.9.0 accepts both documents.
+  //
+  // Sabotage: reading a bracket inside a subset comment or PI as the end of
+  // the subset turns this red with content_before_root.
+  it("skips a bracket inside a comment and inside a processing instruction in the internal subset", () => {
+    for (const subset of ["<!-- ] -->", "<?pi ]?>"]) {
+      expect(root(`<!DOCTYPE a [${subset}]><a/>`).name).toBe("a");
+    }
+  });
+
+  // A subset comment opener that never closes is read character by character
+  // instead, as before the subset skip: `<!-->]>` ends the declaration. The
+  // reference at v2.9.0 accepts this document as well.
+  //
+  // Sabotage: refusing when a subset comment never closes, instead of
+  // rewinding, turns this red with unterminated_doctype.
+  it("rewinds over a subset comment that never closes", () => {
+    expect(root("<!DOCTYPE a [<!-->]><a/>").name).toBe("a");
+  });
+
   // Sabotage: dropping whitespace-only runs turns this red.
   it("keeps whitespace-only text runs", () => {
     const element = root("<a>\n  <b/>\n</a>");
@@ -483,7 +504,6 @@ describe("malformed input", () => {
     ["<a><?xml version='1.0'?></a>", "misplaced_xml_declaration", 1, 4],
     ["<!DOCTYPE a [", "unterminated_doctype", 1, 14],
     ["<!DOCTYPE a [<!-- x", "unterminated_doctype", 1, 20],
-    ["<!DOCTYPE a [<!-->]><a/>", "unterminated_doctype", 1, 25],
     ["<!DOCTYPE a [<?pi x", "unterminated_doctype", 1, 20],
     ["<a>&nbsp;</a>", "unknown_entity", 1, 4],
     ["<a>R&D</a>", "malformed_reference", 1, 5],
