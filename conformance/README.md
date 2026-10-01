@@ -184,7 +184,10 @@ for the suites it ran, each case with the features it needs, its
 it. It then prints the cases of the suites it ran that the reference's
 registry does not list either, each with the reason the run failed it: the
 gap list is read off the reference's registry, so without this second list
-those cases would go unnamed.
+those cases would go unnamed. Where the run's reason says only where a case
+failed and the cause has been found by reading the case, a line in either list
+ends with that cause (`KNOWN_CAUSES` in `test/conformance/reports.ts`), and a
+test observes each cause again, so one that stops holding fails the gate.
 
 This package's registry claims every scion case and the w3c and statifier
 cases a run observed to pass; the claims `w3c-mandatory`, `w3c-optional` and
@@ -193,7 +196,11 @@ entry is one this package does not claim to pass. What the run fails in the
 w3c suite falls in two groups:
 
 - `w3c/test329`, which the reference claims and which fails here on the
-  configuration the chart rests in;
+  configuration the chart rests in, for one cause: its condition
+  `Var2==_event` answers false, because `_event` carries each field the event
+  lacks as undefined and `@riddler/predicator` compares undefined with
+  undefined as undefined, not true, so two objects that carry an undefined
+  field compare unequal, even one object compared with itself;
 - `w3c/test330` and `w3c/test552`, which the reference's registry does not
   list, and which fail here on the configuration the chart rests in.
 
