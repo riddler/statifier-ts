@@ -7,10 +7,13 @@
 
 import {
   compile,
+  compileProgram,
+  Duration,
   EvaluationError,
   float,
   isFloat,
   isInteger,
+  PDateTime,
   type Program,
   evaluate as predicatorEvaluate,
   Undefined,
@@ -76,6 +79,13 @@ function evaluated(source: string, data: Datamodel, ...active: string[]): Value 
 }
 
 const COUNTERS = { macrostep: 2, microstep: 1, round: 3 };
+
+/** A statement program compiled from source, with the source it came from. */
+function program(source: string): { program: Program; source: string } {
+  const compiled = compileProgram(source);
+  if (!compiled.ok) throw new Error(`fixture does not compile: ${source}`);
+  return { program: compiled.instructions, source };
+}
 
 /** A statement program writing `value` at `root`: the segment, the value, one store. */
 function storeAt(root: string, value: Value): Program {
@@ -476,7 +486,7 @@ describe("a program", () => {
     const unchanged = partitionChangedRoots(before, {
       patron: { name: "Ada", holds: ["c-1", "c-2"] },
       branches: ["north", "south"],
-      due: undefined,
+      due: Undefined,
     });
     expect(unchanged.other.size).toBe(0);
     expect(unchanged.system).toEqual([]);
@@ -503,6 +513,169 @@ describe("a program", () => {
         patron: { name: "Ada", branch: 1 },
       }).other.size,
     ).toBe(1);
+  });
+
+  // The reference merges the values the program bound and diffs them strictly
+  // (lib/statifier/evaluator.ex, run_program/2 and partition_changed_roots/2,
+  // at statifier-ex v2.9.0), so a float a program writes stays a float.
+
+  // Sabotage: reading the halt context through the plain projection again
+  // (`executeProgram` and `domainContext` in place of the tagged run in
+  // haltOf) turns this red.
+  it("that writes a float root merges a float", () => {
+    const outcome = runProgram(
+      contextOf(new Map<string, Value>([["fine", 0]])),
+      program("fine = 2.0"),
+    );
+    expect(outcome.ok).toBe(true);
+    expect(isFloat(outcome.data.get("fine"))).toBe(true);
+    expect(outcome.data.get("fine")).toEqual(float(2));
+  });
+
+  // Sabotage: projecting each changed root and normalizing it back
+  // (`domainValue(toHost(value))` in partitionChangedRoots) turns this red.
+  it("keeps the brand of a float nested beside a member it changed", () => {
+    const patron: Value = { name: "Ada", fine: float(3), holds: [float(0.5)], loans: 0 };
+    const outcome = runProgram(
+      contextOf(new Map<string, Value>([["patron", patron]])),
+      program("patron.loans = 1"),
+    );
+    expect(outcome.ok).toBe(true);
+    const merged = outcome.data.get("patron") as { [key: string]: Value };
+    expect(merged.loans).toBe(1);
+    expect(isFloat(merged.fine)).toBe(true);
+    expect(isFloat((merged.holds as Value[])[0])).toBe(true);
+    expect(merged).toEqual({ name: "Ada", fine: float(3), holds: [float(0.5)], loans: 1 });
+  });
+
+  // Sabotage: comparing a float by its number alone in sameValue (dropping
+  // the brand test, so 2.0 and 2 are the same value) turns this red.
+  it("sees a root rewritten from a float to the integer of the same magnitude as changed", () => {
+    const toInteger = runProgram(
+      contextOf(new Map<string, Value>([["fine", float(2)]])),
+      program("fine = 2"),
+    );
+    expect(toInteger.ok).toBe(true);
+    expect(toInteger.data.get("fine")).toBe(2);
+    expect(isInteger(toInteger.data.get("fine"))).toBe(true);
+
+    const toFloat = runProgram(
+      contextOf(new Map<string, Value>([["fine", 2]])),
+      program("fine = 2.0"),
+    );
+    expect(isFloat(toFloat.data.get("fine"))).toBe(true);
+  });
+
+  // Sabotage: dropping the failing arm's context (merging nothing when the
+  // run failed) in haltOf turns the `fine` expectation red.
+  it("that fails merges a float written before the failing statement as a float", () => {
+    const outcome = runProgram(
+      contextOf(new Map<string, Value>([["fine", 0]])),
+      program("fine = 2.5 - 0.5; renewals"),
+    );
+    expect(outcome).toMatchObject({
+      ok: false,
+      reason: { kind: "evaluator_error", error: { type: "UndefinedVariableError" } },
+    });
+    expect(isFloat(outcome.data.get("fine"))).toBe(true);
+    expect(outcome.data.get("fine")).toEqual(float(2));
+  });
+
+  // Sabotage: answering any object that is not an array or a plain map as a
+  // change in sameValue turns this red: the seeded `_event` would read as a
+  // system root the program changed.
+  it("leaves an unchanged root holding floats and temporal values as it was", () => {
+    const event: Value = {
+      name: "copy.returned",
+      data: {
+        fine: float(1),
+        at: new PDateTime(1_790_000_000, 0),
+        grace: new Duration({ days: 2 }),
+      },
+    };
+    const seeded = new Map<string, Value>([
+      ["_event", event],
+      ["fines", [float(1.5), float(2)]],
+      ["loans", 0],
+    ]);
+    const outcome = runProgram(contextOf(seeded), program("loans = 1"));
+    expect(outcome).toEqual({ ok: true, data: new Map([...seeded, ["loans", 1]]) });
+    expect(outcome.data.get("_event")).toBe(event);
+    expect(outcome.data.get("fines")).toBe(seeded.get("fines"));
+  });
+
+  // Sabotage: answering two instances of one class as the same value once
+  // their prototypes match (skipping the parts in sameValue) turns the
+  // `due` and `grace` expectations red; answering a list and a map with the
+  // same member count as the same value turns the `holds` and `branches`
+  // ones red.
+  it("sees a changed temporal value, and a list swapped for a map, as changed", () => {
+    const seeded = new Map<string, Value>([
+      ["due", new PDateTime(1_790_000_000, 0)],
+      ["grace", new Duration({ days: 2 })],
+      ["holds", []],
+      ["branches", {}],
+      ["renewed", new PDateTime(1_790_086_400, 0)],
+      ["extended", new Duration({ days: 3 })],
+    ]);
+    const outcome = runProgram(
+      contextOf(seeded),
+      program("due = renewed; grace = extended; holds = {}; branches = []"),
+    );
+    expect(outcome.ok).toBe(true);
+    expect(outcome.data.get("due")).toEqual(new PDateTime(1_790_086_400, 0));
+    expect(outcome.data.get("grace")).toEqual(new Duration({ days: 3 }));
+    expect(outcome.data.get("holds")).toEqual({});
+    expect(outcome.data.get("branches")).toEqual([]);
+  });
+
+  // Sabotage: answering the encoding refusal as the run's failure (dropping
+  // the plain fallback in haltOf) turns this red.
+  it("runs against a datamodel the tagged encoding refuses through the plain projection", () => {
+    const seeded = new Map<string, Value>([
+      ["slip", { $type: "loan_slip", copy: "c-1" }],
+      ["loans", 0],
+    ]);
+    const outcome = runProgram(contextOf(seeded), program("loans = 1"));
+    expect(outcome.ok).toBe(true);
+    expect(outcome.data.get("loans")).toBe(1);
+    expect(outcome.data.get("slip")).toBe(seeded.get("slip"));
+  });
+
+  // Sabotage: normalizing every root of the plain fallback's context
+  // (`domainValue(value)` alone in domainContext) turns this red: the seeded
+  // `_event`'s float projects to an integer and reads as a system root the
+  // program changed.
+  it("leaves a float the fallback run did not touch as it was", () => {
+    const event: Value = { name: "copy.returned", data: { fine: float(1) } };
+    const seeded = new Map<string, Value>([
+      ["slip", { $type: "loan_slip", copy: "c-1" }],
+      ["_event", event],
+      ["fine", float(2)],
+      ["loans", 0],
+    ]);
+    const outcome = runProgram(contextOf(seeded), program("loans = 1"));
+    expect(outcome).toEqual({ ok: true, data: new Map([...seeded, ["loans", 1]]) });
+    expect(outcome.data.get("_event")).toBe(event);
+    expect(isFloat(outcome.data.get("fine"))).toBe(true);
+  });
+
+  // Sabotage: starting the plain fallback's failing arm from {} (dropping
+  // the context the run got to) in haltOf turns the `loans` expectation red.
+  it("that fails against a datamodel the tagged encoding refuses keeps its earlier writes", () => {
+    const fines: Value = [float(1.5), float(2)];
+    const seeded = new Map<string, Value>([
+      ["slip", { $type: "loan_slip", copy: "c-1" }],
+      ["fines", fines],
+      ["loans", 0],
+    ]);
+    const outcome = runProgram(contextOf(seeded), program("loans = 1; renewals"));
+    expect(outcome).toMatchObject({
+      ok: false,
+      reason: { kind: "evaluator_error", error: { type: "UndefinedVariableError" } },
+    });
+    expect(outcome.data.get("loans")).toBe(1);
+    expect(outcome.data.get("fines")).toBe(fines);
   });
 
   // Sabotage: reading the root out of the message again turns the first

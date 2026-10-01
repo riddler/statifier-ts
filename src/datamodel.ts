@@ -16,10 +16,12 @@
 // either would answer against a position the chart has already left.
 
 import {
+  type EvaluateOptions,
   execute as executeProgram,
   fromHost,
   type HostFunction,
   type HostValue,
+  isFloat,
   type ParseError,
   type PredicatorError,
   type Program,
@@ -28,7 +30,7 @@ import {
   Undefined,
   type Value,
 } from "@riddler/predicator";
-import { decodeTagged, evaluateTagged } from "@riddler/predicator/tagged";
+import { decodeTagged, evaluateTagged, executeTagged } from "@riddler/predicator/tagged";
 
 // ---------------------------------------------------------------------------
 // The datamodel and the context
@@ -600,6 +602,108 @@ export function refusedRoot(error: PredicatorError | ParseError): string | undef
   return error.details?.root;
 }
 
+/** Whether a value is a plain map: an object built from a literal or with no prototype. */
+function isPlainMap(value: object): boolean {
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
+}
+
+/**
+ * Whether two datamodel values are the same value, strictly, as the
+ * reference's diff compares them: a float and an integer of the same
+ * magnitude differ. Two floats whose signs of zero differ differ too, since
+ * the tagged encoding carries the sign. Lists and maps compare member by
+ * member, and a date, a datetime and a duration by their parts.
+ */
+function sameValue(a: Value, b: Value): boolean {
+  if (isFloat(a) || isFloat(b)) {
+    return isFloat(a) && isFloat(b) && Object.is(a.valueOf(), b.valueOf());
+  }
+  if (a === b) return true;
+  if (typeof a !== "object" || typeof b !== "object" || a === null || b === null) return false;
+  if (Array.isArray(a) || Array.isArray(b)) {
+    if (!Array.isArray(a) || !Array.isArray(b)) return false;
+    return a.length === b.length && a.every((member, i) => sameValue(member, b[i] as Value));
+  }
+  if (isPlainMap(a) !== isPlainMap(b)) return false;
+  if (!isPlainMap(a) && Object.getPrototypeOf(a) !== Object.getPrototypeOf(b)) return false;
+  const left = a as { readonly [key: string]: Value };
+  const right = b as { readonly [key: string]: Value };
+  const keys = Object.keys(left);
+  return (
+    keys.length === Object.keys(right).length &&
+    keys.every(
+      (key) => Object.hasOwn(right, key) && sameValue(left[key] as Value, right[key] as Value),
+    )
+  );
+}
+
+/**
+ * The roots a run changed or created, split into system roots and the rest.
+ * The comparison is at the top level: a write always goes through a root, so a
+ * nested write changes its root's value. It is strict on the values the run
+ * bound, as the reference's is: a root rewritten from the float 2.0 to the
+ * integer 2 changed.
+ */
+export function partitionChangedRoots(
+  before: Datamodel,
+  after: { readonly [root: string]: Value },
+): { system: string[]; other: Map<string, Value> } {
+  const system: string[] = [];
+  const other = new Map<string, Value>();
+  for (const [root, value] of Object.entries(after)) {
+    const prior = before.get(root);
+    if (prior !== undefined && sameValue(prior, value)) continue;
+    if (isSystemRoot(root)) system.push(root);
+    else other.set(root, value);
+  }
+  return { system: system.sort(), other };
+}
+
+/** How a program run ended: the context it halted with, and its failure if it had one. */
+interface ProgramHalt {
+  readonly context: { readonly [root: string]: Value };
+  readonly error?: PredicatorError | ParseError;
+}
+
+/** A halt context predicator wrote as tagged text, decoded into the domain. */
+function decodedContext(text: string): { readonly [root: string]: Value } {
+  const value = decodedValue(text);
+  if (typeof value !== "object" || value === null || Array.isArray(value) || !isPlainMap(value)) {
+    throw new Error("predicator answered a tagged context that is not a map");
+  }
+  return value as { readonly [root: string]: Value };
+}
+
+/**
+ * Runs a program and answers the context it halted with as domain values.
+ *
+ * The context is read through predicator's tagged statement run, which
+ * carries a float's brand where the plain projection drops it. A context the
+ * encoding cannot carry - a map holding the encoding's reserved key, or a
+ * duration with a fractional part - comes back from the tagged run with no
+ * context, so the program is run again under the plain projection and its
+ * context is read from there, as it was before, rather than failing a run
+ * that succeeded. There a root is compared as it was before too, by its
+ * projection, so a root the program left alone is handed back as the value
+ * it held rather than as its projection normalized again. The fallback runs
+ * the program a second time, so a host function it calls is called again;
+ * `In()`, the one this binding supplies, reads a configuration that does not
+ * move between the two runs.
+ */
+function haltOf(program: Program, before: Datamodel, options: EvaluateOptions): ProgramHalt {
+  const data = contextObject(before);
+  const tagged = executeTagged(program, data, options);
+  if (tagged.ok) return { context: decodedContext(tagged.context) };
+  if (tagged.context !== undefined) {
+    return { context: decodedContext(tagged.context), error: tagged.error };
+  }
+  const plain = executeProgram(program, data, options);
+  if (plain.ok) return { context: domainContext(plain.context, before) };
+  const context = "context" in plain && plain.context !== undefined ? plain.context : {};
+  return { context: domainContext(context, before), error: plain.error };
+}
+
 /** Whether two values predicator projected for a host are the same value. */
 function sameHostValue(a: unknown, b: unknown): boolean {
   if (a === b) return true;
@@ -619,23 +723,22 @@ function sameHostValue(a: unknown, b: unknown): boolean {
 }
 
 /**
- * The roots a run changed or created, split into system roots and the rest.
- * The comparison is at the top level: a write always goes through a root, so a
- * nested write changes its root's value.
+ * A halt context predicator projected for a host, normalized into the domain
+ * again. A root whose projection is its projection before the run is handed
+ * back as the value it held, so the diff does not read the projection's lost
+ * brand as a change.
  */
-export function partitionChangedRoots(
+function domainContext(
+  context: { readonly [root: string]: HostValue },
   before: Datamodel,
-  after: { readonly [root: string]: HostValue },
-): { system: string[]; other: Map<string, Value> } {
-  const system: string[] = [];
-  const other = new Map<string, Value>();
-  for (const [root, value] of Object.entries(after)) {
+): { readonly [root: string]: Value } {
+  const domain: { [root: string]: Value } = {};
+  for (const [root, value] of Object.entries(context)) {
     const prior = before.get(root);
-    if (prior !== undefined && sameHostValue(toHost(prior), value)) continue;
-    if (isSystemRoot(root)) system.push(root);
-    else other.set(root, domainValue(value));
+    domain[root] =
+      prior !== undefined && sameHostValue(toHost(prior), value) ? prior : domainValue(value);
   }
-  return { system: system.sort(), other };
+  return domain;
 }
 
 /**
@@ -648,29 +751,30 @@ export function partitionChangedRoots(
  * Either way the reason is `system_variable` naming the root, and the writes to
  * other roots that the program made before it stopped are merged. When several
  * fresh system roots changed, the one named is the first in sort order.
+ *
+ * What merges is the value the program bound, as the reference merges it: a
+ * float the program stored stays a float, a float nested beside a member the
+ * program changed keeps its brand, and a root rewritten from a float to the
+ * integer of the same magnitude is a change.
  */
 export function runProgram(context: EvaluationContext, compiled: CompiledProgram): ProgramOutcome {
   const before = context.data;
-  const result = executeProgram(compiled.program, contextObject(before), {
+  const halt = haltOf(compiled.program, before, {
     functions: functionsOf(context),
     onUnbound: ON_UNBOUND,
     protectedRoots: protectedRoots(before),
   });
 
-  let after: { readonly [root: string]: HostValue } = {};
   let failure: ExecutionReason | undefined;
-  if (result.ok) {
-    after = result.context;
-  } else {
-    if ("context" in result && result.context !== undefined) after = result.context;
-    const root = refusedRoot(result.error);
+  if (halt.error !== undefined) {
+    const root = refusedRoot(halt.error);
     failure =
       root !== undefined
         ? { kind: "system_variable", root }
-        : evaluatorError(compiled.source, result.error);
+        : evaluatorError(compiled.source, halt.error);
   }
 
-  const { system, other } = partitionChangedRoots(before, after);
+  const { system, other } = partitionChangedRoots(before, halt.context);
   const data = new Map(before);
   for (const [root, value] of other) data.set(root, value);
 
