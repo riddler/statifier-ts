@@ -569,6 +569,20 @@ describe("refusals", () => {
     );
   });
 
+  // The reference at v2.9.0 binds an empty declaration to the empty string
+  // (`Statifier.Lowering.Namespace.declare/2`) and reports the element as
+  // foreign_element with that URI.
+  //
+  // Sabotage: reading an empty xmlns or xmlns:p as no namespace turns this
+  // red, the state then lowering as SCXML vocabulary.
+  it("reports an element under an empty namespace declaration as foreign", () => {
+    for (const body of ['<state xmlns="" id="x"/>', '<p:state xmlns:p="" id="x"/>']) {
+      const [error] = errors(inLoan(body));
+      expect(error?.reason).toBe("foreign_element");
+      expect(error && "uri" in error ? error.uri : null).toBe("");
+    }
+  });
+
   // Sabotage: accepting any root name turns this red.
   it("refuses a root that is not <scxml>, and a foreign root", () => {
     expect(errors('<state id="loan"/>').map((e) => [e.reason, e.message])).toEqual([

@@ -225,6 +225,22 @@ describe("CDATA, comments and the skipped constructs", () => {
     );
   });
 
+  // A quote inside a comment or a processing instruction in the internal
+  // subset is text, not the start of a literal. The reference at v2.9.0
+  // accepts both documents (its parser skips the subset by counting angle
+  // brackets and never reads a quote there).
+  //
+  // Sabotage: reading a quote inside a subset comment or PI as a literal
+  // start turns this red with unterminated_doctype.
+  it("skips a quote inside a comment and inside a processing instruction in the internal subset", () => {
+    for (const subset of ["<!-- it's on loan -->", '<?shelf say "hi ?>']) {
+      const source = `<!DOCTYPE scxml [${subset}]>\n<scxml/>`;
+      const element = root(source);
+      expect(element.name).toBe("scxml");
+      expect(element.location).toMatchObject({ startLine: 2, startColumn: 1 });
+    }
+  });
+
   // Sabotage: dropping whitespace-only runs turns this red.
   it("keeps whitespace-only text runs", () => {
     const element = root("<a>\n  <b/>\n</a>");
@@ -286,10 +302,20 @@ describe("namespaces", () => {
     expect(asElement(element.children[1]).namespace).toBe(SCXML);
   });
 
-  // Sabotage: ignoring an empty xmlns turns this red.
-  it("undeclares the default namespace with an empty xmlns", () => {
-    const element = root(`<scxml xmlns="${SCXML}"><a xmlns=""/></scxml>`);
-    expect(asElement(element.children[0]).namespace).toBeNull();
+  // Decided against the reference at v2.9.0: its namespace scope
+  // (`Statifier.Lowering.Namespace.declare/2`) puts the value of a bare
+  // `xmlns` into the scope as written, so `xmlns=""` binds the empty string
+  // rather than undeclaring, and lowering reports the element as
+  // foreign_element with the URI "". An empty xmlns is a declaration of the
+  // empty URI here too, never null, which would lower as SCXML vocabulary.
+  //
+  // Sabotage: reading an empty xmlns as null, or ignoring it, turns this red.
+  it("binds the empty string for an empty xmlns, as the reference does", () => {
+    const element = root(`<scxml xmlns="${SCXML}"><a xmlns=""><b/></a><c/></scxml>`);
+    const a = asElement(element.children[0]);
+    expect(a.namespace).toBe("");
+    expect(asElement(a.children[0]).namespace).toBe("");
+    expect(asElement(element.children[1]).namespace).toBe(SCXML);
   });
 
   // Sabotage: resolving a prefixed name against the default namespace turns
@@ -306,11 +332,21 @@ describe("namespaces", () => {
     ]);
   });
 
+  // Decided: `xmlns:p=""` does NOT undeclare the prefix. Undeclaring a
+  // prefix is a Namespaces in XML 1.1 rule (1.0 makes the empty value an
+  // error), and the reference at v2.9.0 does neither: its namespace scope
+  // (`Statifier.Lowering.Namespace.declare/2`) binds the prefix to the
+  // empty string as written, so `p:b` resolves to "" and lowers as
+  // foreign_element. This parser matches it: the prefix binds "", never
+  // null, so the element is not read as SCXML vocabulary.
+  //
   // Sabotage: resolving a prefix against the parent's map instead of the
-  // element's own declarations turns this red.
-  it("undeclares a prefix with an empty value", () => {
-    const element = root('<a xmlns:p="urn:p"><p:b xmlns:p=""/></a>');
-    expect(asElement(element.children[0]).namespace).toBeNull();
+  // element's own declarations, or reading the empty value as null, turns
+  // this red.
+  it("binds a prefix declared with an empty value to the empty string", () => {
+    const element = root('<a xmlns:p="urn:p"><p:b xmlns:p=""/><p:c/></a>');
+    expect(asElement(element.children[0]).namespace).toBe("");
+    expect(asElement(element.children[1]).namespace).toBe("urn:p");
   });
 });
 
@@ -379,6 +415,26 @@ describe("locations", () => {
     expect(b.location.startOffset).toBe(5);
   });
 
+  // A leading byte order mark is skipped as content but counted as a
+  // position: the offset includes it, so a slice still recovers the raw
+  // text, and so does the column, which counts code points from the start
+  // of the source. That is the reference's coordinate rule at v2.9.0
+  // (`Statifier.Parser.Location.at_offset/2` counts every code point of
+  // the prefix, `line_and_column/1`), so the root after a mark starts at
+  // column 2. (The reference's own parser refuses a leading mark outright;
+  // this parser accepts one, and only the coordinates follow the
+  // reference.)
+  //
+  // Sabotage: not advancing past the mark, or advancing the offset without
+  // the column, turns this red.
+  it("counts a leading byte order mark in the offset and the column", () => {
+    const source = "\u{FEFF}<scxml>\n<state/></scxml>";
+    const element = root(source);
+    expect(element.location).toMatchObject({ startLine: 1, startColumn: 2, startOffset: 1 });
+    expect(slice(source, element.location)).toBe("<scxml>\n<state/></scxml>");
+    expect(asElement(element.children[1]).location).toMatchObject({ startLine: 2, startColumn: 1 });
+  });
+
   // Sabotage: spanning a self-closing element past its tag turns this red.
   it("spans a self-closing element as its tag", () => {
     const source = "<a> <b x='1' /> </a>";
@@ -426,11 +482,16 @@ describe("malformed input", () => {
     ["<a><?pi x", "unterminated_processing_instruction", 1, 10],
     ["<a><?xml version='1.0'?></a>", "misplaced_xml_declaration", 1, 4],
     ["<!DOCTYPE a [", "unterminated_doctype", 1, 14],
+    ["<!DOCTYPE a [<!-- x", "unterminated_doctype", 1, 20],
+    ["<!DOCTYPE a [<!-->]><a/>", "unterminated_doctype", 1, 25],
+    ["<!DOCTYPE a [<?pi x", "unterminated_doctype", 1, 20],
     ["<a>&nbsp;</a>", "unknown_entity", 1, 4],
     ["<a>R&D</a>", "malformed_reference", 1, 5],
     ["<a>&amp</a>", "malformed_reference", 1, 4],
     ["<a>&;</a>", "malformed_reference", 1, 4],
     ["<a>& b;</a>", "malformed_reference", 1, 4],
+    ['<a><b x="&c"/>d;</a>', "malformed_reference", 1, 10],
+    ["<a><b x='&c'/>d;</a>", "malformed_reference", 1, 10],
     ["<a>&#0;</a>", "invalid_character_reference", 1, 4],
     ["<a>&#x;</a>", "invalid_character_reference", 1, 4],
     ["<a>&#Xe9;</a>", "invalid_character_reference", 1, 4],
@@ -443,6 +504,10 @@ describe("malformed input", () => {
     ['<a x="\u0001"/>', "invalid_character", 1, 7],
     ["<a><![CDATA[\u0001]]></a>", "invalid_character", 1, 13],
     ["<a>￿</a>", "invalid_character", 1, 4],
+    ["<a>\uD800</a>", "invalid_character", 1, 4],
+    ["<a>x\uDC00</a>", "invalid_character", 1, 5],
+    ['<a x="\uD800y"/>', "invalid_character", 1, 7],
+    ["<a><![CDATA[\uDBFF]]></a>", "invalid_character", 1, 13],
     ["<a>x]]>y</a>", "cdata_end_in_text", 1, 5],
     ["<a><? x?></a>", "expected_name", 1, 6],
   ];

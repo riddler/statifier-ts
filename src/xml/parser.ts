@@ -24,7 +24,9 @@
 //   `xmlns` parses exactly as its declared twin does, and markup inside a
 //   `<content>` element inherits the default namespace of its ancestors, as
 //   ordinary XML namespace rules say. Rejecting a missing declaration is a
-//   later layer's job.
+//   later layer's job. An empty declaration (`xmlns=""`, `xmlns:p=""`) binds
+//   the empty string, as the reference's namespace scope does, and never
+//   undeclares.
 //
 // What it does not do: validate names against any vocabulary, drop duplicate
 // attributes, drop whitespace-only text, or read a document type definition.
@@ -64,8 +66,9 @@ export interface Attribute {
 
 /**
  * An element. `name` is the qualified name as written, prefix included;
- * `namespace` is the URI that name resolves to, or null when no declaration
- * is in scope for it. `location` runs from the `<` of the start tag to the
+ * `namespace` is the URI that name resolves to (the empty string when an
+ * empty declaration is in scope for it), or null when no declaration is in
+ * scope for it. `location` runs from the `<` of the start tag to the
  * character after the `>` of the end tag (the tag itself when self-closing).
  */
 export interface Element {
@@ -136,7 +139,7 @@ interface Mark {
 
 interface Scope {
   readonly defaultNamespace: string | null;
-  readonly prefixes: ReadonlyMap<string, string | null>;
+  readonly prefixes: ReadonlyMap<string, string>;
 }
 
 interface OpenElement {
@@ -380,16 +383,19 @@ function open(name: string, attributes: Attribute[], start: Mark, parentScope: S
 }
 
 // Folds an element's own `xmlns` and `xmlns:prefix` attributes over the scope
-// it inherited. An empty `xmlns=""` undeclares the default namespace.
+// it inherited. A value binds as written, the empty string included: an
+// empty `xmlns=""` or `xmlns:p=""` declares the empty URI and undeclares
+// nothing, as the reference's namespace scope does, so the element is not
+// read as SCXML vocabulary.
 function declare(parent: Scope, attributes: readonly Attribute[]): Scope {
   let defaultNamespace = parent.defaultNamespace;
-  let prefixes: Map<string, string | null> | null = null;
+  let prefixes: Map<string, string> | null = null;
   for (const attribute of attributes) {
     if (attribute.name === "xmlns") {
-      defaultNamespace = attribute.value === "" ? null : attribute.value;
+      defaultNamespace = attribute.value;
     } else if (attribute.name.startsWith("xmlns:") && attribute.name.length > 6) {
       if (prefixes === null) prefixes = new Map(parent.prefixes);
-      prefixes.set(attribute.name.slice(6), attribute.value === "" ? null : attribute.value);
+      prefixes.set(attribute.name.slice(6), attribute.value);
     }
   }
   return { defaultNamespace, prefixes: prefixes ?? parent.prefixes };
@@ -541,12 +547,16 @@ function readReference(cursor: Cursor): string | ParseError {
   return decoded;
 }
 
-// A reference body runs to the first `;` and never spans whitespace or
-// markup; one that does means the `&` began no reference at all.
+// A reference body runs to the first `;` and never spans whitespace, markup
+// or a quote; one that does means the `&` began no reference at all. The
+// quote matters in an attribute value, where the `;` found may lie past the
+// value's closing quote.
 function hasReferenceBreak(body: string): boolean {
   for (let i = 0; i < body.length; i++) {
     const code = body.charCodeAt(i);
-    if (isWhitespace(code) || code === 0x3c || code === 0x26) return true;
+    if (isWhitespace(code) || code === 0x3c || code === 0x26 || code === 0x22 || code === 0x27) {
+      return true;
+    }
   }
   return false;
 }
@@ -583,8 +593,11 @@ function isXmlChar(code: number): boolean {
   return code >= 0x10000 && code <= 0x10ffff;
 }
 
-// Refuses a control character XML does not allow; a surrogate is left to
-// `takeCodePoint`, which keeps a pair together.
+// Refuses a character XML does not allow: a control character, a
+// non-character, or a surrogate code unit that is not half of a pair. A
+// whole pair is left to `takeCodePoint`, which keeps it together. A lone
+// surrogate is refused as its character reference is, since XML 1.0's Char
+// production excludes the surrogate block.
 function checkCharacter(cursor: Cursor, code: number): ParseError | null {
   if (code < SPACE && code !== TAB && code !== LF && code !== CR) {
     return errorAt(cursor, "invalid_character", "a control character is not allowed in XML");
@@ -592,7 +605,16 @@ function checkCharacter(cursor: Cursor, code: number): ParseError | null {
   if (code === 0xfffe || code === 0xffff) {
     return errorAt(cursor, "invalid_character", "a non-character is not allowed in XML");
   }
+  if (code >= 0xd800 && code <= 0xdfff && !isPairAt(cursor.source, cursor.offset)) {
+    return errorAt(cursor, "invalid_character", "a lone surrogate is not allowed in XML");
+  }
   return null;
+}
+
+// Whether the code unit at `index` is a high surrogate followed by a low one.
+function isPairAt(source: string, index: number): boolean {
+  const low = source.charCodeAt(index + 1);
+  return isHighSurrogateAt(source, index) && low >= 0xdc00 && low <= 0xdfff;
 }
 
 // Skips `<!-- ... -->`, refusing `--` inside it as XML 1.0 2.5 does.
@@ -646,13 +668,24 @@ function skipProcessingInstruction(cursor: Cursor): ParseError | null {
 
 // Skips `<!DOCTYPE ... >`, internal subset and quoted literals included. The
 // declarations inside it are not read: only the predefined entities expand.
+// Inside the internal subset a comment and a processing instruction are
+// skipped whole, so a quote or a bracket in one is text and starts nothing.
 function skipDoctype(cursor: Cursor): ParseError | null {
   advanceBy(cursor, 9);
   let quote = 0;
   let depth = 0;
   for (;;) {
     if (cursor.offset >= cursor.source.length) {
-      return errorAt(cursor, "unterminated_doctype", "a document type declaration is never closed");
+      return unterminatedDoctype(cursor);
+    }
+    if (quote === 0 && depth > 0) {
+      const skipped = startsWith(cursor, "<!--")
+        ? skipThrough(cursor, 4, "-->")
+        : startsWith(cursor, "<?")
+          ? skipThrough(cursor, 2, "?>")
+          : null;
+      if (skipped === false) return unterminatedDoctype(cursor);
+      if (skipped === true) continue;
     }
     const code = cursor.source.charCodeAt(cursor.offset);
     advance(cursor);
@@ -667,6 +700,25 @@ function skipDoctype(cursor: Cursor): ParseError | null {
     } else if (code === 0x3e && depth <= 0) {
       return null;
     }
+  }
+}
+
+function unterminatedDoctype(cursor: Cursor): ParseError {
+  return errorAt(cursor, "unterminated_doctype", "a document type declaration is never closed");
+}
+
+// Advances past an opener `open` code units long and then through the first
+// `close` after it; answers false, at the end of the source, when there is
+// none.
+function skipThrough(cursor: Cursor, open: number, close: string): boolean {
+  advanceBy(cursor, open);
+  for (;;) {
+    if (cursor.offset >= cursor.source.length) return false;
+    if (startsWith(cursor, close)) {
+      advanceBy(cursor, close.length);
+      return true;
+    }
+    advance(cursor);
   }
 }
 
