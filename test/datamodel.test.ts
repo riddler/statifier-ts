@@ -7,6 +7,7 @@
 
 import {
   compile,
+  EvaluationError,
   float,
   isFloat,
   isInteger,
@@ -504,17 +505,23 @@ describe("a program", () => {
     ).toBe(1);
   });
 
-  // Sabotage: returning the message whole from refusedRoot turns the first
-  // expectation red.
-  it("reads the refused root out of predicator's protected-root refusal", () => {
-    const refusal = {
-      type: "EvaluationError" as const,
-      reason: "protected_root",
-      message: "_event is a protected root",
-    };
-    expect(refusedRoot(refusal as never)).toBe("_event");
-    expect(refusedRoot({ ...refusal, message: "something else" } as never)).toBeUndefined();
-    expect(refusedRoot({ ...refusal, reason: "not_assignable" } as never)).toBeUndefined();
+  // Sabotage: reading the root out of the message again turns the first
+  // expectation red (the message names another root) and the second (it
+  // carries no details); answering details.root without checking the reason
+  // turns the last one red.
+  it("reads the refused root from the details of predicator's protected-root refusal", () => {
+    const refusal = new EvaluationError("protected_root", "_name is a protected root", undefined, {
+      root: "_event",
+    });
+    expect(refusedRoot(refusal)).toBe("_event");
+    expect(
+      refusedRoot(new EvaluationError("protected_root", "_event is a protected root")),
+    ).toBeUndefined();
+    expect(
+      refusedRoot(
+        new EvaluationError("not_assignable", "not assignable", undefined, { root: "_event" }),
+      ),
+    ).toBeUndefined();
   });
 });
 

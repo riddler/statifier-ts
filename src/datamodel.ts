@@ -590,16 +590,14 @@ export type ProgramOutcome =
   | { readonly ok: true; readonly data: Datamodel }
   | { readonly ok: false; readonly data: Datamodel; readonly reason: ExecutionReason };
 
-const PROTECTED_ROOT_SUFFIX = " is a protected root";
-
 /**
- * The root a protected-root refusal names. Predicator carries the root only in
- * the refusal's message, so it is read from there.
+ * The root a protected-root refusal names, read from the refusal's
+ * `details.root`. The message is not read: predicator does not hold it
+ * normative.
  */
 export function refusedRoot(error: PredicatorError | ParseError): string | undefined {
   if (error.type !== "EvaluationError" || error.reason !== "protected_root") return undefined;
-  if (!error.message.endsWith(PROTECTED_ROOT_SUFFIX)) return undefined;
-  return error.message.slice(0, -PROTECTED_ROOT_SUFFIX.length);
+  return error.details?.root;
 }
 
 /** Whether two values predicator projected for a host are the same value. */

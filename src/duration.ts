@@ -14,39 +14,28 @@
 // they are taken as they are, as the reference takes them. Anything else is
 // refused.
 //
-// Two things here are this package's own, and both are the reference's too:
+// One thing here is this package's own, and it is the reference's too:
 //
 // - The leading-dot rewrite. The schema's pattern admits a bare leading dot
 //   (`.5s`) and the expression language's parser refuses it, so a leading `.`
 //   becomes `0.` before the parse (`Statifier.Duration.normalize_leading_dot/1`
 //   at v2.9.0). It is the only rewrite; every other character reaches the
 //   parser untouched.
-// - The conversion to milliseconds. The parser answers a duration's parts, not
-//   a count of milliseconds, so the sum is taken here with the weights the
-//   reference's expression language converts by (`Predicator.Duration
-//   .to_milliseconds/1`): a month is thirty days and a year three hundred and
-//   sixty five. The reference's sum is exact at any size; here a total past
-//   the largest safe integer (some 285,000 years of milliseconds) is not, and
-//   no delay the corpus uses comes near it.
+//
+// The conversion to milliseconds is the expression language's too: the parser
+// answers a duration's parts, and `durationToMilliseconds` sums them by the
+// weights the reference's expression language converts by (`Predicator
+// .Duration.to_milliseconds/1`): a month is thirty days and a year three
+// hundred and sixty five. The reference's sum is exact at any size; here a
+// total past the largest safe integer (some 285,000 years of milliseconds) is
+// not, and no delay the corpus uses comes near it.
 
-import { Duration, parseDuration } from "@riddler/predicator";
+import { Duration, durationToMilliseconds, parseDuration } from "@riddler/predicator";
 
 /** A delay in whole milliseconds, or the refusal of one that is not a delay. */
 export type DelayResult =
   | { readonly ok: true; readonly ms: number }
   | { readonly ok: false; readonly reason: "invalid_delay"; readonly value: string };
-
-/** The weight of each duration part in milliseconds. */
-const MILLISECONDS = {
-  milliseconds: 1,
-  seconds: 1_000,
-  minutes: 60_000,
-  hours: 3_600_000,
-  days: 86_400_000,
-  weeks: 604_800_000,
-  months: 2_592_000_000,
-  years: 31_536_000_000,
-} as const;
 
 /**
  * Rewrites a leading `.` to `0.`, so `.5s` reads as `0.5s`. Text with no
@@ -54,20 +43,6 @@ const MILLISECONDS = {
  */
 export function normalizeLeadingDot(text: string): string {
   return text.startsWith(".") ? `0${text}` : text;
-}
-
-/** The total of a duration's parts in milliseconds. */
-export function durationToMs(duration: Duration): number {
-  return (
-    duration.milliseconds * MILLISECONDS.milliseconds +
-    duration.seconds * MILLISECONDS.seconds +
-    duration.minutes * MILLISECONDS.minutes +
-    duration.hours * MILLISECONDS.hours +
-    duration.days * MILLISECONDS.days +
-    duration.weeks * MILLISECONDS.weeks +
-    duration.months * MILLISECONDS.months +
-    duration.years * MILLISECONDS.years
-  );
 }
 
 /**
@@ -80,11 +55,11 @@ export function durationToMs(duration: Duration): number {
  */
 export function delayToMs(value: string | Duration): DelayResult {
   if (value instanceof Duration) {
-    return { ok: true, ms: durationToMs(value) };
+    return { ok: true, ms: durationToMilliseconds(value) };
   }
   const parsed = parseDuration(normalizeLeadingDot(value));
   if (!parsed.ok) {
     return { ok: false, reason: "invalid_delay", value };
   }
-  return { ok: true, ms: durationToMs(parsed.value) };
+  return { ok: true, ms: durationToMilliseconds(parsed.value) };
 }
