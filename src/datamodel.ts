@@ -419,14 +419,29 @@ export function scxmlLocation(sessionId: string): string {
  * the id the host minted for the session. `_name` is the chart's name, or
  * undefined when the chart has none. `_event` is declared with no value, so a
  * read before the first event answers undefined rather than failing.
- * `_ioprocessors` holds the SCXML Event I/O Processor's entry.
+ * `_ioprocessors` holds the SCXML Event I/O Processor's entry, keyed by its
+ * URI with the session's location, and an empty entry for each send type the
+ * host registered a processor for (`sendTypes`, null for none). A registered
+ * type never replaces the SCXML entry: a set naming the processor's URI still
+ * reads the SCXML entry under it. The entries are written here, once, when the
+ * chart starts, and a resumed chart reads the ones it started with.
  */
-export function systemVariables(sessionId: string, name: string | undefined): Datamodel {
+export function systemVariables(
+  sessionId: string,
+  name: string | undefined,
+  sendTypes: ReadonlySet<string> | null = null,
+): Datamodel {
+  // Built from entries, so every type is an own key, and the SCXML entry
+  // comes last, so it wins over a registered type of the same spelling.
+  const ioprocessors: Value = Object.fromEntries([
+    ...[...(sendTypes ?? [])].map((type) => [type, {}] as const),
+    [SCXML_EVENT_PROCESSOR, { location: scxmlLocation(sessionId) }] as const,
+  ]);
   return new Map<string, Value>([
     ["_sessionid", sessionId],
     ["_name", name ?? Undefined],
     ["_event", Undefined],
-    ["_ioprocessors", { [SCXML_EVENT_PROCESSOR]: { location: scxmlLocation(sessionId) } }],
+    ["_ioprocessors", ioprocessors],
   ]);
 }
 
@@ -438,9 +453,10 @@ export function initialDatamodel(
   host: Datamodel,
   sessionId: string,
   name: string | undefined,
+  sendTypes: ReadonlySet<string> | null = null,
 ): Datamodel {
   const data = new Map(host);
-  for (const [root, value] of systemVariables(sessionId, name)) data.set(root, value);
+  for (const [root, value] of systemVariables(sessionId, name, sendTypes)) data.set(root, value);
   return data;
 }
 

@@ -331,6 +331,40 @@ describe("the system variables", () => {
     expect(scxmlLocation("session-1")).toBe("#_scxml_session-1");
   });
 
+  // Sabotage: leaving the registered types out of _ioprocessors (the map
+  // built from the SCXML entry alone) turns the first expectation red.
+  it("binds _ioprocessors to an entry per registered send type beside the SCXML entry", () => {
+    const registered = systemVariables("session-1", "parcel", new Set(["courier", "drone"]));
+    expect(registered.get("_ioprocessors")).toEqual({
+      courier: {},
+      drone: {},
+      [SCXML_EVENT_PROCESSOR]: { location: "#_scxml_session-1" },
+    });
+    expect(evaluated('_ioprocessors["unregistered"]', registered)).toBe(Undefined);
+    expect(systemVariables("session-1", "parcel", null).get("_ioprocessors")).toEqual(
+      data.get("_ioprocessors"),
+    );
+  });
+
+  // Sabotage: writing the registered entries over the SCXML entry rather
+  // than under it turns this red.
+  it("keeps the SCXML entry under its URI when a registered type names it", () => {
+    const named = systemVariables("session-1", "parcel", new Set([SCXML_EVENT_PROCESSOR]));
+    expect(named.get("_ioprocessors")).toEqual({
+      [SCXML_EVENT_PROCESSOR]: { location: "#_scxml_session-1" },
+    });
+  });
+
+  // Sabotage: assigning each entry onto a plain object (`entries[type] = {}`)
+  // sets the prototype for this type rather than an own key and turns this red.
+  it("lists a registered type spelled like an object's prototype key as its own entry", () => {
+    const listed = systemVariables("session-1", "parcel", new Set(["__proto__"])).get(
+      "_ioprocessors",
+    ) as Record<string, Value>;
+    expect(Object.keys(listed)).toEqual(["__proto__", SCXML_EVENT_PROCESSOR]);
+    expect(Object.getPrototypeOf(listed)).toBe(Object.prototype);
+  });
+
   // Sabotage: leaving `origin` out of eventValue turns this red.
   it("binds _event to an event's name, type, optional fields and data", () => {
     const returned: Event = {
