@@ -353,16 +353,24 @@ hand. Its registry, `conformance/registry.json`, lists the cases this package
 claims to pass - written only by a run that observed the pass, and never
 narrowed.
 
-**The claim:** this package claims the `scion` suite, with 119 entries in its
-registry out of the suite's 119 cases.
+**The claim:** this package makes three claims, with 241 entries in its
+registry: `scion` with 119 entries out of the suite's 119 cases,
+`w3c-mandatory` with 120 entries out of the w3c suite's 154 mandatory cases,
+and `w3c-optional` with 2 entries out of its 2 optional cases. A claim is
+exactly its entries: a case with no entry is one this package does not claim
+to pass.
 
-**The gap:** it does not yet claim any case of the other two suites - the 154
-w3c cases and the 28 statifier cases the reference's own registry lists.
-`pnpm conformance` runs the corpus, writes one report per suite under
-`reports/`, and prints that gap list, every unclaimed case with the features
-it needs in the corpus's own words. The runner drives the scion suite through
-the interpreter and fails every case of the other suites with the reason that
-its suite is not driven yet.
+**The gap:** it does not yet claim the 32 w3c cases and the 28 statifier cases
+the reference's own registry lists that this package's does not, nor the 2 w3c
+cases the reference's registry does not list either. `pnpm conformance` runs
+the corpus, writes one report per suite under `reports/`, and prints both
+lists, every unclaimed case with the reason the run failed it, and each case
+the reference claims with the features it needs in the corpus's own words. The
+runner drives the scion and w3c suites through the interpreter. A w3c case
+that needs `<invoke>`, which this package does not run yet, fails before it
+is driven, naming the feature, `invoke_elements`, as the reference's harness
+fails a case needing a feature it does not run; every case of the statifier
+suite fails with the reason that its suite is not driven yet.
 
 ```bash
 pnpm conformance      # run the corpus and print the gap list

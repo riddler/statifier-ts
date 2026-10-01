@@ -58,12 +58,22 @@ fails naming the field, and is never repaired by rewriting a hash.
 **Run.** `pnpm conformance` runs every suite, or the ones named with
 `--suite`, and writes one report per suite under `reports/`, which git
 ignores. Every case is a `pass` or a `fail` with a reason; there is no third
-value and no case is left out. The runner drives each scion case through the
-interpreter, compares the active leaf set after the start and after each
-event as the reference's harness does, and moves a virtual clock by the two
-knobs ADR-0003 fixes (a settle window of 100 ms before each event, a
-deadline of 4000 ms after it). A case of the w3c or statifier suite fails
-with the reason that its suite is not driven yet.
+value and no case is left out. The runner drives each scion and w3c case
+through the interpreter, compares the active leaf set after the start and
+after each event as the reference's harness does, and moves a virtual clock
+by the two knobs ADR-0003 fixes (a settle window of 100 ms before each event,
+a deadline of 4000 ms after it). The reference's harness drives the two
+suites through one function (`test_scxml/4` in
+`lib/statifier/testing/case.ex` at `v2.9.0`), and the runner drives them
+through one drive: a w3c case carries no step and expects its chart to rest
+in the `pass` state once it has run as far as it can. A w3c case that needs
+`<invoke>`, which this package does not run yet, fails before it is driven,
+naming the feature, `invoke_elements` in the reference's feature names: the
+reference's harness runs `<invoke>`, and its rule for a feature a harness
+does not run is to fail the case before it starts, so that the feature never
+passes as a test it did not run (ADR-0003 decision 6).
+A case of the statifier suite fails with the reason that its suite is not
+driven yet.
 
 **Ratchet.** `pnpm ratchet` reads only the reports the last run wrote. It
 refuses, writing nothing, when a report is of another corpus or is not a run
@@ -116,7 +126,28 @@ after a step, which the reference does not emit yet.
 The reference's own registry, inside the copy, lists the cases the reference
 passes. The difference between it and this package's registry is what this
 package does not yet claim, and `pnpm conformance` prints it after every run,
-for the suites it ran, each case with the features it needs: its
-`required_features`, in the corpus's own words. This package's registry
-claims every scion case and no other, so that list is every w3c and
-statifier case of the reference's registry.
+for the suites it ran, each case with the features it needs, its
+`required_features` in the corpus's own words, and the reason the run failed
+it. It then prints the cases of the suites it ran that the reference's
+registry does not list either, each with the reason the run failed it: the
+gap list is read off the reference's registry, so without this second list
+those cases would go unnamed.
+
+This package's registry claims every scion case and the w3c cases a run
+observed to pass; the claims `w3c-mandatory` and `w3c-optional` are exactly
+those entries, and a w3c case with no entry is one this package does not
+claim to pass. What the run fails in the w3c suite falls in three groups:
+
+- the cases that need `<invoke>`, each failing before it is driven with
+  `invoke_elements` named;
+- `w3c/test329` and `w3c/test496`, which the reference claims and which fail
+  here on the configuration the chart rests in;
+- `w3c/test330` and `w3c/test552`, which the reference's registry does not
+  list, and which fail here on the configuration the chart rests in.
+
+A case that needs `<invoke>` fails even when its chart would reach the
+expected configuration with no invocation run, as `w3c/test187` would on its
+timeout guard: a pass there would claim a feature this package does not run.
+
+The statifier suite is not driven yet, so every statifier case of the
+reference's registry is on the list.

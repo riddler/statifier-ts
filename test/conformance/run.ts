@@ -8,11 +8,13 @@
 // round-trip property's counts over it (`test/conformance/position.ts`): the
 // points, the round trips that agree, and the points not carried with each
 // reason. Then it prints what is not yet claimed: every case the
-// reference's own registry claims, for the suites run, that this package's
-// registry does not, each with the features it needs. That list is the
-// distance between this package and the reference, read off the two
-// registries; it changes only when the ratchet writes an entry here or a
-// refresh moves the corpus.
+// reference's registry claims, for the suites run, that this package's
+// registry does not, each with the features it needs and the reason this run
+// failed it. That list is the distance between this package and the
+// reference, read off the two registries; it changes only when the ratchet
+// writes an entry here or a refresh moves the corpus. Last it prints the
+// cases of the suites run that neither registry claims, each with the reason
+// this run failed it.
 //
 // The exit is 0 whatever the cases answered: a failing case is a report line,
 // and what holds a claim is the registry check, not this run.
@@ -30,7 +32,13 @@ import {
   unclaimed,
 } from "../../scripts/lib/corpus.mjs";
 import { positionLines, runPositionProperty } from "./position.js";
-import { gapLines, runVendored, writeReports } from "./reports.js";
+import {
+  gapLines,
+  runVendored,
+  unclaimedByEither,
+  unclaimedByEitherLines,
+  writeReports,
+} from "./reports.js";
 
 function readSuites(argv: readonly string[]): string[] {
   const names: string[] = [];
@@ -76,8 +84,16 @@ const registry = existsSync(join(CONFORMANCE_ROOT, REGISTRY_FILE))
       entries: [],
     };
 const suitesRun = reports.map((report) => report.suite);
-const gap = unclaimed(loadReferenceRegistry(), registry, suitesRun);
+const results = reports.flatMap((report) => report.results);
+const reference = loadReferenceRegistry();
+const gap = unclaimed(reference, registry, suitesRun);
 process.stdout.write(
   `\nwhat is not yet claimed: ${gap.length} cases the reference's registry claims and this package's does not (${suitesRun.join(", ")})\n`,
 );
-for (const line of gapLines(gap, loadSuites())) process.stdout.write(`  ${line}\n`);
+for (const line of gapLines(gap, loadSuites(), results)) process.stdout.write(`  ${line}\n`);
+
+const neither = unclaimedByEither(reference, registry, loadSuites(), suitesRun);
+process.stdout.write(
+  `\nwhat neither registry claims: ${neither.length} cases of the suites run that the reference's registry does not claim either\n`,
+);
+for (const line of unclaimedByEitherLines(neither, results)) process.stdout.write(`  ${line}\n`);

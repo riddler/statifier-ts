@@ -84,12 +84,18 @@ describe("this package's registry, as committed", () => {
   const committed = loadRegistry();
   const results = suites.flatMap((suite) => runSuite(suite, manifest.corpus_hash).results);
 
-  it("is pinned, in the ratchet's encoding, and claims only scion entries", () => {
+  it("is pinned, in the ratchet's encoding, and claims only scion and w3c entries", () => {
     expect(committed.implementation).toBe("statifier-ts");
     expect(committed.corpus_hash).toBe(manifest.corpus_hash);
-    expect(committed.claims).toEqual(["scion"]);
+    expect(committed.claims).toEqual(["scion", "w3c-mandatory", "w3c-optional"]);
     expect(committed.entries.length).toBeGreaterThan(0);
-    expect(committed.entries.every((entry) => entry.suite === "scion")).toBe(true);
+    expect(
+      committed.entries.every((entry) => entry.suite === "scion" || entry.suite === "w3c"),
+    ).toBe(true);
+    const scion = suites.find((suite) => suite.suite === "scion")?.cases ?? [];
+    expect(
+      committed.entries.filter((entry) => entry.suite === "scion").map((entry) => entry.case_id),
+    ).toEqual(scion.map((testCase) => testCase.id).sort());
     expect(readRegistryText()).toBe(encodeRegistry(committed));
   });
 
