@@ -670,6 +670,9 @@ function skipProcessingInstruction(cursor: Cursor): ParseError | null {
 // declarations inside it are not read: only the predefined entities expand.
 // Inside the internal subset a comment and a processing instruction are
 // skipped whole, so a quote or a bracket in one is text and starts nothing.
+// One that never closes is not skipped: the scan rewinds to its `<` and reads
+// on character by character, so `<!-->]>` still ends the declaration, as it
+// does in the reference.
 function skipDoctype(cursor: Cursor): ParseError | null {
   advanceBy(cursor, 9);
   let quote = 0;
@@ -679,13 +682,14 @@ function skipDoctype(cursor: Cursor): ParseError | null {
       return unterminatedDoctype(cursor);
     }
     if (quote === 0 && depth > 0) {
+      const before = mark(cursor);
       const skipped = startsWith(cursor, "<!--")
         ? skipThrough(cursor, 4, "-->")
         : startsWith(cursor, "<?")
           ? skipThrough(cursor, 2, "?>")
           : null;
-      if (skipped === false) return unterminatedDoctype(cursor);
       if (skipped === true) continue;
+      if (skipped === false) rewind(cursor, before);
     }
     const code = cursor.source.charCodeAt(cursor.offset);
     advance(cursor);
@@ -705,6 +709,12 @@ function skipDoctype(cursor: Cursor): ParseError | null {
 
 function unterminatedDoctype(cursor: Cursor): ParseError {
   return errorAt(cursor, "unterminated_doctype", "a document type declaration is never closed");
+}
+
+function rewind(cursor: Cursor, to: Mark): void {
+  cursor.offset = to.offset;
+  cursor.line = to.line;
+  cursor.column = to.column;
 }
 
 // Advances past an opener `open` code units long and then through the first
