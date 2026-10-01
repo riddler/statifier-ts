@@ -207,6 +207,7 @@ function newMachineState(machine: Machine, options: InitializeOptions): MachineS
       options.datamodel ?? new Map(),
       options.sessionId,
       machine.name ?? undefined,
+      options.sendTypes ?? null,
     ),
     internalQueue: [],
     macrostep: 0,

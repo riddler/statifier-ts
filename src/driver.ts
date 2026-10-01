@@ -224,8 +224,8 @@ export interface DriveOptions {
    * refused with `error.execution` on the second. The reference fixes
    * `_ioprocessors` when the chart starts, from the registered set
    * (`SystemVariables.initial/3`), so a set that changed afterwards would also
-   * disagree with what the chart reads there; this package's `_ioprocessors`
-   * holds the SCXML Event I/O Processor's entry only, and is fixed at start.
+   * disagree with what the chart reads there. This package does the same: a
+   * registered type's entry in `_ioprocessors` is written at start and kept.
    */
   readonly sendTypes?: SendProcessors;
 }
@@ -239,8 +239,8 @@ export interface DriveOptions {
  * refused with `error.execution` on the second. The reference fixes
  * `_ioprocessors` when the chart starts, from the registered set
  * (`SystemVariables.initial/3`), so a set that changed afterwards would also
- * disagree with what the chart reads there; this package's `_ioprocessors`
- * holds the SCXML Event I/O Processor's entry only, and is fixed at start.
+ * disagree with what the chart reads there. This package does the same: a
+ * registered type's entry in `_ioprocessors` is written at start and kept.
  */
 export interface StartOptions extends DriveOptions {
   /** The session's id, minted by the host: `_sessionid` reads it. */
@@ -334,8 +334,8 @@ export type DoneStatus =
  * refused with `error.execution` on the second. The reference fixes
  * `_ioprocessors` when the chart starts, from the registered set
  * (`SystemVariables.initial/3`), so a set that changed afterwards would also
- * disagree with what the chart reads there; this package's `_ioprocessors`
- * holds the SCXML Event I/O Processor's entry only, and is fixed at start.
+ * disagree with what the chart reads there. This package does the same: a
+ * registered type's entry in `_ioprocessors` is written at start and kept.
  */
 export function start(chart: Chart, options: StartOptions): DriveResult {
   const processors = options.sendTypes ?? {};
@@ -373,8 +373,8 @@ export function start(chart: Chart, options: StartOptions): DriveResult {
  * refused with `error.execution` on the second. The reference fixes
  * `_ioprocessors` when the chart starts, from the registered set
  * (`SystemVariables.initial/3`), so a set that changed afterwards would also
- * disagree with what the chart reads there; this package's `_ioprocessors`
- * holds the SCXML Event I/O Processor's entry only, and is fixed at start.
+ * disagree with what the chart reads there. This package does the same: a
+ * registered type's entry in `_ioprocessors` is written at start and kept.
  */
 export function step(
   chart: Chart,
@@ -404,8 +404,8 @@ export function step(
  * refused with `error.execution` on the second. The reference fixes
  * `_ioprocessors` when the chart starts, from the registered set
  * (`SystemVariables.initial/3`), so a set that changed afterwards would also
- * disagree with what the chart reads there; this package's `_ioprocessors`
- * holds the SCXML Event I/O Processor's entry only, and is fixed at start.
+ * disagree with what the chart reads there. This package does the same: a
+ * registered type's entry in `_ioprocessors` is written at start and kept.
  */
 export function advance(
   chart: Chart,

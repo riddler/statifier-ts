@@ -418,6 +418,28 @@ describe("registered send types", () => {
     ]);
     expect(kinds(begin(PARCEL).effects)).toEqual([]);
   });
+
+  // A chart that reads _ioprocessors for the courier type on start and again
+  // on every `check`, logging whether the entry is there.
+  const LISTED = chartOf(`<scxml ${SCXML} initial="depot">
+    <state id="depot">
+      <onentry><log label="courier" expr="_ioprocessors['courier'] !== undefined"/></onentry>
+      <transition event="check"><log label="courier" expr="_ioprocessors['courier'] !== undefined"/></transition>
+    </state>
+  </scxml>`);
+
+  // Sabotage: starting the chart's datamodel without the registered set
+  // (the interpreter's sendTypes not handed to initialDatamodel) turns the
+  // first expectation red.
+  it("lists each registered type in _ioprocessors, fixed when the chart starts", () => {
+    const sendTypes = { courier: courier().processor };
+    const started = begin(LISTED, { sendTypes });
+    expect(logged(started.effects)).toEqual([true]);
+    expect(logged(send(LISTED, started.state, "check").effects)).toEqual([true]);
+    const bare = begin(LISTED);
+    expect(logged(bare.effects)).toEqual([false]);
+    expect(logged(send(LISTED, bare.state, "check", { sendTypes }).effects)).toEqual([false]);
+  });
 });
 
 describe("the state as a JSON value", () => {
