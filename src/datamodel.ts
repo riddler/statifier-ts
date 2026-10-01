@@ -181,6 +181,11 @@ export type Expr =
  * - `send_rejected`: a `<send>` whose arguments all resolved was refused for
  *   its target or its type after its send id was minted. `sendId` is that id
  *   and `reason` the `unsupported_type` or `invalid_target` refusal.
+ *
+ * And `<data>`'s:
+ *
+ * - `src`: the value is a `src`, which the host resolves and nothing here
+ *   fetches.
  */
 export type ExecutionReason =
   | {
@@ -200,7 +205,8 @@ export type ExecutionReason =
   | { readonly kind: "invalid_delay"; readonly value: Value }
   | { readonly kind: "unsupported_type"; readonly type: Value }
   | { readonly kind: "invalid_target"; readonly target: Value }
-  | { readonly kind: "send_rejected"; readonly sendId: string; readonly reason: ExecutionReason };
+  | { readonly kind: "send_rejected"; readonly sendId: string; readonly reason: ExecutionReason }
+  | { readonly kind: "src"; readonly src: string };
 
 function evaluatorError(source: string, error: PredicatorError | ParseError): ExecutionReason {
   return { kind: "evaluator_error", source, error };
@@ -273,15 +279,19 @@ export type Owner =
  * Which node an internally raised event is about: a transition's condition;
  * a content node, named by its index and the block it ran in; a state, for
  * the `done.state.<id>` a final state's entry raises and for its
- * `<donedata>`'s `<content>` failing; or one `<param>` of a state's
+ * `<donedata>`'s `<content>` failing; one `<param>` of a state's
  * `<donedata>`, by its position there, so that two failing params raise
- * events with different origins.
+ * events with different origins; a `<data>` whose value failed to bind, by
+ * its `dIndex`; or a `<script>` child of `<scxml>`, by its position among
+ * them.
  */
 export type Origin =
   | { readonly kind: "transition"; readonly tIndex: number }
   | { readonly kind: "content"; readonly cIndex: number; readonly owner: Owner }
   | { readonly kind: "state"; readonly stateIndex: number }
-  | { readonly kind: "donedata_param"; readonly stateIndex: number; readonly paramIndex: number };
+  | { readonly kind: "donedata_param"; readonly stateIndex: number; readonly paramIndex: number }
+  | { readonly kind: "data"; readonly dIndex: number }
+  | { readonly kind: "global_script"; readonly index: number };
 
 /** Why an internally raised event exists: its origin and the counters at the raise. */
 export interface Cause {
@@ -426,6 +436,8 @@ export function reasonValue(reason: ExecutionReason): Value {
       return { kind: reason.kind, target: reason.target };
     case "send_rejected":
       return { kind: reason.kind, send_id: reason.sendId, reason: reasonValue(reason.reason) };
+    case "src":
+      return { kind: reason.kind, src: reason.src };
   }
 }
 

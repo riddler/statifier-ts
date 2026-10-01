@@ -2,7 +2,7 @@
 // entry set, default entry and default history content, the completion
 // events and their donedata, the running flag, invocation cancels, and a
 // parallel never the least common compound ancestor; then the reference
-// corpus's scion history cases driven through the test driver stub.
+// corpus's scion history cases driven through the interpreter loop.
 //
 // The charts written here are the library loan (a copy at the desk, on loan,
 // its holds, a branch's stacks, a loan being closed) and parcel delivery.
@@ -17,6 +17,7 @@
 
 import { Undefined } from "@riddler/predicator";
 import { describe, expect, it } from "vitest";
+import { compile } from "../../src/compiler.js";
 import {
   addAncestorStatesToEnter,
   addDescendantStatesToEnter,
@@ -32,12 +33,43 @@ import {
   isInFinalState,
   runOnexitBlocks,
 } from "../../src/core/exit-entry.js";
+import {
+  handleEvent,
+  initialize,
+  type MachineState,
+  type Stepped,
+} from "../../src/core/interpreter.js";
 import { INITIAL_SEND_STATE } from "../../src/core/send.js";
 import type { Event } from "../../src/datamodel.js";
-import type { CompiledTransition, Machine } from "../../src/machine.js";
-import { activeLeafIds, machineOf, type Stub, send, start } from "../support/driver-stub.js";
+import { type CompiledTransition, isAtomic, type Machine } from "../../src/machine.js";
 
 const SCXML = 'xmlns="http://www.w3.org/2005/07/scxml" version="1.0"';
+
+function machineOf(source: string): Machine {
+  const result = compile(source);
+  if (!result.ok) throw new Error(`fixture does not compile: ${JSON.stringify(result.errors)}`);
+  return result.chart.machine;
+}
+
+/** Starts a chart through the interpreter loop. */
+function start(source: string): Stepped {
+  return initialize(machineOf(source), { sessionId: "desk" });
+}
+
+/** One external event through the interpreter loop; a stopped chart is left as it is. */
+function send(stepped: Stepped, name: string): Stepped {
+  const outcome = handleEvent(stepped.state, { name, type: "external", data: Undefined });
+  return outcome.ok ? outcome : stepped;
+}
+
+/** The ids of the active atomic states, sorted: what the corpus compares. */
+function activeLeafIds(stepped: { readonly state: MachineState }): string[] {
+  const { machine, configuration } = stepped.state;
+  return [...configuration]
+    .filter((index) => isAtomic(machine, index))
+    .map((index) => machine.states[index]?.id ?? `#${index}`)
+    .sort();
+}
 
 function idx(machine: Machine, id: string): number {
   const index = machine.idToIndex.get(id);
@@ -50,9 +82,10 @@ function stateWith(
   ids: readonly string[],
   extra: Partial<ExitEntryState> = {},
 ): ExitEntryState {
+  const configuration = new Set([0, ...ids.map((id) => idx(machine, id))]);
   return {
     machine,
-    configuration: new Set([0, ...ids.map((id) => idx(machine, id))]),
+    configuration,
     historyValues: new Map(),
     datamodel: new Map(),
     internalQueue: [],
@@ -61,6 +94,7 @@ function stateWith(
     round: 0,
     sends: INITIAL_SEND_STATE,
     statesToInvoke: new Set(),
+    enteredStates: configuration,
     activeInvocations: new Map(),
     running: true,
     ...extra,
@@ -757,7 +791,7 @@ describe("a parallel is never the least common compound ancestor", () => {
     const exited = exitStates(state, [transitionNamed(machine, "copy.reshelved")]).state;
     expect(ids(machine, exited.configuration)).toEqual(["#0"]);
 
-    let stub: Stub = start(STACKS);
+    let stub = start(STACKS);
     expect([stub.state.datamodel.get("entries"), stub.state.datamodel.get("exits")]).toEqual([
       1, 0,
     ]);
@@ -770,7 +804,7 @@ describe("a parallel is never the least common compound ancestor", () => {
 });
 
 // ---------------------------------------------------------------------------
-// The scion history cases, through the driver stub
+// The scion history cases, through the interpreter loop
 // ---------------------------------------------------------------------------
 
 /** One corpus case: its source, the leaf set after start, and each step's leaf set. */

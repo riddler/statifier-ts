@@ -43,10 +43,13 @@
 // What is not here yet. An invocation is cancelled when its state exits, but
 // nothing starts an invocation, so a state's live invocations are always
 // empty and the cancel is not yet reachable; it is ported as the reference
-// writes it. Binding a state's own `<data>` on its first entry under late
-// binding, and the trace effects the reference emits for an exit set, an
-// entry set and each block, land with the datamodel binding and the trace
-// vocabulary.
+// writes it. The trace effects the reference emits for an exit set, an entry
+// set and each block land with the trace vocabulary.
+//
+// A state's first entry is read from the states ever entered, which entry
+// keeps: on it, the state's own `<data>` binds (under late binding) before
+// its `<onentry>` runs. The specification keeps that flag on the state; the
+// compiled chart is immutable, so the set lives with the session instead.
 
 import { Undefined, type Value } from "@riddler/predicator";
 import {
@@ -79,6 +82,7 @@ import {
   transitionAt,
 } from "../machine.js";
 import { type ContentNode, type Effect, executeBlock, type Invalid } from "./content.js";
+import { enterStateData } from "./datamodel.js";
 import {
   computeExitSet,
   getEffectiveTargetStates,
@@ -94,13 +98,15 @@ import { paramsData, type SendState, textData } from "./send.js";
 /**
  * What exit and entry read and write of a session, beyond what selection
  * reads: the send state a block's `<send>` moves, the states entered since
- * the invoke pass last ran, the invocations live in each state, and whether
- * the chart is still running. The recorded history, the datamodel and the
- * internal queue are selection's fields, written here.
+ * the invoke pass last ran, every state ever entered, the invocations live in
+ * each state, and whether the chart is still running. The recorded history,
+ * the datamodel and the internal queue are selection's fields, written here.
  */
 export interface ExitEntryState extends SelectionState {
   readonly sends: SendState;
   readonly statesToInvoke: ReadonlySet<number>;
+  /** Every state entered at least once: a state not in it is on its first entry. */
+  readonly enteredStates: ReadonlySet<number>;
   /** The id of each live invocation, keyed by `invocationKey`. */
   readonly activeInvocations: ReadonlyMap<string, string>;
   readonly running: boolean;
@@ -390,7 +396,8 @@ export function addAncestorStatesToEnter(
 
 /**
  * `enterStates`: enters what the transitions enter, in document order. Each
- * state joins the configuration and the states to invoke, runs its
+ * state joins the configuration and the states to invoke, binds its own
+ * `<data>` when this is its first entry and the binding is late, runs its
  * `<onentry>` blocks, then its `<initial>` transition's content when it was
  * entered by default and its history's default transition content when one
  * was registered on it, and then, when it is a final state, raises what its
@@ -415,7 +422,11 @@ export function enterStates<S extends ExitEntryState>(
 function arrive<S extends ExitEntryState>(state: S, s: number, entrySet: EntrySet): Moved<S> {
   const configuration = new Set(state.configuration).add(s);
   const statesToInvoke = new Set(state.statesToInvoke).add(s);
-  const onentry = runOnentryBlocks({ ...state, configuration, statesToInvoke }, s);
+  const firstEntry = !state.enteredStates.has(s);
+  const enteredStates = new Set(state.enteredStates).add(s);
+  const joined = { ...state, configuration, statesToInvoke, enteredStates };
+  const bound = firstEntry ? enterStateData(joined, s) : joined;
+  const onentry = runOnentryBlocks(bound, s);
   const defaults = runDefaultEntry(onentry.state, s, entrySet);
   return {
     state: raiseCompletionEvents(defaults.state, s),
