@@ -28,11 +28,14 @@
 // reach the validator. Which `<send>` targets and types the engine can
 // deliver is decided when the chart is compiled, not here.
 //
-// Each check reaches exactly the nodes the reference's reaches. Where the
-// reference's walk stops short (a `<content>` or `<param>` under `<send>` is
-// not read by the content and param rules; an `<assign>`, `<if>` or
+// Each check reaches exactly the nodes the reference's reaches, with one
+// exception. Where the reference's walk stops short (a `<content>` under
+// `<send>` is not read by the content rule; an `<assign>`, `<if>` or
 // `<script>` inside `<finalize>` is not read by theirs), this walk stops at
-// the same place, so the two engines refuse the same charts.
+// the same place, so the two engines refuse the same charts. The exception is
+// a `<param>` under `<send>` with neither `expr` nor `location`: the
+// reference's compiler raises on it, and this validator refuses it instead,
+// so the chart is answered as an error rather than a throw.
 
 import { acceptsDatamodel } from "./datamodel.js";
 import type { Content, Data, Datamodel, Param } from "./document/data.js";
@@ -637,7 +640,11 @@ function checkContents(_document: Document, index: Index): ValidationError[] {
 }
 
 // A `<param>` under a `<donedata>` or an `<invoke>` carries exactly one of
-// `expr` and `location`.
+// `expr` and `location`. A `<param>` under a `<send>`, one in a `<finalize>`
+// included, carries at least one: the reference's rule does not reach it and
+// its compiler raises on one with neither, where this check answers the
+// reference's own `param_no_value`. One with both compiles its `location`,
+// as the reference's compiler does, so it is not refused here.
 function checkParams(_document: Document, index: Index): ValidationError[] {
   const params: Param[] = [];
   for (const state of index.all) {
@@ -645,14 +652,14 @@ function checkParams(_document: Document, index: Index): ValidationError[] {
     for (const invoke of state.invoke) params.push(...invoke.params);
   }
   const errors: ValidationError[] = [];
+  for (const send of nodesOf(index, "send", true)) {
+    for (const param of send.params) {
+      if (param.expr === null && param.paramLocation === null) errors.push(paramNoValue(param));
+    }
+  }
   for (const param of params) {
     if (param.expr === null && param.paramLocation === null) {
-      errors.push({
-        reason: "param_no_value",
-        name: param.name,
-        message: `<param> ${quote(param.name)} must specify either an expr attribute or a location attribute`,
-        location: param.location,
-      });
+      errors.push(paramNoValue(param));
     } else if (param.expr !== null && param.paramLocation !== null) {
       errors.push({
         reason: "param_expr_and_location",
@@ -663,6 +670,15 @@ function checkParams(_document: Document, index: Index): ValidationError[] {
     }
   }
   return errors;
+}
+
+function paramNoValue(param: Param): ValidationError {
+  return {
+    reason: "param_no_value",
+    name: param.name,
+    message: `<param> ${quote(param.name)} must specify either an expr attribute or a location attribute`,
+    location: param.location,
+  };
 }
 
 // `<datamodel>` and `<data>`: a `<data>` carries at most one of `expr` and

@@ -247,6 +247,21 @@ const ROWS: readonly Row[] = [
     detail: { name: "copies" },
   },
   {
+    check: "param: under a <send>",
+    reason: "param_no_value",
+    template: onEntry('<send event="due">@@<param name="copies"/>@@</send>'),
+    detail: { name: "copies" },
+  },
+  {
+    check: "param: under a <send> inside a <finalize>",
+    reason: "param_no_value",
+    template: scxml(
+      '<state id="lent"><invoke><finalize><send event="due">' +
+        '@@<param name="copies"/>@@</send></finalize></invoke></state>',
+    ),
+    detail: { name: "copies" },
+  },
+  {
     check: "param: under an <invoke>",
     reason: "param_expr_and_location",
     template: scxml(
@@ -566,6 +581,15 @@ describe("the contracts", () => {
       '<state id="lent"><initial><transition target="renewed"/></initial><state id="kept"/></state>',
     );
     expect(errorsOf(source).map((error) => error.reason)).toEqual(["unresolved_target"]);
+  });
+
+  // Sabotage: refusing a <send>'s <param> that carries both expr and location
+  // (the reference's compiler takes its location) turns this red.
+  it("lets a <send>'s <param> carry both expr and location", () => {
+    const source = onEntry(
+      '<send event="due"><param name="copies" expr="1" location="count"/></send>',
+    );
+    expect(errorsOf(source)).toEqual([]);
   });
 
   // Sabotage: letting a leading history child of a <parallel> count as a bad
