@@ -51,15 +51,23 @@
 // child, and `#_<invokeid>` naming a live invocation, deliver as external
 // events (below); another session, a parent the session does not have, or an
 // invocation that is not live names nothing this driver can reach, so the
-// send fails with `error.communication` on the internal queue. Before each
-// drive the driver declares what it can reach - this session's own id,
-// whether it has a parent, and the ids of its live invocations - as the
-// reference's session stamps its routes, so the core refuses an immediate
-// send to anything else where the send runs: the block stops and
+// send fails with `error.communication` on the internal queue. The driver
+// declares to the core what it can reach - this session's own id, whether it
+// has a parent, and the ids of its live invocations - where the reference's
+// session stamps its routes: when the session starts, when an input reaches
+// it from outside (the host's event, a child's message taken from the
+// mailbox, an event delivered to a child, a fired timer), and before a
+// delivery onto the internal queue. An event the chart queued for itself is
+// taken under the routes already declared, as the reference's drain takes
+// it, so a send there judges an invocation started or cancelled since by the
+// earlier declaration. The core refuses an immediate send to anything the
+// declaration does not reach where the send runs: the block stops and
 // `error.communication` joins the internal queue ahead of anything the rest
-// of the block would have raised. A delayed send's route is judged here when
-// its timer fires. A delivery onto the internal queue runs after the effects
-// of the drive that produced it, as the reference defers it.
+// of the block would have raised. A send the declaration reaches but that
+// names nothing live by the time the driver routes it fails here, after the
+// block, with the same event. A delayed send's route is judged here when its
+// timer fires. A delivery onto the internal queue runs after the effects of
+// the drive that produced it, as the reference defers it.
 //
 // Invocations, as the reference's session and its built-in `scxml` handler
 // run them (`Statifier.Session`, `Statifier.Session.Invocations`,
@@ -460,6 +468,7 @@ export function step(
   const live = opened.live;
   if (!live.core.running) return { ok: false, reason: "not_running" };
   live.externalQueue.push({ name: event.name, type: "external", data: event.data ?? Undefined });
+  stamp(live);
   drain(live);
   return answer(live, out);
 }
@@ -497,6 +506,7 @@ export function advance(
     const { session, timer } = next;
     session.timers = session.timers.filter((pending) => pending !== timer);
     live.clock.nowMs = timer.dueMs;
+    stamp(session);
     fire(session, timer.send);
     // The session the timer fired in runs to a stable configuration, then
     // each session above it takes what its child sent.
@@ -666,9 +676,9 @@ function launch(spec: Launch, register?: (live: Live) => void): Live {
   return live;
 }
 
-// What this session can reach, declared to the core before each drive: its
-// own session id, whether it has a parent, and the ids of its live
-// invocations, as the reference's session stamps its routes.
+// What this session can reach, declared to the core where the reference's
+// session stamps its routes (the header says where): its own session id,
+// whether it has a parent, and the ids of its live invocations.
 function routesOf(live: Live): Routes {
   return {
     sessions: new Set([live.sessionId]),
@@ -740,19 +750,23 @@ function drain(live: Live): void {
   }
 }
 
-// One external event, one macrostep.
+// One external event, one macrostep, under the routes last declared: an
+// event the chart queued for itself declares nothing new, as the reference's
+// drain does not.
 function take(live: Live, event: Event): void {
-  stamp(live);
   const outcome = handleEvent(live.core, event);
   if (!outcome.ok) return;
   live.core = outcome.state;
   perform(live, outcome.effects);
 }
 
-// One mailbox entry. An entry whose invocation is no longer live is
-// discarded, as the reference's session discards it at drain; the done event
-// retires its invocation once it has been taken.
+// One mailbox entry. A message carrying an event declares the routes as it
+// arrives, as the reference's session stamps a child's message when its cast
+// arrives, then an entry whose invocation is no longer live is discarded, as
+// the reference's session discards it at drain; the done event retires its
+// invocation once it has been taken.
 function takeMail(live: Live, mail: Mail): void {
+  if (mail.kind !== "completed") stamp(live);
   const invocation = live.invocations.get(mail.invokeId);
   if (invocation === undefined) return;
   switch (mail.kind) {
@@ -1079,6 +1093,7 @@ function deliverToChild(invocation: Invocation | undefined, event: Event): void 
   const child = invocation?.child;
   if (child === null || child === undefined || !child.core.running) return;
   child.externalQueue.push(event);
+  stamp(child);
   drain(child);
 }
 

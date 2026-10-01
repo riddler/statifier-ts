@@ -656,10 +656,16 @@ The child session:
   thread and no I/O runs it: being started, an event sent to it and an
   autoforwarded event each run it to a stable configuration at once
   (`deliverToChild`).
-- The routes the driver declares to the core before each drive name the
-  session's parent when it has one and every live invocation's id
-  (`routesOf` in `src/driver.ts`), as the reference's session stamps them
-  (`stamp/1` in `Statifier.Session`). No other session is declared: the
+- The routes the driver declares to the core name the session's parent when
+  it has one and every live invocation's id (`routesOf` in `src/driver.ts`).
+  They are declared where the reference's session stamps them (`stamp/1` and
+  `init_routes/2` in `Statifier.Session`): when the session starts, when an
+  input reaches it from outside - the host's event, a child's message taken
+  from the mailbox, an event delivered to a child, a fired timer - and
+  before a delivery onto the internal queue. An event the chart queued for
+  itself is taken under the routes already declared, as the reference's
+  `handle_continue(:drain, _)` takes it, so a send there judges an
+  invocation by that earlier declaration. No other session is declared: the
   reference's routes also name every session its registry holds, and this
   driver runs no registry.
 

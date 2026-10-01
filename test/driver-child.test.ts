@@ -175,6 +175,59 @@ describe("the parent and invocation targets", () => {
     expect(configuration(send(chart, begin(chart).state, "dispatch").state)).toEqual(["depot"]);
   });
 
+  // Sabotage: declaring the routes before every event taken, not only at an
+  // input from outside, turns this red: the depot's own `go` would see the
+  // courier and its send would reach it.
+  it("takes an event the chart queued for itself under the routes declared when it started", () => {
+    const chart = chartOf(`<scxml ${SCXML} initial="depot">
+      <state id="depot">
+        <onentry><send event="go"/></onentry>
+        <invoke id="courier" type="scxml">
+          <content>
+            <scxml version="1.0" initial="van">
+              <state id="van">
+                <transition event="parcel.ping"><send target="#_parent" event="parcel.pong"/></transition>
+              </state>
+            </scxml>
+          </content>
+        </invoke>
+        <transition event="go"><send target="#_courier" event="parcel.ping"/></transition>
+        <transition event="parcel.pong" target="answered"/>
+        <transition event="error.communication" target="refused"/>
+      </state>
+      <state id="answered"/>
+      <state id="refused"/>
+    </scxml>`);
+    expect(configuration(begin(chart).state)).toEqual(["refused"]);
+  });
+
+  // Sabotage: declaring the routes before every event taken turns this red:
+  // the core refuses the send to the cancelled courier where it runs, and the
+  // raise after it never happens.
+  it("routes a self-queued send to an invocation cancelled since the routes were declared", () => {
+    const chart = chartOf(`<scxml ${SCXML} initial="depot">
+      <state id="depot">
+        <invoke id="courier" type="scxml">
+          <content><scxml version="1.0" initial="van"><state id="van"/></scxml></content>
+        </invoke>
+        <transition event="recall" target="held"/>
+      </state>
+      <state id="held">
+        <onentry><send event="retry"/></onentry>
+        <transition event="retry">
+          <send target="#_courier" event="parcel.go"/>
+          <raise event="retried"/>
+        </transition>
+        <transition event="retried" target="retried"/>
+        <transition event="error.communication" target="refused"/>
+      </state>
+      <state id="retried"><transition event="error.communication" target="reported"/></state>
+      <state id="refused"/>
+      <state id="reported"/>
+    </scxml>`);
+    expect(configuration(send(chart, begin(chart).state, "recall").state)).toEqual(["reported"]);
+  });
+
   // Sabotage: delivering to the child an invocation names after its state
   // has exited (the retired id still routed) turns this red.
   it("answers error.communication for a send to an invocation its own transition just cancelled", () => {
