@@ -39,8 +39,9 @@ checks `src/` for those constructs rather than leaving the rule to review.
 That is a check on the text. A check on a run - the conformance corpus driven
 through this package on the JavaScript engine React Native uses, and diffed
 against a run on the server runtime - is what `scripts/hermes-conformance.mjs`
-is for, and the engine proof is not yet run: there is no conformance runner
-for the script to drive yet, and no claim here rests on it.
+is for, and the engine proof is not yet run: the conformance runner exists,
+but until the interpreter is wired into it every case fails, and no claim
+here rests on it.
 
 `engines.node` in `package.json` is `>=20`, and that is the floor a
 consumer's runtime has to clear. It is not the toolchain: what builds and
@@ -62,10 +63,14 @@ does.
 ## Conformance
 
 The conformance corpus is the reference's, and it is the spec: a case this
-package answers differently from the corpus is this package's bug. No corpus
-is vendored yet. When one is, it is copied byte for byte from the reference at
-a named tag, and a registry beside it lists the cases this package claims to
-pass - written only by a run that observed the pass, and never narrowed.
+package answers differently from the corpus is this package's bug. The
+corpus is copied byte for byte from the reference at a named tag, recorded in
+`conformance/statifier.vendored.json`, and a registry beside it,
+`conformance/registry.json`, lists the cases this package claims to pass -
+written only by a run that observed the pass, and never narrowed. It lists
+none yet: this package makes no conformance claim today.
+[`conformance/README.md`](conformance/README.md) says how the copy, the
+check, the runner and the ratchet work.
 
 ## Development
 

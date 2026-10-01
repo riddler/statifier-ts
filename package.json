@@ -49,7 +49,8 @@
     "neutrality": "node scripts/engine-neutrality.mjs",
     "corpus:check": "node scripts/corpus-check.mjs",
     "corpus:refresh": "node scripts/corpus-refresh.mjs",
-    "registry": "node scripts/registry-check.mjs",
+    "registry": "tsx scripts/registry-check.mjs",
+    "conformance": "tsx test/conformance/run.ts",
     "ratchet": "node scripts/ratchet.mjs",
     "resolution": "node scripts/legacy-resolution.mjs"
   },

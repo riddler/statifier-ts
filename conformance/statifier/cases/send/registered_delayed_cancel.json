@@ -1,0 +1,23 @@
+{
+  "description": "A delayed send of a registered type is handed to the host's processor with its delay, and the host never fires it, so the click, not the reminder, moves the chart; the cancel the chart then runs, naming the send, reaches the processor.",
+  "initial_configuration": ["awaiting_click"],
+  "steps": [
+    {
+      "event": { "name": "click.recorded" },
+      "configuration": ["clicked"]
+    }
+  ],
+  "host": {
+    "send_types": ["myapp:sink"],
+    "expect_sends": [
+      {
+        "type": "myapp:sink",
+        "target": "reminders",
+        "event": { "name": "impression.reminder" },
+        "delay_ms": 10,
+        "send_id": "reminder",
+        "outcome": "cancelled"
+      }
+    ]
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "description": "A send of a registered type that the host reports it could not deliver comes back to the sender as error.communication carrying the send's sendid, and the chart takes the transition that names it.",
+  "initial_configuration": ["awaiting_copy"],
+  "steps": [
+    {
+      "event": { "name": "copy.available" },
+      "configuration": ["notice_failed"]
+    }
+  ],
+  "host": {
+    "send_types": ["library:notice"],
+    "expect_sends": [
+      {
+        "type": "library:notice",
+        "target": "patron",
+        "event": { "name": "hold.ready" },
+        "send_id": "notice",
+        "outcome": "fail"
+      }
+    ]
+  }
+}

@@ -1,0 +1,50 @@
+{
+  "description": "Patron p-1 is in good standing but a fine is assessed, so the not In('owed') conjunct is false and the request is refused; once the fine is paid the same request is allowed, so the answer flips on the fines region alone.",
+  "initial_configuration": [
+    "good",
+    "none",
+    "waiting"
+  ],
+  "steps": [
+    {
+      "event": {
+        "name": "fine.assessed"
+      },
+      "configuration": [
+        "good",
+        "owed",
+        "waiting"
+      ]
+    },
+    {
+      "event": {
+        "name": "loan.requested"
+      },
+      "configuration": [
+        "good",
+        "owed",
+        "checkout_refused"
+      ]
+    },
+    {
+      "event": {
+        "name": "fine.paid"
+      },
+      "configuration": [
+        "good",
+        "none",
+        "checkout_refused"
+      ]
+    },
+    {
+      "event": {
+        "name": "loan.requested"
+      },
+      "configuration": [
+        "good",
+        "none",
+        "checkout_allowed"
+      ]
+    }
+  ]
+}

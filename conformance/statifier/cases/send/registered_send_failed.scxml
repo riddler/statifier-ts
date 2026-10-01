@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<scxml xmlns="http://www.w3.org/2005/07/scxml" version="1.0" datamodel="predicator" initial="awaiting_copy">
+    <state id="awaiting_copy">
+        <transition event="copy.available" target="notifying"/>
+    </state>
+    <state id="notifying">
+        <onentry>
+            <send type="library:notice" target="patron" event="hold.ready" id="notice"/>
+        </onentry>
+        <transition event="error.communication" cond="_event.sendid == 'notice'" target="notice_failed"/>
+        <transition event="error.communication" target="notice_failed_without_sendid"/>
+    </state>
+    <state id="notice_failed"/>
+    <state id="notice_failed_without_sendid"/>
+</scxml>

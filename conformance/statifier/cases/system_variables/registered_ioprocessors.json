@@ -1,0 +1,9 @@
+{
+  "description": "A registered send type is an Event I/O Processor the session supports, so _ioprocessors carries an entry for it beside the SCXML processor's entry, and a type the host did not register has none.",
+  "initial_configuration": ["listed"],
+  "steps": [],
+  "host": {
+    "send_types": ["myapp:sink"],
+    "expect_sends": []
+  }
+}

@@ -1,0 +1,94 @@
+{
+  "description": "A renewal is taken while renewals is under max_renewals: the chart cancels both running timers, increments renewals, and re-enters on_loan so both are sent again with their full spans. Taking it twice from zero carries renewals to max_renewals, and the third renewal is refused with the configuration unchanged and no third pair of timers - which is how a case whose steps can assert only a configuration proves the increment happened.",
+  "initial_configuration": [
+    "on_loan"
+  ],
+  "steps": [
+    {
+      "event": {
+        "name": "loan.renew"
+      },
+      "configuration": [
+        "on_loan"
+      ]
+    },
+    {
+      "event": {
+        "name": "loan.renew"
+      },
+      "configuration": [
+        "on_loan"
+      ]
+    },
+    {
+      "event": {
+        "name": "loan.renew"
+      },
+      "configuration": [
+        "on_loan"
+      ]
+    }
+  ],
+  "host": {
+    "send_types": [
+      "library:timer",
+      "library:route"
+    ],
+    "expect_sends": [
+      {
+        "type": "library:timer",
+        "target": "loan",
+        "event": {
+          "name": "loan.due"
+        },
+        "delay_ms": 1814400000,
+        "send_id": "due"
+      },
+      {
+        "type": "library:timer",
+        "target": "loan",
+        "event": {
+          "name": "loan.due_soon"
+        },
+        "delay_ms": 1555200000,
+        "send_id": "due_soon"
+      },
+      {
+        "type": "library:timer",
+        "target": "loan",
+        "event": {
+          "name": "loan.due"
+        },
+        "delay_ms": 1814400000,
+        "send_id": "due"
+      },
+      {
+        "type": "library:timer",
+        "target": "loan",
+        "event": {
+          "name": "loan.due_soon"
+        },
+        "delay_ms": 1555200000,
+        "send_id": "due_soon"
+      },
+      {
+        "type": "library:timer",
+        "target": "loan",
+        "event": {
+          "name": "loan.due"
+        },
+        "delay_ms": 1814400000,
+        "send_id": "due"
+      },
+      {
+        "type": "library:timer",
+        "target": "loan",
+        "event": {
+          "name": "loan.due_soon"
+        },
+        "delay_ms": 1555200000,
+        "send_id": "due_soon"
+      }
+    ]
+  }
+}

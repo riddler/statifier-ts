@@ -1,0 +1,9 @@
+{
+  "description": "Patron p-1 starts with the patron's two regions of state at their initial states, standing good and fines none, and the desk region, which holds the answer to a checkout request, waiting because no request has been made.",
+  "initial_configuration": [
+    "good",
+    "none",
+    "waiting"
+  ],
+  "steps": []
+}

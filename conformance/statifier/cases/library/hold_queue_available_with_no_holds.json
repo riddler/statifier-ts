@@ -1,0 +1,23 @@
+{
+  "description": "No patron holds copy c-1 when it becomes available, so the guard pending > 0 is false and copy.available is taken by the unguarded transition back to idle. No pickup timer is sent: with the guard removed, the chart would enter awaiting_pickup and send one.",
+  "initial_configuration": [
+    "idle"
+  ],
+  "steps": [
+    {
+      "event": {
+        "name": "copy.available"
+      },
+      "configuration": [
+        "idle"
+      ]
+    }
+  ],
+  "host": {
+    "send_types": [
+      "library:timer",
+      "library:route"
+    ],
+    "expect_sends": []
+  }
+}

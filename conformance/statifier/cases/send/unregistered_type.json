@@ -1,0 +1,9 @@
+{
+  "description": "A send whose type the host did not register is refused with error.execution, as an unsupported type is, and nothing is handed to the host.",
+  "initial_configuration": ["refused"],
+  "steps": [],
+  "host": {
+    "send_types": ["myapp:sink"],
+    "expect_sends": []
+  }
+}

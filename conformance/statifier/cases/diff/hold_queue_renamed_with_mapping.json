@@ -1,0 +1,55 @@
+{
+  "description": "The hold_queue chart diffed to an edit that renames awaiting_pickup to ready_for_pickup, with a mapping from the old id to the new. The mapping resolves the renamed state, and idle's copy.available transition matches through it, so the pair is mapped and names the one mapped state. p-1's hold reaches awaiting_pickup with the pickup timer handed to the host, and at that position the predicate answers false: it takes no mapping, and awaiting_pickup does not resolve in the new chart.",
+  "initial_configuration": [
+    "idle"
+  ],
+  "steps": [
+    {
+      "event": {
+        "name": "hold.placed"
+      },
+      "configuration": [
+        "idle"
+      ]
+    },
+    {
+      "event": {
+        "name": "copy.available"
+      },
+      "configuration": [
+        "awaiting_pickup"
+      ]
+    }
+  ],
+  "host": {
+    "send_types": [
+      "library:timer",
+      "library:route"
+    ],
+    "expect_sends": [
+      {
+        "type": "library:timer",
+        "target": "hold_queue",
+        "event": {
+          "name": "pickup.expired"
+        },
+        "delay_ms": 604800000,
+        "send_id": "pickup"
+      }
+    ],
+    "mapping": {
+      "awaiting_pickup": "ready_for_pickup"
+    },
+    "expect_diff": {
+      "class": "mapped",
+      "reasons": [
+        {
+          "reason": "state_mapped",
+          "state": "awaiting_pickup",
+          "to_state": "ready_for_pickup"
+        }
+      ]
+    },
+    "expect_compatible_at": false
+  }
+}

@@ -1,0 +1,74 @@
+{
+  "description": "p-1 then p-2 place holds on c-1 and the copy becomes available, sending the first pickup timer. p-1 does not collect: the first pickup.expired finds more than one patron waiting, re-enters awaiting_pickup and sends a fresh timer for p-2. p-2 does not collect either: the second pickup.expired finds one waiting, so the chart returns to idle and no third timer is sent. The second expiry is what shows the count went two, one, zero.",
+  "initial_configuration": [
+    "idle"
+  ],
+  "steps": [
+    {
+      "event": {
+        "name": "hold.placed"
+      },
+      "configuration": [
+        "idle"
+      ]
+    },
+    {
+      "event": {
+        "name": "hold.placed"
+      },
+      "configuration": [
+        "idle"
+      ]
+    },
+    {
+      "event": {
+        "name": "copy.available"
+      },
+      "configuration": [
+        "awaiting_pickup"
+      ]
+    },
+    {
+      "event": {
+        "name": "pickup.expired"
+      },
+      "configuration": [
+        "awaiting_pickup"
+      ]
+    },
+    {
+      "event": {
+        "name": "pickup.expired"
+      },
+      "configuration": [
+        "idle"
+      ]
+    }
+  ],
+  "host": {
+    "send_types": [
+      "library:timer",
+      "library:route"
+    ],
+    "expect_sends": [
+      {
+        "type": "library:timer",
+        "target": "hold_queue",
+        "event": {
+          "name": "pickup.expired"
+        },
+        "delay_ms": 604800000,
+        "send_id": "pickup"
+      },
+      {
+        "type": "library:timer",
+        "target": "hold_queue",
+        "event": {
+          "name": "pickup.expired"
+        },
+        "delay_ms": 604800000,
+        "send_id": "pickup"
+      }
+    ]
+  }
+}

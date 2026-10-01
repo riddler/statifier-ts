@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/riddler/statifier-ex/conformance/schema/registry.json",
+  "title": "Statifier conformance registry",
+  "description": "A registry of the corpus cases an implementation passes, against a pinned corpus. statifier-ex's own conformance/registry.json is derived by the emitter from test/passing_tests.json and never edited by hand; a sibling implementation writes its own in this shape (ADR-0070). An empty registry is a defect, not a claim.",
+  "type": "object",
+  "properties": {
+    "implementation": {
+      "type": "string",
+      "description": "Self-identifying name, e.g. \"statifier-ex\". Diagnostic only.",
+      "minLength": 1
+    },
+    "corpus_hash": {
+      "type": "string",
+      "description": "The manifest's corpus_hash every entry was verified against.",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "claims": {
+      "type": "array",
+      "description": "The suites the registry claims, sorted. A claim's content is the set of entries for its suite, with the w3c suite split by each case's conformance class into w3c-mandatory and w3c-optional.",
+      "items": {
+        "type": "string",
+        "enum": ["scion", "w3c-mandatory", "w3c-optional", "statifier"]
+      },
+      "uniqueItems": true,
+      "minItems": 1
+    },
+    "entries": {
+      "type": "array",
+      "description": "One entry per passing case, sorted by suite then case_id, one entry per line, so a ratchet is a one-line diff. Each entry repeats its case's suite: when an upstream change moves or removes a case, the stale entry disagrees with the corpus and the check fails naming the case.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "case_id": {
+            "type": "string",
+            "description": "A corpus case id (schema/case.json).",
+            "pattern": "^(scion|w3c|statifier)/[A-Za-z0-9][A-Za-z0-9_.+-]*(/[A-Za-z0-9][A-Za-z0-9_.+-]*)*$"
+          },
+          "suite": { "type": "string", "enum": ["scion", "w3c", "statifier"] }
+        },
+        "required": ["case_id", "suite"],
+        "additionalProperties": false
+      },
+      "minItems": 1
+    }
+  },
+  "required": ["implementation", "corpus_hash", "claims", "entries"],
+  "additionalProperties": false
+}

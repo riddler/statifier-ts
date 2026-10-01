@@ -1,0 +1,50 @@
+{
+  "description": "Patron p-2 is the world's blocked patron, so this is the case that tells the block arriving: once blocked, the In('good') conjunct is false and the request is refused while nothing is owed; after reinstatement the same request is allowed, so the answer flips on the standing region alone.",
+  "initial_configuration": [
+    "good",
+    "none",
+    "waiting"
+  ],
+  "steps": [
+    {
+      "event": {
+        "name": "patron.blocked"
+      },
+      "configuration": [
+        "blocked",
+        "none",
+        "waiting"
+      ]
+    },
+    {
+      "event": {
+        "name": "loan.requested"
+      },
+      "configuration": [
+        "blocked",
+        "none",
+        "checkout_refused"
+      ]
+    },
+    {
+      "event": {
+        "name": "patron.reinstated"
+      },
+      "configuration": [
+        "good",
+        "none",
+        "checkout_refused"
+      ]
+    },
+    {
+      "event": {
+        "name": "loan.requested"
+      },
+      "configuration": [
+        "good",
+        "none",
+        "checkout_allowed"
+      ]
+    }
+  ]
+}

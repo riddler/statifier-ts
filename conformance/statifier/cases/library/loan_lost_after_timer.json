@@ -1,0 +1,59 @@
+{
+  "description": "The due date passes and then the lost-item timer fires, each injected as a step: the loan moves through overdue to the lost final state, and no copy.available is sent because the copy never came back.",
+  "initial_configuration": [
+    "on_loan"
+  ],
+  "steps": [
+    {
+      "event": {
+        "name": "loan.due"
+      },
+      "configuration": [
+        "overdue"
+      ]
+    },
+    {
+      "event": {
+        "name": "loan.lost"
+      },
+      "configuration": [
+        "lost"
+      ]
+    }
+  ],
+  "host": {
+    "send_types": [
+      "library:timer",
+      "library:route"
+    ],
+    "expect_sends": [
+      {
+        "type": "library:timer",
+        "target": "loan",
+        "event": {
+          "name": "loan.due"
+        },
+        "delay_ms": 1814400000,
+        "send_id": "due"
+      },
+      {
+        "type": "library:timer",
+        "target": "loan",
+        "event": {
+          "name": "loan.due_soon"
+        },
+        "delay_ms": 1555200000,
+        "send_id": "due_soon"
+      },
+      {
+        "type": "library:timer",
+        "target": "loan",
+        "event": {
+          "name": "loan.lost"
+        },
+        "delay_ms": 2419200000,
+        "send_id": "lost"
+      }
+    ]
+  }
+}

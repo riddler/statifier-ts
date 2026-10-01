@@ -1,0 +1,20 @@
+{
+  "description": "Patron p-1 is in good standing and owes nothing, so the desk's guard In('good') and not In('owed') is true and a checkout request is answered checkout_allowed; the answer waits in the desk region beside the unchanged good and none.",
+  "initial_configuration": [
+    "good",
+    "none",
+    "waiting"
+  ],
+  "steps": [
+    {
+      "event": {
+        "name": "loan.requested"
+      },
+      "configuration": [
+        "good",
+        "none",
+        "checkout_allowed"
+      ]
+    }
+  ]
+}

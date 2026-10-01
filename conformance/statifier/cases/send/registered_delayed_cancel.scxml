@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<scxml xmlns="http://www.w3.org/2005/07/scxml" version="1.0" datamodel="predicator" initial="awaiting_click">
+    <state id="awaiting_click">
+        <onentry>
+            <send type="myapp:sink" target="reminders" event="impression.reminder" id="reminder" delay="10ms"/>
+        </onentry>
+        <transition event="impression.reminder" target="reminded"/>
+        <transition event="click.recorded" target="clicked"/>
+    </state>
+    <state id="clicked">
+        <onentry>
+            <cancel sendid="reminder"/>
+        </onentry>
+    </state>
+    <state id="reminded"/>
+</scxml>

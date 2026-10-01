@@ -1,0 +1,46 @@
+{
+  "description": "p-1's hold waits in awaiting_pickup while the hold_queue chart is edited at that state: its copy.collected transition gains a library:route send of loan.requested to the patron chart. The diff does not compare a transition's content, so the pair is compatible with no reasons; but the active state's own transition is no longer byte-identical, so at this position the predicate answers false.",
+  "initial_configuration": [
+    "idle"
+  ],
+  "steps": [
+    {
+      "event": {
+        "name": "hold.placed"
+      },
+      "configuration": [
+        "idle"
+      ]
+    },
+    {
+      "event": {
+        "name": "copy.available"
+      },
+      "configuration": [
+        "awaiting_pickup"
+      ]
+    }
+  ],
+  "host": {
+    "send_types": [
+      "library:timer",
+      "library:route"
+    ],
+    "expect_sends": [
+      {
+        "type": "library:timer",
+        "target": "hold_queue",
+        "event": {
+          "name": "pickup.expired"
+        },
+        "delay_ms": 604800000,
+        "send_id": "pickup"
+      }
+    ],
+    "expect_diff": {
+      "class": "compatible",
+      "reasons": []
+    },
+    "expect_compatible_at": false
+  }
+}

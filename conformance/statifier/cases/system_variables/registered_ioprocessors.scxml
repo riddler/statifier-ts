@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<scxml xmlns="http://www.w3.org/2005/07/scxml" version="1.0" datamodel="predicator" initial="checking">
+    <state id="checking">
+        <transition cond="_ioprocessors['myapp:sink'] !== undefined and _ioprocessors['http://www.w3.org/TR/scxml/#SCXMLEventProcessor'].location !== undefined and _ioprocessors['myapp:unregistered'] === undefined" target="listed"/>
+        <transition target="unlisted"/>
+    </state>
+    <state id="listed"/>
+    <state id="unlisted"/>
+</scxml>

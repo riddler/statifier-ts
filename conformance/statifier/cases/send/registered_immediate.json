@@ -1,0 +1,24 @@
+{
+  "description": "A send of a registered type is handed to the host's processor with its target unread and its event built, and the chart moves on.",
+  "initial_configuration": ["awaiting_click"],
+  "steps": [
+    {
+      "event": { "name": "click.recorded" },
+      "configuration": ["joined"]
+    }
+  ],
+  "host": {
+    "send_types": ["myapp:sink"],
+    "expect_sends": [
+      {
+        "type": "myapp:sink",
+        "target": "joined_records",
+        "event": {
+          "name": "impression.joined",
+          "data": { "impression_id": "imp-1" }
+        },
+        "send_id": "joined"
+      }
+    ]
+  }
+}

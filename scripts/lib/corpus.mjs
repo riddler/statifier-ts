@@ -1,87 +1,100 @@
-// The corpus rules that more than one thing has to agree about, and the
-// loading that reads the vendored copy off disk.
+// Reads the vendored corpus, the provenance record and the registries off
+// disk, and recomputes the corpus hash.
 //
-// The runner, which runs a surface, reads the vendored corpus; so do the
-// registry check, which reads membership, and the ratchet, which decides
-// whether a claim is complete. Each of them needs the same three rules, and a
-// rule implemented once per reader is a chance for each reader to implement
-// it differently. So the rules live once, for a reader to import rather than
-// restate. Which files import them is the import graph's to say, not this
-// header's.
+// The layout is the one the reference's vendoring recipe writes (its
+// `conformance/RATCHET.md`, "Vendoring the corpus"), with `DEST` set to
+// `conformance/statifier`:
 //
-// THE RULES THEMSELVES ARE `scripts/lib/corpus-rules.mjs`, and this module
-// re-exports all three, so a reader that wants the loader and the rules
-// together still asks one module for both. They were separated from the
-// loading because a reader given the corpus as data, inside a host with no
-// filesystem, needs the rules and cannot have `node:fs` - and a module holding
-// both hands it `node:fs` through the import graph whether it calls the loader
-// or not. Nothing about the rules moved with them.
+//   conformance/statifier/                 the reference's conformance/ at a tag, byte for byte
+//   conformance/statifier.vendored.json    the provenance record: repo, tag, sha, corpus_hash
+//   conformance/registry.json              this package's registry, outside the copy
 //
-// WHAT THIS MODULE DELIBERATELY DOES NOT READ. A case's instructions, context
-// and expectation are values, and reading those correctly needs the corpus's
-// own float-preserving decoder, which is TypeScript under `src/`. So a case
-// here carries its metadata - the plain JSON a rule is written in terms of -
-// and the raw line it came from, and a reader that needs the values decodes
-// that line itself. Nothing here decides what a value is.
+// Every function takes the conformance root, defaulting to this repository's,
+// so a test can point a reader at a copy it has altered.
+//
+// The rules a reader applies to what it reads are `scripts/lib/corpus-rules.mjs`,
+// which reaches nothing outside the language; this module re-exports them so a
+// reader that wants the loader and the rules together asks one module for both.
 
-import { readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { throughTier } from "./corpus-rules.mjs";
+import { SUITE_ORDER } from "./corpus-rules.mjs";
 
-export { runnableCases, runsAtVersion, surfaceCaseSet, throughTier } from "./corpus-rules.mjs";
+export * from "./corpus-rules.mjs";
 
-const conformanceRoot = fileURLToPath(new URL("../../conformance/", import.meta.url));
+/** The upstream the copy is taken from, as the recipe records it. */
+export const REFERENCE_REPO = "https://github.com/riddler/statifier-ex";
 
-/** Reads the vendored manifest. */
-export function loadManifest() {
-  return JSON.parse(readFileSync(join(conformanceRoot, "manifest.json"), "utf8"));
+/** This repository's conformance root. */
+export const CONFORMANCE_ROOT = fileURLToPath(new URL("../../conformance/", import.meta.url));
+
+/** Where the copy lands, relative to the conformance root: the recipe's DEST. */
+export const VENDORED_DIR = "statifier";
+
+/** The provenance record, beside the copy: the recipe's "$DEST.vendored.json". */
+export const PROVENANCE_FILE = `${VENDORED_DIR}.vendored.json`;
+
+/** This package's registry, outside the copy. */
+export const REGISTRY_FILE = "registry.json";
+
+function readJson(path) {
+  return JSON.parse(readFileSync(path, "utf8"));
+}
+
+/** The vendored manifest. */
+export function loadManifest(root = CONFORMANCE_ROOT) {
+  return readJson(join(root, VENDORED_DIR, "manifest.json"));
+}
+
+/** The provenance record. */
+export function loadProvenance(root = CONFORMANCE_ROOT) {
+  return readJson(join(root, PROVENANCE_FILE));
+}
+
+/** This package's registry, parsed. */
+export function loadRegistry(root = CONFORMANCE_ROOT) {
+  return readJson(join(root, REGISTRY_FILE));
+}
+
+/** This package's registry as its file holds it, byte for byte. */
+export function readRegistryText(root = CONFORMANCE_ROOT) {
+  return readFileSync(join(root, REGISTRY_FILE), "utf8");
+}
+
+/** The reference's own registry, inside the copy: its claim, never ours. */
+export function loadReferenceRegistry(root = CONFORMANCE_ROOT) {
+  return readJson(join(root, VENDORED_DIR, "registry.json"));
 }
 
 /**
- * The cases for tiers 1 through `tier`, in ascending tier order.
- *
- * The manifest says which files exist and what tier each one carries, so
- * nothing here globs a directory: a tier file the manifest does not list is
- * drift, and the corpus check is where drift is caught.
- *
- * A line that does not parse is reported rather than thrown raw. The file and
- * the line number are known here and nowhere above, so they are what this adds;
- * the parser's own message is kept, because a refusal that loses the reason is
- * worse for whoever is debugging a real corpus than the stack trace it
- * replaces. It throws rather than exits: this module is a reader with no
- * console and no process of its own, and a caller that is a script decides what
- * a refusal looks like.
- *
- * Sabotage: removing the try around the parse turns the ratchet's
- * unreadable-corpus case red - the refusal still prints, but with the parser's
- * bare message where the file and the line belong, so the case that asserts the
- * tier file's path fails. It was run and reverted.
+ * The corpus, suite by suite in the manifest's order: `{ suite, file, cases }`
+ * for every suite the manifest lists. A suite file is read whole; the corpus
+ * check is where a file the manifest lists but the copy lacks is reported.
  */
-export function loadCases(tier, manifest = loadManifest()) {
-  const files = throughTier(manifest.tiers, tier).sort((left, right) => left.tier - right.tier);
-  const cases = [];
-  for (const entry of files) {
-    const path = join(conformanceRoot, entry.file);
-    const text = readFileSync(path, "utf8");
-    const lines = text.split("\n");
-    for (let index = 0; index < lines.length; index += 1) {
-      const line = lines[index];
-      if (line === "") continue;
-      let record;
-      try {
-        record = JSON.parse(line);
-      } catch (error) {
-        throw new Error(`${path} line ${index + 1} is not JSON: ${error.message}`);
-      }
-      cases.push({
-        id: record.id,
-        tier: record.tier,
-        source: record.source,
-        features: record.features ?? [],
-        line,
-      });
-    }
+export function loadSuites(root = CONFORMANCE_ROOT, manifest = loadManifest(root)) {
+  return manifest.suites.map((entry) => {
+    const corpus = readJson(join(root, VENDORED_DIR, entry.file));
+    return { suite: entry.suite, file: entry.file, cases: corpus.cases };
+  });
+}
+
+/**
+ * The corpus hash recomputed from the copy, exactly as the recipe computes
+ * it: `sha256:` and the hex SHA-256 of the bytes of `corpus/<suite>.json`
+ * concatenated in suite order - scion, w3c, statifier - skipping a suite with
+ * no file. `null` when no corpus file exists, which is a failure for every
+ * caller.
+ */
+export function computeCorpusHash(root = CONFORMANCE_ROOT) {
+  const hash = createHash("sha256");
+  let files = 0;
+  for (const suite of SUITE_ORDER) {
+    const path = join(root, VENDORED_DIR, "corpus", `${suite}.json`);
+    if (!existsSync(path)) continue;
+    hash.update(readFileSync(path));
+    files += 1;
   }
-  return cases;
+  return files === 0 ? null : `sha256:${hash.digest("hex")}`;
 }

@@ -1,0 +1,49 @@
+{
+  "description": "p-1 places a hold on c-1, the copy becomes available and the pickup timer is sent, and p-1 collects the copy: copy.collected moves the chart back to idle. The chart cancels the pickup timer on leaving awaiting_pickup, but this case asserts nothing about that cancel: a registered send type's observable here is expect_sends, which has no shape for a cancel, so it carries only the timer sent on entry.",
+  "initial_configuration": [
+    "idle"
+  ],
+  "steps": [
+    {
+      "event": {
+        "name": "hold.placed"
+      },
+      "configuration": [
+        "idle"
+      ]
+    },
+    {
+      "event": {
+        "name": "copy.available"
+      },
+      "configuration": [
+        "awaiting_pickup"
+      ]
+    },
+    {
+      "event": {
+        "name": "copy.collected"
+      },
+      "configuration": [
+        "idle"
+      ]
+    }
+  ],
+  "host": {
+    "send_types": [
+      "library:timer",
+      "library:route"
+    ],
+    "expect_sends": [
+      {
+        "type": "library:timer",
+        "target": "hold_queue",
+        "event": {
+          "name": "pickup.expired"
+        },
+        "delay_ms": 604800000,
+        "send_id": "pickup"
+      }
+    ]
+  }
+}
