@@ -738,4 +738,15 @@ describe("compile", () => {
     if (validation.ok) throw new Error("validated");
     expect(validation.errors.map((e) => e.reason)).toEqual(["unresolved_initial"]);
   });
+
+  // Sabotage: dropping the validator's <send> arm for a <param> with no value
+  // turns this red: the chart then reaches the compiler, which throws.
+  it("answers a <send>'s <param> with no value as an error, not a throw", () => {
+    const result = publicCompile(
+      `<scxml ${SCXML}><state id="desk"><onentry>` +
+        `<send event="due"><param name="copies"/></send></onentry></state></scxml>`,
+    );
+    if (result.ok) throw new Error("compiled");
+    expect(result.errors.map((e) => e.reason)).toEqual(["param_no_value"]);
+  });
 });

@@ -715,7 +715,11 @@ function contentValue(content: Content, owner: ExpressionOwner): Compiled {
   });
 }
 
-/** A `<param>`'s `expr`, else its `location`; the validator guarantees one. */
+/**
+ * A `<param>`'s `expr` when it has no `location`, else its `location`. The
+ * validator guarantees at least one under a `<send>`, `<donedata>` or
+ * `<invoke>`, and exactly one under the last two.
+ */
 function compileParam(param: Param, owner: ExpressionOwner): CompiledParam | CompilerError {
   const kind = param.expr !== null && param.paramLocation === null ? "expr" : "location";
   const source = kind === "expr" ? param.expr : param.paramLocation;
