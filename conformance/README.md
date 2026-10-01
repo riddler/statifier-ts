@@ -55,6 +55,34 @@ statifier - and requires it to equal the vendored manifest's, the provenance
 record's, this registry's and the vendored reference registry's. A mismatch
 fails naming the field, and is never repaired by rewriting a hash.
 
+**What the gate holds, and what it does not.** The gate holds the three
+suite files, `corpus/scion.json`, `corpus/w3c.json` and
+`corpus/statifier.json`, byte for byte: the corpus hash is taken over their
+bytes, so `corpus:check` fails on any edit to them. Of the rest of the copy
+it holds only parts. `corpus:check` reads the `corpus_hash` field of the
+vendored manifest and of the vendored reference registry, and holds the
+manifest's list of suites to the suite files it names, each present with the
+case count the manifest gives. The test stage holds the provenance record,
+beside the copy, to the exact line the recipe writes at the tag; requires the
+reference's `README.md`, `RATCHET.md`, `exclusions.json`, licences, schemas
+and `cases/` directory to exist; and reads the reference registry's entries
+to count the cases this package does not yet claim, so an edit to an entry
+fails the gate only when it changes what those tests count. Nothing in the
+gate compares any other byte of the copy with the tag: an edit to an
+authored case under `cases/`, to the manifest outside the fields above, to a
+schema, a licence, `exclusions.json`, the reference's `README.md` or
+`RATCHET.md`, or to a reference registry entry that leaves those counts as
+they were, passes the gate.
+
+The whole copy is held by `corpus:refresh --check`. It re-runs the recipe
+from the tag into a temporary directory, compares every file there and in
+the copy, and the provenance record, byte for byte, names each difference,
+and exits 1 on any. It reads the reference, from the clone `--from` names or
+from its public URL, and nothing in the build, the tests or the gate reads
+the reference (ADR-0003 decision 4), so it runs only when someone runs it,
+by the command above. A change that touches the copy is the time to run it,
+beside the review of its diff.
+
 **Run.** `pnpm conformance` runs every suite, or the ones named with
 `--suite`, and writes one report per suite under `reports/`, which git
 ignores. Every case is a `pass` or a `fail` with a reason; there is no third
