@@ -21,12 +21,15 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { afterAll, describe, expect, it } from "vitest";
 import manifest from "../package.json";
 import {
+  claimOf,
   loadManifest,
   loadProvenance,
   loadReferenceRegistry,
   loadRegistry,
+  loadSuites,
   unclaimed,
 } from "../scripts/lib/corpus.mjs";
+import { unclaimedByEither } from "./conformance/reports.js";
 
 const ROOT = fileURLToPath(new URL("../", import.meta.url));
 const README = readFileSync(join(ROOT, "README.md"), "utf8");
@@ -207,6 +210,10 @@ describe("the README's numbers", () => {
   const registry = loadRegistry();
   const reference = loadReferenceRegistry();
   const corpus = loadManifest();
+  const suites = loadSuites();
+  const claimByCase = new Map(
+    suites.flatMap((suite) => suite.cases).map((testCase) => [testCase.id, claimOf(testCase)]),
+  );
 
   function caseCount(suite: string): number {
     const entry = corpus.suites.find((candidate) => candidate.suite === suite);
@@ -214,39 +221,61 @@ describe("the README's numbers", () => {
     return entry.case_count;
   }
 
-  // Sabotage: the README's entry count typed one higher turns this red.
-  it("states the claim the registry makes, with the counts read from it", () => {
-    const match =
-      /claims the `(\w+)` suite, with (\d+) entries in its registry out of the suite's (\d+) cases/.exec(
-        text,
-      );
-    expect(match, "the claim sentence").not.toBeNull();
-    const [, suite = "", entries, cases] = match ?? [];
-    expect(registry.claims).toEqual([suite]);
-    expect(Number(entries)).toBe(registry.entries.filter((entry) => entry.suite === suite).length);
-    expect(Number(entries)).toBe(registry.entries.length);
-    expect(Number(cases)).toBe(caseCount(suite));
+  // The entries the registry holds toward one claim, read off the corpus.
+  function claimEntries(claim: string): number {
+    return registry.entries.filter((entry) => claimByCase.get(entry.case_id) === claim).length;
+  }
+
+  // The cases of the corpus one claim could cover.
+  function claimCases(claim: string): number {
+    return [...claimByCase.values()].filter((value) => value === claim).length;
+  }
+
+  // Sabotage: the README's w3c-mandatory entry count typed one higher turns
+  // this red.
+  it("states the claims the registry makes, with the counts read from it", () => {
+    const total = /makes (\w+) claims, with (\d+) entries in its\s+registry/.exec(text);
+    expect(total, "the claim sentence").not.toBeNull();
+    expect(Number(total?.[2])).toBe(registry.entries.length);
+    const claims = [
+      ...text.matchAll(
+        /`([\w-]+)` with (\d+) entries out of (?:the|its) [\w\s']*?(\d+) [\w\s]*?cases/g,
+      ),
+    ].map((found) => ({ claim: found[1], entries: Number(found[2]), cases: Number(found[3]) }));
+    expect(claims.map((found) => found.claim)).toEqual(registry.claims);
+    expect(total?.[1]).toBe(["zero", "one", "two", "three", "four"][claims.length]);
+    for (const found of claims) {
+      const claim = found.claim ?? "";
+      expect(found.entries, claim).toBe(claimEntries(claim));
+      expect(found.cases, claim).toBe(claimCases(claim));
+    }
+    expect(claims.reduce((sum, found) => sum + found.entries, 0)).toBe(registry.entries.length);
+    expect(claimCases("scion")).toBe(caseCount("scion"));
+    expect(claimCases("w3c-mandatory") + claimCases("w3c-optional")).toBe(caseCount("w3c"));
   });
 
   // Sabotage: the README's w3c count typed one higher turns this red.
   it("states the gap the two registries leave, counted from them", () => {
     const match =
-      /the (\d+) w3c cases and the (\d+) statifier cases the reference's own registry lists/.exec(
+      /the (\d+) w3c cases and the (\d+) statifier cases\s+the reference's own registry lists that this package's does not, nor the (\d+) w3c\s+cases the reference's registry does not list either/.exec(
         text,
       );
     expect(match, "the gap sentence").not.toBeNull();
-    const [, w3c, statifier] = match ?? [];
+    const [, w3c, statifier, neither] = match ?? [];
     expect(Number(w3c)).toBe(unclaimed(reference, registry, ["w3c"]).length);
     expect(Number(statifier)).toBe(unclaimed(reference, registry, ["statifier"]).length);
+    expect(Number(neither)).toBe(unclaimedByEither(reference, registry, suites, ["w3c"]).length);
     expect(unclaimed(reference, registry, ["scion"])).toEqual([]);
+    expect(unclaimedByEither(reference, registry, suites, ["scion", "statifier"])).toEqual([]);
   });
 
   it("states no number in the conformance section that is not read here", () => {
     const counted = new Set<number>([
       registry.entries.length,
-      caseCount("scion"),
+      ...registry.claims.flatMap((claim) => [claimEntries(claim), claimCases(claim)]),
       unclaimed(reference, registry, ["w3c"]).length,
       unclaimed(reference, registry, ["statifier"]).length,
+      unclaimedByEither(reference, registry, suites, ["w3c"]).length,
     ]);
     const words = prose(section("Conformance")).replace(/`v[\d.]+`/g, "");
     const numbers = [...words.matchAll(/\b\d+\b/g)].map((found) => Number(found[0]));

@@ -9,9 +9,10 @@
 // no third value: no skip, no pending, no not-applicable, and the runner never
 // shortens the case set it was given. A case the package cannot yet run fails
 // with a reason naming what is missing. The scion suite's cases are driven
-// through the interpreter by `test/conformance/scion.ts`; a case of any other
-// suite fails with the reason that its suite is not driven yet, and running a
-// case is a function the caller may hand in instead.
+// through the interpreter by `test/conformance/scion.ts` and the w3c suite's by
+// `test/conformance/w3c.ts`; a case of the statifier suite fails with the
+// reason that its suite is not driven yet, and running a case is a function
+// the caller may hand in instead.
 
 import type {
   CaseResult,
@@ -20,6 +21,7 @@ import type {
   SuiteReport,
 } from "../../scripts/lib/corpus-rules.d.mts";
 import { runScionCase } from "./scion.js";
+import { runW3cCase } from "./w3c.js";
 
 /** What running one case answers: a pass, or a fail with its reason. */
 export type CaseOutcome =
@@ -31,17 +33,22 @@ export type RunCase = (testCase: CorpusCase) => CaseOutcome;
 
 /** The reason a case of a suite the runner does not drive yet fails with. */
 export function suiteNotDriven(suite: string): string {
-  return `the ${suite} suite is not driven yet: the runner drives the scion suite only`;
+  return `the ${suite} suite is not driven yet: the runner drives the scion and w3c suites only`;
 }
 
 /**
- * The default case runner: a scion case is driven through the interpreter, a
- * case of any other suite fails naming its suite.
+ * The default case runner: a scion or w3c case is driven through the
+ * interpreter, a case of any other suite fails naming its suite.
+ *
+ * Sabotage: answering the w3c suite with the not-driven reason, as the runner
+ * did before, turns the runner test that drives every w3c case red. It was run
+ * and reverted.
  */
-export const runCorpusCase: RunCase = (testCase) =>
-  testCase.suite === "scion"
-    ? runScionCase(testCase)
-    : { result: "fail", reason: suiteNotDriven(testCase.suite) };
+export const runCorpusCase: RunCase = (testCase) => {
+  if (testCase.suite === "scion") return runScionCase(testCase);
+  if (testCase.suite === "w3c") return runW3cCase(testCase);
+  return { result: "fail", reason: suiteNotDriven(testCase.suite) };
+};
 
 function messageOf(value: unknown): string {
   return value instanceof Error ? value.message : String(value);

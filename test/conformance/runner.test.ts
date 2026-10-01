@@ -1,8 +1,16 @@
 import { describe, expect, it } from "vitest";
 import type { CorpusCase, CorpusSuite } from "../../scripts/lib/corpus.mjs";
-import { loadManifest, loadSuites, reportFindings } from "../../scripts/lib/corpus.mjs";
-import { gapLines } from "./reports.js";
+import {
+  loadManifest,
+  loadReferenceRegistry,
+  loadRegistry,
+  loadSuites,
+  reportFindings,
+  unclaimed,
+} from "../../scripts/lib/corpus.mjs";
+import { gapLines, unclaimedByEither, unclaimedByEitherLines } from "./reports.js";
 import { type RunCase, runSuite, suiteNotDriven } from "./runner.js";
+import { featuresNotRun } from "./w3c.js";
 
 const manifest = loadManifest();
 const suites = loadSuites();
@@ -24,17 +32,57 @@ describe("the runner over the vendored corpus", () => {
     expect(report.results.filter((result) => result.result !== "pass")).toEqual([]);
   });
 
-  it("fails every case of a suite it does not drive yet, naming the suite", () => {
-    for (const name of ["w3c", "statifier"]) {
-      const report = runSuite(suiteNamed(name), manifest.corpus_hash);
-      expect(
-        new Set(
-          report.results.map((result) => ("reason" in result ? result.reason : result.result)),
-        ),
-      ).toEqual(new Set([suiteNotDriven(name)]));
+  // Sabotage: answering the w3c suite with the not-driven reason turns this red
+  // on the passes. It was run and reverted.
+  it("drives every w3c case through the interpreter, and every case it claims passes", () => {
+    const report = runSuite(suiteNamed("w3c"), manifest.corpus_hash);
+    expect(report.suite).toBe("w3c");
+    expect(report.results).toHaveLength(156);
+    const passed = new Set(
+      report.results.filter((result) => result.result === "pass").map((result) => result.case_id),
+    );
+    expect(passed.size).toBeGreaterThanOrEqual(120);
+    const claimed = loadRegistry().entries.filter((entry) => entry.suite === "w3c");
+    expect(claimed.length).toBeGreaterThanOrEqual(120);
+    expect(claimed.filter((entry) => !passed.has(entry.case_id))).toEqual([]);
+    for (const result of report.results) {
+      if (result.result === "fail") expect(result.reason).not.toBe(suiteNotDriven("w3c"));
     }
-    expect(suiteNotDriven("w3c")).toBe(
-      "the w3c suite is not driven yet: the runner drives the scion suite only",
+  });
+
+  // Sabotage: answering a w3c fail without the feature it needs turns this red
+  // on every invoke case. It was run and reverted.
+  it("names the feature it does not run in every w3c fail of a case that needs it", () => {
+    const report = runSuite(suiteNamed("w3c"), manifest.corpus_hash);
+    const cases = new Map(suiteNamed("w3c").cases.map((testCase) => [testCase.id, testCase]));
+    const fails = report.results.filter((result) => result.result === "fail");
+    expect(fails.length).toBeGreaterThan(0);
+    const needing = suiteNamed("w3c")
+      .cases.filter((testCase) => featuresNotRun(testCase).length > 0)
+      .map((testCase) => testCase.id);
+    expect(needing.length).toBeGreaterThan(0);
+    expect(fails.map((result) => result.case_id)).toEqual(expect.arrayContaining(needing));
+    for (const result of fails) {
+      const testCase = cases.get(result.case_id);
+      if (testCase === undefined) throw new Error(`${result.case_id} is not in the w3c suite`);
+      const missing = featuresNotRun(testCase);
+      if (missing.length > 0) {
+        expect(result.reason).toBe(
+          `depends on a feature this package does not run: ${missing.join(", ")}`,
+        );
+      } else {
+        expect(result.reason).toMatch(/^the initial configuration: expected active leaf states /);
+      }
+    }
+  });
+
+  it("fails every case of a suite it does not drive yet, naming the suite", () => {
+    const report = runSuite(suiteNamed("statifier"), manifest.corpus_hash);
+    expect(
+      new Set(report.results.map((result) => ("reason" in result ? result.reason : result.result))),
+    ).toEqual(new Set([suiteNotDriven("statifier")]));
+    expect(suiteNotDriven("statifier")).toBe(
+      "the statifier suite is not driven yet: the runner drives the scion and w3c suites only",
     );
   });
 
@@ -121,6 +169,28 @@ describe("the gap list", () => {
     expect(lines[0]).toContain("script_elements");
   });
 
+  // Sabotage: dropping the run's clause from every line turns this red. It was
+  // run and reverted.
+  it("ends each line with what a run found: the fail's reason, or a pass not yet recorded", () => {
+    const report = runSuite(suiteNamed("w3c"), manifest.corpus_hash);
+    const gap = unclaimed(loadReferenceRegistry(), loadRegistry(), ["w3c"]);
+    expect(gap.length).toBeGreaterThan(0);
+    const lines = gapLines(gap, suites, report.results);
+    for (const [index, entry] of gap.entries()) {
+      const result = report.results.find((candidate) => candidate.case_id === entry.case_id);
+      if (result === undefined || result.result !== "fail") {
+        throw new Error(`${entry.case_id} is unclaimed but did not fail`);
+      }
+      expect(lines[index]).toMatch(new RegExp(`^${entry.case_id}: needs `));
+      expect(lines[index]?.endsWith(`; this run failed it: ${result.reason}`)).toBe(true);
+    }
+    const [first] = gap;
+    if (first === undefined) throw new Error("an empty gap");
+    expect(gapLines([first], suites, [{ ...first, result: "pass" }])[0]).toMatch(
+      /; this run passed it, and the ratchet has not recorded it$/,
+    );
+  });
+
   it("says so when a case names no feature", () => {
     const [first] = suiteNamed("scion").cases;
     if (first === undefined) throw new Error("an empty scion suite");
@@ -131,5 +201,37 @@ describe("the gap list", () => {
         [{ ...suiteNamed("scion"), cases: [bare] }],
       ),
     ).toEqual([`${first.id}: needs no named feature`]);
+  });
+});
+
+describe("the cases neither registry claims", () => {
+  // Sabotage: keeping the claimed cases instead of dropping them turns this
+  // red. It was run and reverted.
+  it("are the w3c cases the reference leaves unclaimed, each with the run's reason", () => {
+    const neither = unclaimedByEither(loadReferenceRegistry(), loadRegistry(), suites, ["w3c"]);
+    expect(neither).toEqual([
+      { case_id: "w3c/test330", suite: "w3c" },
+      { case_id: "w3c/test552", suite: "w3c" },
+    ]);
+    const report = runSuite(suiteNamed("w3c"), manifest.corpus_hash);
+    const lines = unclaimedByEitherLines(neither, report.results);
+    for (const [index, entry] of neither.entries()) {
+      const result = report.results.find((candidate) => candidate.case_id === entry.case_id);
+      if (result === undefined || result.result !== "fail") {
+        throw new Error(`${entry.case_id} did not fail`);
+      }
+      expect(lines[index]).toBe(
+        `${entry.case_id}: the reference's registry does not claim it either; this run failed it: ${result.reason}`,
+      );
+    }
+  });
+
+  it("are none for a suite the reference claims whole", () => {
+    expect(unclaimedByEither(loadReferenceRegistry(), loadRegistry(), suites, ["scion"])).toEqual(
+      [],
+    );
+    expect(unclaimedByEitherLines([{ case_id: "w3c/test330", suite: "w3c" }])).toEqual([
+      "w3c/test330: the reference's registry does not claim it either",
+    ]);
   });
 });

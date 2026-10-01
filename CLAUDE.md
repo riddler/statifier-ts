@@ -215,8 +215,9 @@ drift fails the gate and nothing is fixed silently, so run
   the conformance surfaces on the engine React Native uses; here it drives
   every suite of the vendored corpus through `test/conformance/runner.ts`, and
   running it is a deliberate step, never a gate's. The runner drives the scion
-  suite through the interpreter and fails every case of the other suites with
-  one reason, so a run proves agreement on the scion cases only.
+  and w3c suites through the interpreter and fails every case of the statifier
+  suite with one reason, so a run proves agreement on the scion and w3c cases
+  only.
 
 ## Conventions
 
