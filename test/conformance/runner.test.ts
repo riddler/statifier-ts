@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { CorpusCase, CorpusSuite } from "../../scripts/lib/corpus.mjs";
 import { loadManifest, loadSuites, reportFindings } from "../../scripts/lib/corpus.mjs";
-import { CORE_NOT_IMPLEMENTED, type RunCase, runSuite } from "./runner.js";
+import { SCRIPT_UNSUPPORTED } from "../../src/compiler.js";
+import { type RunCase, runSuite, suiteNotDriven } from "./runner.js";
 
 const manifest = loadManifest();
 const suites = loadSuites();
@@ -12,23 +13,42 @@ function suiteNamed(name: string): CorpusSuite {
   return suite;
 }
 
-describe("the runner over the vendored corpus, with no interpreter core wired in", () => {
-  // Sabotage: making the default case runner answer a pass turns this red on
-  // the reason and the result alike. It was run and reverted.
-  it("reports every scion case, each a fail with the reason, and no third value", () => {
+describe("the runner over the vendored corpus", () => {
+  // The three scion cases a `<script>` body decides; every other scion case
+  // passes through the interpreter.
+  const SCRIPT_CASES = ["scion/script/test0", "scion/script/test1", "scion/script/test2"];
+
+  // Sabotage: making the default case runner fail every case with one reason
+  // turns this red on the count of passes. It was run and reverted.
+  it("drives every scion case: each a pass, or a fail with the reason, and no third value", () => {
     const report = runSuite(suiteNamed("scion"), manifest.corpus_hash);
     expect(report.suite).toBe("scion");
     expect(report.corpus_hash).toBe(manifest.corpus_hash);
     expect(report.results).toHaveLength(119);
-    for (const result of report.results) {
-      expect(result).toEqual({
-        case_id: expect.stringMatching(/^scion\//),
+    const failed = report.results.filter((result) => result.result !== "pass");
+    expect(failed).toEqual(
+      SCRIPT_CASES.map((id) => ({
+        case_id: id,
         suite: "scion",
         result: "fail",
-        reason: CORE_NOT_IMPLEMENTED,
-      });
+        reason: `missing feature script_elements: ${SCRIPT_UNSUPPORTED}`,
+      })),
+    );
+    expect(report.results.filter((result) => result.result === "pass")).toHaveLength(116);
+  });
+
+  it("fails every case of a suite it does not drive yet, naming the suite", () => {
+    for (const name of ["w3c", "statifier"]) {
+      const report = runSuite(suiteNamed(name), manifest.corpus_hash);
+      expect(
+        new Set(
+          report.results.map((result) => ("reason" in result ? result.reason : result.result)),
+        ),
+      ).toEqual(new Set([suiteNotDriven(name)]));
     }
-    expect(new Set(report.results.map((result) => result.result))).toEqual(new Set(["fail"]));
+    expect(suiteNotDriven("w3c")).toBe(
+      "the w3c suite is not driven yet: the runner drives the scion suite only",
+    );
   });
 
   it("never shortens a suite: every case of every suite, once, in corpus order", () => {

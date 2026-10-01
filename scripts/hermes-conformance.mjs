@@ -25,10 +25,11 @@
 // self-contained file, and the corpus travels in it as data. That is why
 // `test/conformance/runner.ts` takes the corpus as an argument instead of
 // finding it: reading it off disk is `test/conformance/reports.ts`'s, and the
-// runner itself reaches nothing outside the language. Until the interpreter
-// core is wired into the runner every case fails with the same reason on both
-// engines, so a run today proves the bundle loads and agrees, not that a chart
-// runs. The bundle is checked
+// runner itself reaches nothing outside the language. The runner drives the
+// scion suite through the interpreter and fails every case of the other
+// suites with the same reason on both engines, so a run proves agreement on
+// the scion cases and only that the bundle loads for the rest. The bundle is
+// checked
 // for a host module specifier before it is run, and the check refuses rather
 // than warns - a bundle that reached one would not be evidence about a host
 // that has none.

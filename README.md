@@ -39,9 +39,9 @@ checks `src/` for those constructs rather than leaving the rule to review.
 That is a check on the text. A check on a run - the conformance corpus driven
 through this package on the JavaScript engine React Native uses, and diffed
 against a run on the server runtime - is what `scripts/hermes-conformance.mjs`
-is for, and the engine proof is not yet run: the conformance runner exists,
-but until the interpreter is wired into it every case fails, and no claim
-here rests on it.
+is for, and the engine proof is not yet run: the conformance runner drives
+the corpus's scion suite through the interpreter, but the script has not
+been run on that engine, and no claim here rests on it.
 
 `engines.node` in `package.json` is `>=20`, and that is the floor a
 consumer's runtime has to clear. It is not the toolchain: what builds and

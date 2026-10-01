@@ -84,17 +84,16 @@ describe("this package's registry, as committed", () => {
   const committed = loadRegistry();
   const results = suites.flatMap((suite) => runSuite(suite, manifest.corpus_hash).results);
 
-  it("is the empty pinned registry: the pin, no claims, no entries", () => {
-    expect(committed).toEqual({
-      implementation: "statifier-ts",
-      corpus_hash: manifest.corpus_hash,
-      claims: [],
-      entries: [],
-    });
+  it("is pinned, in the ratchet's encoding, and claims only scion entries", () => {
+    expect(committed.implementation).toBe("statifier-ts");
+    expect(committed.corpus_hash).toBe(manifest.corpus_hash);
+    expect(committed.claims).toEqual(["scion"]);
+    expect(committed.entries.length).toBeGreaterThan(0);
+    expect(committed.entries.every((entry) => entry.suite === "scion")).toBe(true);
     expect(readRegistryText()).toBe(encodeRegistry(committed));
   });
 
-  it("passes the five checks and makes no claim", () => {
+  it("passes the five checks and makes a claim", () => {
     expect(
       registryFindings({
         registry: committed,
@@ -104,7 +103,7 @@ describe("this package's registry, as committed", () => {
       }),
     ).toEqual({
       findings: [],
-      claimMade: false,
+      claimMade: true,
     });
   });
 });
@@ -122,6 +121,21 @@ describe("the registry check's five checks", () => {
         results: resultsOf(["scion/basic/basic0", "w3c/test144"]),
       }),
     ).toEqual({ findings: [], claimMade: true });
+  });
+
+  // Sabotage: dropping the order check passes a registry whose entries are
+  // swapped, and this goes red. It was run and reverted.
+  it("fails a registry whose entries are not sorted by suite, then case id, naming the pair", () => {
+    const swapped = registry([test144, basic0]);
+    expect(
+      registryFindings({
+        ...ok,
+        registry: swapped,
+        results: resultsOf(["scion/basic/basic0", "w3c/test144"]),
+      }).findings,
+    ).toEqual([
+      "the order: scion/basic/basic0 comes after w3c/test144; entries are sorted by suite, then case id",
+    ]);
   });
 
   // Sabotage: dropping the pin comparison turns this red. It was run and reverted.
@@ -241,6 +255,20 @@ describe("the ratchet", () => {
       reports: [reportOf(scion, [])],
     });
     expect(outcome.refusals).toEqual(["w3c/test144 is recorded and did not pass in this run"]);
+  });
+
+  // Sabotage: dropping the recorded-suite check lets the run rewrite the
+  // entry's suite and its claim, and this goes red. It was run and reverted.
+  it("refuses a recorded entry whose suite is not the corpus's, naming it", () => {
+    const misfiled = { case_id: "scion/basic/basic0", suite: "w3c" } as const;
+    const outcome = ratchet({
+      ...base,
+      registry: registry([misfiled], ["scion"]),
+      reports: [reportOf(scion, ["scion/basic/basic0"])],
+    });
+    expect(outcome).toEqual({
+      refusals: ["scion/basic/basic0 is recorded under suite w3c; the corpus puts it in scion"],
+    });
   });
 
   it("refuses a report of another corpus", () => {

@@ -25,6 +25,7 @@ import { resolve } from "node:path";
 import { runSuite } from "../test/conformance/runner.ts";
 import {
   CONFORMANCE_ROOT,
+  compareEntries,
   encodeRegistry,
   loadManifest,
   loadSuites,
@@ -53,7 +54,10 @@ function main() {
     suites,
     results,
   });
-  if (findings.length === 0 && text !== encodeRegistry(registry)) {
+  // The encoding is compared with the entries sorted, so a file whose fault is
+  // its order is never passed by an encoding that keeps the order it was given.
+  const sorted = { ...registry, entries: [...registry.entries].sort(compareEntries) };
+  if (findings.length === 0 && text !== encodeRegistry(sorted)) {
     findings.push("the file is not in the encoding the ratchet writes; it was edited by hand");
   }
   if (findings.length > 0) {

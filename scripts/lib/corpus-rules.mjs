@@ -142,6 +142,21 @@ export function registryFindings({ registry, manifestHash, suites, results }) {
     );
   }
 
+  // The order: entries sorted by suite then case id, as RATCHET.md stores
+  // them. A registry reordered by hand is named here.
+  //
+  // Sabotage: dropping this check lets a reordered registry through, and the
+  // registry test with two entries swapped goes red. It was run and reverted.
+  for (let index = 1; index < registry.entries.length; index += 1) {
+    const before = registry.entries[index - 1];
+    const entry = registry.entries[index];
+    if (compareEntries(before, entry) > 0) {
+      findings.push(
+        `the order: ${entry.case_id} comes after ${before.case_id}; entries are sorted by suite, then case id`,
+      );
+    }
+  }
+
   // 2. Rule 1: every entry's case is in the pinned corpus, under its suite.
   const seen = new Set();
   for (const entry of registry.entries) {
@@ -244,6 +259,24 @@ export function ratchet({ registry, reports, manifestHash, suites }) {
   }
   if (refusals.length > 0) return { refusals };
 
+  // A recorded entry under a suite the corpus does not put its case in is
+  // refused, naming it, rather than carried into a registry whose claims are
+  // then recomputed from the corpus's suite.
+  //
+  // Sabotage: dropping this check lets the ratchet rewrite the recorded
+  // entry's suite and claims silently, and the ratchet test with a recorded
+  // entry under the wrong suite goes red. It was run and reverted.
+  const casesById = indexCases(suites);
+  for (const entry of registry.entries) {
+    const testCase = casesById.get(entry.case_id);
+    if (testCase !== undefined && testCase.suite !== entry.suite) {
+      refusals.push(
+        `${entry.case_id} is recorded under suite ${entry.suite}; the corpus puts it in ${testCase.suite}`,
+      );
+    }
+  }
+  if (refusals.length > 0) return { refusals };
+
   const passed = new Set();
   for (const report of reports) {
     for (const result of report.results) {
@@ -257,7 +290,6 @@ export function ratchet({ registry, reports, manifestHash, suites }) {
   }
   if (refusals.length > 0) return { refusals };
 
-  const casesById = indexCases(suites);
   const recorded = new Set(registry.entries.map((entry) => entry.case_id));
   const added = [];
   for (const id of passed) {

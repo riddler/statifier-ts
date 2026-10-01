@@ -96,7 +96,23 @@ function main() {
       problems.push(`the manifest lists ${entry.file}, which the copy lacks`);
       continue;
     }
-    const cases = JSON.parse(readFileSync(path, "utf8")).cases;
+    // A suite file whose JSON structure is broken is a problem named here,
+    // beside the hash fields, never a crash that hides them.
+    //
+    // Sabotage: parsing without the guard lets the SyntaxError escape, and the
+    // corpus-check test that breaks the scion file's structure goes red. It
+    // was run and reverted.
+    let cases;
+    try {
+      cases = JSON.parse(readFileSync(path, "utf8")).cases;
+    } catch (error) {
+      problems.push(`${entry.file} is not JSON: ${error.message}`);
+      continue;
+    }
+    if (!Array.isArray(cases)) {
+      problems.push(`${entry.file} holds no list of cases`);
+      continue;
+    }
     if (cases.length !== entry.case_count) {
       problems.push(
         `${entry.file} holds ${cases.length} cases, the manifest says ${entry.case_count}`,
