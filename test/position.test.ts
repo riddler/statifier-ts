@@ -100,6 +100,16 @@ function chartOf(source: string, options = { chartName: "loan", chartVersion: "3
 
 const LOAN = chartOf(LOAN_SOURCE);
 
+// The loan again, with a patron notice invoked each time the loan opens.
+const NOTICE_SOURCE = `<scxml xmlns="http://www.w3.org/2005/07/scxml" version="1.0" name="loan" initial="on_loan">
+  <state id="on_loan">
+    <invoke type="scxml"/>
+    <transition event="loan.renew" target="on_loan"/>
+    <transition event="loan.returned" target="returned"/>
+  </state>
+  <final id="returned"/>
+</scxml>`;
+
 function moved(result: DriveResult): State {
   if (!result.ok) throw new Error(`refused: ${result.reason}`);
   return result.state;
@@ -391,6 +401,36 @@ describe("importPosition", () => {
   // Sabotage: rebuilding a running position with a done record turns this red.
   it("answers a running position as running from isDone", () => {
     expect(isDone(imported(LOAN, exported(renewed())))).toEqual({ ok: true, done: false });
+  });
+
+  // A copy on loan invokes a patron notice each time the loan opens, so the
+  // invoke counter is what names the next notice.
+  // Sabotage: writing invokeCounter as 0 in encodeState turns this red.
+  it("keeps the invoke counter, so the next invocation's id follows the last", () => {
+    const chart = chartOf(NOTICE_SOURCE);
+    const original = moved(
+      step(chart, moved(start(chart, { sessionId: "loan-copy-17" })), { name: "loan.renew" }),
+    );
+    expect(original.invokeCounter).toBe(2);
+    const position = exported(original);
+    expect(position.invokeCounter).toBe(2);
+    const state = imported(chart, JSON.parse(JSON.stringify(position)));
+    expect(state.invokeCounter).toBe(2);
+    expect(exportPosition(state)).toEqual({ ok: true, position });
+    expect(step(chart, state, { name: "loan.renew" })).toMatchObject({
+      ok: true,
+      effects: [
+        { kind: "cancel_invoke", invokeId: "on_loan.inv_2" },
+        { kind: "invoke", invokeId: "on_loan.inv_3" },
+      ],
+    });
+  });
+
+  // Sabotage: writing invokeCounter as 0 in encodeState turns this red.
+  it("keeps an invoke counter no drive of this chart wrote", () => {
+    const state = imported(LOAN, { ...WORKED_EXAMPLE, invokeCounter: 7 });
+    expect(state.invokeCounter).toBe(7);
+    expect(exported(state).invokeCounter).toBe(7);
   });
 
   // Sabotage: rebuilding a stopped position with no done record turns this

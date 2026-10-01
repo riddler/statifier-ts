@@ -160,7 +160,7 @@ export interface State {
   /** Each history state's recorded states, sorted. */
   readonly historyValues: Readonly<Record<string, readonly string[]>>;
   readonly activeInvocations: readonly ActiveInvocation[];
-  /** No invocation is started yet, so this stays at zero. */
+  /** The sequence a generated invoke id is minted from: the next takes it plus one. */
   readonly invokeCounter: number;
   readonly sendCounter: number;
   readonly timerCounter: number;
