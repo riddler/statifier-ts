@@ -22,6 +22,8 @@ export {
   type CompileResult,
   compile,
 } from "./compiler.js";
+export type { Effect, Log } from "./core/content.js";
+export type { BindingEffect } from "./core/datamodel.js";
 export type {
   ContentOwner,
   DatamodelChange,
@@ -37,10 +39,23 @@ export type {
   TraceMacrostepStable,
   TraceTransitionsSelected,
 } from "./core/effects.js";
-export type { Done, InterpreterEffect, RoundBudget } from "./core/interpreter.js";
-export type { Autoforward, Invoke } from "./core/invoke.js";
+export type { CancelInvoke, ExitEntryEffect } from "./core/exit-entry.js";
+export type {
+  BudgetExhausted,
+  Done,
+  InterpreterEffect,
+  RoundBudget,
+} from "./core/interpreter.js";
+export type { Autoforward, Invoke, InvokeEffect } from "./core/invoke.js";
 export type { Cancel, Send, SendDelayed } from "./core/send.js";
-export type { Event } from "./datamodel.js";
+export type {
+  Cause,
+  Event,
+  EventType,
+  ExecutionReason,
+  Origin,
+  Owner,
+} from "./datamodel.js";
 export {
   type ActiveInvocation,
   advance,

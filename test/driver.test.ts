@@ -7,7 +7,7 @@
 // returned) and parcel delivery (a parcel scanned from depot to doorstep).
 
 import { Duration, float, PDate, Undefined, type Value } from "@riddler/predicator";
-import { describe, expect, it } from "vitest";
+import { describe, expect, expectTypeOf, it } from "vitest";
 import { type Chart, compile } from "../src/compiler.js";
 import type { InterpreterEffect } from "../src/core/interpreter.js";
 import type { Cancel, Send, SendDelayed } from "../src/core/send.js";
@@ -206,14 +206,25 @@ describe("the virtual clock", () => {
   });
 
   // Sabotage: leaving a cancelled timer pending (the filter in cancelSend
-  // removed) turns this red.
+  // removed) turns this red at each of the two timer checks.
   it("removes a pending timer when its send is cancelled", () => {
     const loaned = send(LOAN, begin(LOAN).state, "checkout");
     const renewed = send(LOAN, loaned.state, "renew");
     // The exit cancels the first loan's timer; the re-entry schedules a new one.
     expect(kinds(renewed.effects)).toEqual(["cancel", "datamodel_change", "send_delayed"]);
     expect(renewed.state.timers.map((t) => t.sequence)).toEqual([1]);
-    const returned = send(LOAN, loaned.state, "return");
+    // A copy returned to the desk leaves the chart running, so only the
+    // cancel its exit makes can clear the timer: stopping clears it too.
+    const shelved = chartOf(
+      LOAN_SOURCE.replace(
+        '<transition event="return" target="returned"/>',
+        '<transition event="return" target="desk"/>',
+      ),
+    );
+    const loanedAgain = send(shelved, begin(shelved).state, "checkout");
+    expect(loanedAgain.state.timers).toHaveLength(1);
+    const returned = send(shelved, loanedAgain.state, "return");
+    expect(configuration(returned.state)).toEqual(["desk"]);
     expect(returned.state.timers).toEqual([]);
   });
 
@@ -486,6 +497,58 @@ describe("registered send types", () => {
     const bare = begin(LISTED);
     expect(logged(bare.effects)).toEqual([false]);
     expect(logged(send(LISTED, bare.state, "check", { sendTypes }).effects)).toEqual([false]);
+  });
+
+  // A value the tagged-value text cannot carry: a map with a `$type` key.
+  const UNENCODABLE: Value = { $type: "date" };
+
+  // Sabotage: calling the processor during the run rather than once the
+  // call's state is written (the held calls run before the refusal) turns
+  // this red.
+  it("hands nothing to a processor when start is refused for a value it cannot write", () => {
+    const host = courier();
+    const sendTypes = { courier: host.processor };
+    expect(
+      start(PARCEL, { sessionId: "desk-1", sendTypes, datamodel: { shelf: UNENCODABLE } }),
+    ).toEqual({ ok: false, reason: "unencodable_value" });
+    expect(host.handed).toEqual([]);
+    expect(host.cancels).toEqual([]);
+  });
+
+  // Sabotage: calling the processor during the run rather than once the
+  // call's state is written (the held calls run before the refusal) turns
+  // this red.
+  it("hands nothing to a processor when a step is refused for an event it cannot write", () => {
+    const host = courier();
+    const sendTypes = { courier: host.processor };
+    const { state } = begin(PARCEL, { sendTypes });
+    expect(host.handed).toHaveLength(2);
+    const event = { name: "resend", data: UNENCODABLE };
+    expect(step(PARCEL, state, event, { sendTypes })).toEqual({
+      ok: false,
+      reason: "unencodable_value",
+    });
+    expect(host.handed).toHaveLength(2);
+    ok(step(PARCEL, state, { name: "resend", data: "p-9" }, { sendTypes }));
+    expect(host.handed.map(([s]) => s.event)).toEqual([
+      "parcel.handed",
+      "parcel.chase",
+      "parcel.again",
+    ]);
+  });
+
+  // Sabotage: telling the processor of a cancel during the run rather than
+  // once the call's state is written turns this red: the refused call tells
+  // it, and the retry tells it again.
+  it("tells a processor of a cancel once when the first try is refused", () => {
+    const host = courier();
+    const sendTypes = { courier: host.processor };
+    const { state } = begin(PARCEL, { sendTypes });
+    const refused = step(PARCEL, state, { name: "cancel.chase", data: UNENCODABLE }, { sendTypes });
+    expect(refused).toEqual({ ok: false, reason: "unencodable_value" });
+    expect(host.cancels).toEqual([]);
+    ok(step(PARCEL, state, { name: "cancel.chase" }, { sendTypes }));
+    expect(host.cancels.map((c) => c.sendId)).toEqual(["chase"]);
   });
 });
 
@@ -789,6 +852,26 @@ describe("the entry point", () => {
     expect(typeof entry.advance).toBe("function");
     expect(typeof entry.configuration).toBe("function");
     expect(typeof entry.isDone).toBe("function");
+  });
+
+  // Checked by the typecheck stage, not at run time.
+  // Sabotage: dropping `Cause` from the entry point's type exports turns
+  // the typecheck stage red on this test.
+  it("exports by name every type the event and effect types reference", () => {
+    expectTypeOf<entry.Event["type"]>().toEqualTypeOf<entry.EventType>();
+    expectTypeOf<entry.QueuedEvent["type"]>().toEqualTypeOf<entry.EventType>();
+    expectTypeOf<NonNullable<entry.Event["reason"]>>().toEqualTypeOf<entry.ExecutionReason>();
+    expectTypeOf<NonNullable<entry.Event["cause"]>>().toEqualTypeOf<entry.Cause>();
+    expectTypeOf<NonNullable<entry.QueuedEvent["cause"]>>().toEqualTypeOf<entry.Cause>();
+    expectTypeOf<entry.Cause["origin"]>().toEqualTypeOf<entry.Origin>();
+    expectTypeOf<entry.Log["owner"]>().toEqualTypeOf<entry.Owner>();
+    expectTypeOf<entry.InvokeEffect>().toExtend<entry.InterpreterEffect>();
+    expectTypeOf<entry.BudgetExhausted>().toExtend<entry.InterpreterEffect>();
+    expectTypeOf<entry.ExitEntryEffect>().toExtend<entry.InvokeEffect>();
+    expectTypeOf<entry.Effect>().toExtend<entry.ExitEntryEffect>();
+    expectTypeOf<entry.CancelInvoke>().toExtend<entry.ExitEntryEffect>();
+    expectTypeOf<entry.BindingEffect>().toExtend<entry.ExitEntryEffect>();
+    expectTypeOf<entry.Log>().toExtend<entry.Effect>();
   });
 });
 
