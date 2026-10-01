@@ -277,6 +277,37 @@ describe("<if>", () => {
       cause: { origin: { kind: "content", cIndex: 0 } },
     });
   });
+
+  // Sabotage: raising the block's failure before draining the pending
+  // condition failures in executeBlock turns this red.
+  it("whose taken branch fails raises its condition failures before the branch's failure", () => {
+    const outcome = run(
+      [
+        {
+          kind: "if",
+          cIndex: 0,
+          branches: [
+            { cond: expr("holds > 0"), content: [raise(1, "loan.held")] },
+            { cond: expr("renewals"), content: [raise(2, "loan.blocked")] },
+            { cond: null, content: [raise(3, "loan.renewed"), assign(4, "fines", "1")] },
+          ],
+        },
+        raise(5, "loan.returned"),
+      ],
+      [["renewals", 1]],
+    );
+    expect(outcome.raised.map((event) => event.name)).toEqual([
+      "loan.renewed",
+      "error.execution",
+      "error.execution",
+      "error.execution",
+    ]);
+    expect(outcome.raised.slice(1)).toMatchObject([
+      { reason: { kind: "evaluator_error", source: "holds > 0" } },
+      { reason: { kind: "non_boolean_cond", value: 1 } },
+      { reason: { kind: "nested_content", cIndex: 4, reason: { kind: "unbound_location" } } },
+    ]);
+  });
 });
 
 describe("<foreach>", () => {
@@ -307,6 +338,21 @@ describe("<foreach>", () => {
     const outcome = run([overHolds([])], [["holds", []]]);
     expect(outcome.context.data.get("hold")).toBe(Undefined);
     expect(outcome.context.data.get("position")).toBe(Undefined);
+  });
+
+  // Sabotage: declaring item and index as unbound whether or not they are
+  // bound (dropping the has check in declare) turns this red.
+  it("keeps the value an item or index is already bound to when the list is empty", () => {
+    const outcome = run(
+      [overHolds([])],
+      [
+        ["holds", []],
+        ["hold", "c-9"],
+        ["position", 4],
+      ],
+    );
+    expect(outcome.context.data.get("hold")).toBe("c-9");
+    expect(outcome.context.data.get("position")).toBe(4);
   });
 
   // Sabotage: removing the list check in executeForeach (so a non-list
