@@ -67,8 +67,11 @@ package answers differently from the corpus is this package's bug. The
 corpus is copied byte for byte from the reference at a named tag, recorded in
 `conformance/statifier.vendored.json`, and a registry beside it,
 `conformance/registry.json`, lists the cases this package claims to pass -
-written only by a run that observed the pass, and never narrowed. It lists
-none yet: this package makes no conformance claim today.
+written only by a run that observed the pass, and never narrowed. A claim is
+the exact set of its entries: this package claims the scion suite with the
+entries that registry lists, and not yet the three scion cases whose
+`<script>` body the pinned expression language does not compile, nor any
+case of the other suites.
 [`conformance/README.md`](conformance/README.md) says how the copy, the
 check, the runner and the ratchet work.
 

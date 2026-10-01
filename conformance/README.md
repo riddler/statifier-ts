@@ -83,5 +83,6 @@ claims and no entries, and the check says that no claim is made.
 The reference's own registry, inside the copy, lists the cases the reference
 passes. The difference between it and this package's registry is what this
 package does not yet claim, and `pnpm conformance` prints it after every run,
-for the suites it ran. Today this package's registry has no entries, so that
-list is every case of the reference's registry.
+for the suites it ran. This package's registry claims scion entries only, so
+that list is the three scion cases a `<script>` body decides and every w3c
+and statifier case of the reference's registry.
