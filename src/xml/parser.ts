@@ -668,29 +668,33 @@ function skipProcessingInstruction(cursor: Cursor): ParseError | null {
 
 // Skips `<!DOCTYPE ... >`, internal subset and quoted literals included. The
 // declarations inside it are not read: only the predefined entities expand.
-// Inside the internal subset a comment and a processing instruction are
-// skipped whole, so a quote or a bracket in one is text and starts nothing.
-// One that never closes is not skipped: the scan rewinds to its `<` and reads
-// on character by character, so `<!-->]>` still ends the declaration, as it
-// does in the reference.
+//
+// The first scan reads a quote as a literal start and ends at a `>` outside
+// any literal and outside the subset's brackets. Only when it runs off the
+// end of the source does a second scan run, by the reference's rule, where a
+// quote is text: the declaration ends at the `>` that balances `<!DOCTYPE`
+// against every `<` and `>` inside it, and that `>` must also be one that
+// closes it at square-bracket depth zero. That accepts a lone quote inside a
+// subset comment or processing instruction, which the first scan reads as a
+// literal that never closes, and accepts nothing the reference refuses. Each
+// scan is linear.
 function skipDoctype(cursor: Cursor): ParseError | null {
+  const start = mark(cursor);
+  if (scanDoctype(cursor)) return null;
+  const end = mark(cursor);
+  rewind(cursor, start);
+  if (scanDoctypeAsReference(cursor)) return null;
+  rewind(cursor, end);
+  return errorAt(cursor, "unterminated_doctype", "a document type declaration is never closed");
+}
+
+// The first scan: true past the closing `>`, false at the end of the source.
+function scanDoctype(cursor: Cursor): boolean {
   advanceBy(cursor, 9);
   let quote = 0;
   let depth = 0;
   for (;;) {
-    if (cursor.offset >= cursor.source.length) {
-      return unterminatedDoctype(cursor);
-    }
-    if (quote === 0 && depth > 0) {
-      const before = mark(cursor);
-      const skipped = startsWith(cursor, "<!--")
-        ? skipThrough(cursor, 4, "-->")
-        : startsWith(cursor, "<?")
-          ? skipThrough(cursor, 2, "?>")
-          : null;
-      if (skipped === true) continue;
-      if (skipped === false) rewind(cursor, before);
-    }
+    if (cursor.offset >= cursor.source.length) return false;
     const code = cursor.source.charCodeAt(cursor.offset);
     advance(cursor);
     if (quote !== 0) {
@@ -702,34 +706,53 @@ function skipDoctype(cursor: Cursor): ParseError | null {
     } else if (code === 0x5d) {
       depth--;
     } else if (code === 0x3e && depth <= 0) {
-      return null;
+      return true;
     }
   }
 }
 
-function unterminatedDoctype(cursor: Cursor): ParseError {
-  return errorAt(cursor, "unterminated_doctype", "a document type declaration is never closed");
+// The second scan, the reference's two readings of a declaration at once:
+// its XML library ends it at the `>` that brings the count of open angle
+// brackets, `<!DOCTYPE` included, to zero, and its markup scanner ends it at
+// the first `>` at square-bracket depth zero, a `]` never taking the depth
+// below zero. Neither reads a quote. True past the closing `>` when both end
+// at the same `>`; false otherwise.
+function scanDoctypeAsReference(cursor: Cursor): boolean {
+  advanceBy(cursor, 9);
+  let angles = 1;
+  let depth = 0;
+  let angleEnd = -1;
+  let bracketEnd = -1;
+  for (;;) {
+    if (cursor.offset >= cursor.source.length) return false;
+    const offset = cursor.offset;
+    const code = cursor.source.charCodeAt(offset);
+    advance(cursor);
+    if (angleEnd < 0) {
+      if (code === 0x3c) {
+        angles++;
+      } else if (code === 0x3e) {
+        if (angles === 1) angleEnd = offset;
+        else angles--;
+      }
+    }
+    if (bracketEnd < 0) {
+      if (code === 0x5b) {
+        depth++;
+      } else if (code === 0x5d) {
+        depth = Math.max(depth - 1, 0);
+      } else if (code === 0x3e && depth === 0) {
+        bracketEnd = offset;
+      }
+    }
+    if (angleEnd >= 0 && bracketEnd >= 0) return angleEnd === bracketEnd;
+  }
 }
 
 function rewind(cursor: Cursor, to: Mark): void {
   cursor.offset = to.offset;
   cursor.line = to.line;
   cursor.column = to.column;
-}
-
-// Advances past an opener `open` code units long and then through the first
-// `close` after it; answers false, at the end of the source, when there is
-// none.
-function skipThrough(cursor: Cursor, open: number, close: string): boolean {
-  advanceBy(cursor, open);
-  for (;;) {
-    if (cursor.offset >= cursor.source.length) return false;
-    if (startsWith(cursor, close)) {
-      advanceBy(cursor, close.length);
-      return true;
-    }
-    advance(cursor);
-  }
 }
 
 // Reads an XML Name at the cursor.
