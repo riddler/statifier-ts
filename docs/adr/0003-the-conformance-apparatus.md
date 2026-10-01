@@ -276,3 +276,57 @@ The round-trip property proves only that this package's export and import
 agree with each other. It says nothing about agreement with the reference's
 export, and nothing here may read it as saying so, until the reference's
 corpus asserts positions.
+
+## Amendment: the sends a host case expects (2026-10-01)
+
+Status: proposed
+
+Decision 7 says a step agrees on the active leaf set "and nothing more". That
+stands for a case with no `host` object. This Amendment adds one comparison
+for a case of the statifier suite that carries one, because the reference's
+runner compares it there: `run_case/1` in
+`lib/mix/statifier/corpus/runner.ex` at `v2.9.0` hands such a case to
+`Mix.Statifier.Corpus.HostCase.run/2` in
+`lib/mix/statifier/corpus/host_case.ex` at `v2.9.0`, whose moduledoc says the
+case agrees when its configurations agree and "the sends handed to the
+processor over the whole run, in order, are exactly its `expect_sends`".
+
+What the runner does for such a case, each as the reference's harness does it:
+
+- It registers each type in the case's `send_types` with one processor of its
+  own, handed to the driver's `start`, `step` and `advance` through their
+  `sendTypes` option. The processor records every send it is handed and
+  delivers none; a delayed send handed to it is never fired
+  (`HostCase.Processor` at `v2.9.0`).
+- It drives the case as decisions 7 and 8 drive any other, and a step's event
+  carries the step's `data` as its payload when the step gives one
+  (`event/1` in `host_case.ex` at `v2.9.0`).
+- It writes each handed send as an `expect_sends` item: `type`, `target`,
+  `event` with its `name` and, when the send carries a payload, its `data`;
+  `delay_ms` for a delayed send; `send_id` only when the author named the
+  send (`item/2` in `host_case.ex` at `v2.9.0`). A payload that is undefined,
+  null or an empty map is left out, as `item/2` leaves it out.
+- A cancel that reaches the processor marks `"outcome": "cancelled"` on each
+  delayed send handed before it under the cancel's send id whose expected
+  item asks for it (`cancel_named/2` in `host_case.ex` at `v2.9.0`).
+- Once every configuration agrees, the items handed over the whole run, in
+  order, must be exactly the case's `expect_sends`; a difference fails the
+  case naming both lists (`handed/2` in `host_case.ex` at `v2.9.0`).
+
+Three things the reference's harness does are not run here, and each fails
+its case with a reason under decision 6, never patched around:
+
+| Host keys | What the reference does with them | Here |
+|---|---|---|
+| an `expect_sends` item with `"outcome": "fail"` | reports the send failed through `Statifier.Session.failed_send/3`, so the sender takes `error.communication` (`perform_outcome/4` in `host_case.ex` at `v2.9.0`) | fails the case: `SendProcessor.deliver` in `src/driver.ts` (read at `b4565d8`) answers nothing and the driver offers no call that reports a failed send |
+| `declared_events`, `expect_accepts` | compares `Statifier.Chart.check_accepts/2`'s answer before it starts the case (`accepts/2` in `host_case.ex` at `v2.9.0`) | fails the case before it is driven: this package does not port the accepts check |
+| `to_source`, `mapping`, `expect_diff`, `expect_compatible_at` | compares them in its test suite through its chart diff and its position predicate, as the moduledoc of `host_case.ex` at `v2.9.0` says; its runner compares none of them | fails the case before it is driven: this package does not port the chart diff or the position predicate |
+
+The failed-send row adds no driver surface: decided by the conductor under the
+operator's standing consent, 2026-10-01. The accepts and diff rows leave
+those cases unclaimed with their reason in the gap list: ruled by the
+operator, 2026-10-01; a later claim of them is additive.
+
+The change that adds this Amendment adds the code: `runHostCase` and
+`runStatifierCase` in `test/conformance/statifier.ts`, and the statifier
+branch of `runCorpusCase` in `test/conformance/runner.ts`.

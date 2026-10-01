@@ -9,7 +9,7 @@ import {
   unclaimed,
 } from "../../scripts/lib/corpus.mjs";
 import { gapLines, unclaimedByEither, unclaimedByEitherLines } from "./reports.js";
-import { type RunCase, runSuite, suiteNotDriven } from "./runner.js";
+import { type RunCase, runCorpusCase, runSuite, suiteNotDriven } from "./runner.js";
 import { featuresNotRun } from "./w3c.js";
 
 const manifest = loadManifest();
@@ -76,13 +76,34 @@ describe("the runner over the vendored corpus", () => {
     }
   });
 
-  it("fails every case of a suite it does not drive yet, naming the suite", () => {
+  // Sabotage: answering the statifier suite with the not-driven reason turns
+  // this red on the passes. It was run and reverted.
+  it("drives every statifier case, and every case it claims passes", () => {
     const report = runSuite(suiteNamed("statifier"), manifest.corpus_hash);
-    expect(
-      new Set(report.results.map((result) => ("reason" in result ? result.reason : result.result))),
-    ).toEqual(new Set([suiteNotDriven("statifier")]));
-    expect(suiteNotDriven("statifier")).toBe(
-      "the statifier suite is not driven yet: the runner drives the scion and w3c suites only",
+    expect(report.results).toHaveLength(28);
+    const passed = new Set(
+      report.results.filter((result) => result.result === "pass").map((result) => result.case_id),
+    );
+    const claimed = loadRegistry().entries.filter((entry) => entry.suite === "statifier");
+    expect(claimed.filter((entry) => !passed.has(entry.case_id))).toEqual([]);
+    const fails = report.results.filter((result) => result.result === "fail");
+    expect(fails.map((result) => result.case_id)).toEqual([
+      "statifier/accepts/loan_declares_an_unreachable_event",
+      ...suiteNamed("statifier")
+        .cases.filter((testCase) => testCase.spec === "diff")
+        .map((testCase) => testCase.id),
+      "statifier/send/registered_send_failed",
+    ]);
+    for (const result of fails) expect(result.reason).not.toBe(suiteNotDriven("statifier"));
+  });
+
+  it("fails every case of a suite it does not drive, naming the suite", () => {
+    const [first] = suiteNamed("scion").cases;
+    if (first === undefined) throw new Error("an empty scion suite");
+    const other = { ...first, suite: "parcel" } as unknown as CorpusCase;
+    expect(runCorpusCase(other)).toEqual({ result: "fail", reason: suiteNotDriven("parcel") });
+    expect(suiteNotDriven("parcel")).toBe(
+      "the parcel suite is not driven: the runner drives the scion, w3c and statifier suites only",
     );
   });
 
