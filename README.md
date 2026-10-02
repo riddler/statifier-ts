@@ -224,7 +224,7 @@ these:
 | `send` | delivers the event now, by its target and type |
 | `send_delayed` | learns of an event due later: the driver holds it as a pending timer until `advance` reaches it, or hands it to the host's processor when its type is registered |
 | `cancel` | drops the pending delayed send its `sendId` names, if any |
-| `invoke` | learns an invocation started: the driver runs an SCXML child itself |
+| `invoke` | learns of every invocation the core starts, whatever its type: the driver runs an SCXML child itself, and raises `error.execution` for a type it does not run |
 | `autoforward` | learns an event was forwarded: the driver delivers it to the child itself |
 | `cancel_invoke` | learns the live invocation its `invokeId` names stopped: the driver stops the child itself |
 | `log` | records the label and the evaluated value |
