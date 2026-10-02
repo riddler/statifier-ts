@@ -177,7 +177,11 @@ the export's own refusals (`internal_queue_not_empty`, `unnameable_states`),
 and the driver state a position does not hold - a pending timer
 (`pending_timers`), an external event not yet taken, a delayed send a
 processor holds, a spent round budget. ADR-0002 says why pending timers are
-driver state and not position fields.
+driver state and not position fields. Two of those reasons are expected, a
+pending timer and the export's `internal_queue_not_empty`; a point not carried
+for any other reason fails the stage, so a new one is read before it lands.
+A run where no point agrees fails it too, since the property then compared
+nothing.
 
 A chart already stopped at the point is compared by the configuration the
 state holds, whether it is running, its status and whether `isDone` answers

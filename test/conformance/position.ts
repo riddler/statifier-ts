@@ -19,6 +19,12 @@
 // An import would start each of those empty, so the continuation would be a
 // different drive, not a lost position.
 //
+// Only two of those reasons are expected: a pending timer, which ADR-0002
+// rules driver state, and the export's refusal of a non-empty internal queue.
+// The gate stage fails a run where any other reason appears, and a run where
+// no point agrees, since a property that compared nothing proves nothing; see
+// `stageFailures`.
+//
 // The claim is the package agreeing with itself: nothing is lost on the way
 // out and back. It says nothing about whether the export matches the
 // reference's; that needs corpus cases that assert the exported position,
@@ -235,6 +241,41 @@ export function runPositionProperty(
     notCarried,
     disagreements: results.filter((result) => result.outcome === "disagree"),
   };
+}
+
+/**
+ * The reasons a point may go uncarried with the stage still passing: a
+ * pending timer, and the export's refusal of a position whose internal queue
+ * holds an event. Any other reason is one the stage has not been told to
+ * expect, so it is read before it lands rather than counted past.
+ */
+export const EXPECTED_NOT_CARRIED: readonly NotCarriedReason[] = [
+  "internal_queue_not_empty",
+  "pending_timers",
+];
+
+/**
+ * Why the gate stage fails a report beyond its disagreements, one line each;
+ * empty when nothing else fails it. A run where no point agrees fails, since
+ * the property then compared nothing, and so does every reason a point was
+ * not carried that is outside `EXPECTED_NOT_CARRIED`.
+ */
+export function stageFailures(report: PositionReport): string[] {
+  const failures: string[] = [];
+  if (report.agreeing === 0) {
+    failures.push(
+      `position: no round trip agrees over ${report.points} points, so nothing was compared`,
+    );
+  }
+  const unexpected = Object.entries(report.notCarried)
+    .filter(([reason]) => !EXPECTED_NOT_CARRIED.includes(reason as NotCarriedReason))
+    .sort(([a], [b]) => (a < b ? -1 : 1));
+  for (const [reason, count] of unexpected) {
+    failures.push(
+      `position: ${count} points not carried for ${reason}, outside the expected ${EXPECTED_NOT_CARRIED.join(" and ")}`,
+    );
+  }
+  return failures;
 }
 
 /** The report's summary lines, as the gate stage and `pnpm conformance` print them. */
