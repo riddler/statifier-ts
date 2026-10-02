@@ -444,8 +444,9 @@ export function scxmlLocation(sessionId: string): string {
  * undefined when the chart has none. `_event` is declared with no value, so a
  * read before the first event answers undefined rather than failing.
  * `_ioprocessors` holds the SCXML Event I/O Processor's entry, keyed by its
- * URI with the session's location, and an empty entry for each send type the
- * host registered a processor for (`sendTypes`, null for none). A registered
+ * URI with the session's location, and an entry for each send type the host
+ * registered a processor for (`sendTypes`, null for none): the one its
+ * processor supplied (`entries`, by type), or an empty one. A registered
  * type never replaces the SCXML entry: a set naming the processor's URI still
  * reads the SCXML entry under it. The entries are written here, once, when the
  * chart starts, and a resumed chart reads the ones it started with.
@@ -454,11 +455,12 @@ export function systemVariables(
   sessionId: string,
   name: string | undefined,
   sendTypes: ReadonlySet<string> | null = null,
+  entries: ReadonlyMap<string, Value> = new Map(),
 ): Datamodel {
   // Built from entries, so every type is an own key, and the SCXML entry
   // comes last, so it wins over a registered type of the same spelling.
   const ioprocessors: Value = Object.fromEntries([
-    ...[...(sendTypes ?? [])].map((type) => [type, {}] as const),
+    ...[...(sendTypes ?? [])].map((type) => [type, entries.get(type) ?? {}] as const),
     [SCXML_EVENT_PROCESSOR, { location: scxmlLocation(sessionId) }] as const,
   ]);
   return new Map<string, Value>([
@@ -478,9 +480,12 @@ export function initialDatamodel(
   sessionId: string,
   name: string | undefined,
   sendTypes: ReadonlySet<string> | null = null,
+  entries?: ReadonlyMap<string, Value>,
 ): Datamodel {
   const data = new Map(host);
-  for (const [root, value] of systemVariables(sessionId, name, sendTypes)) data.set(root, value);
+  for (const [root, value] of systemVariables(sessionId, name, sendTypes, entries)) {
+    data.set(root, value);
+  }
   return data;
 }
 

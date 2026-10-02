@@ -1,4 +1,5 @@
-// The main entry point's export surface.
+// The export surface of each entry point: the main one, then the Basic HTTP
+// one, `@riddler/statifier/basichttp`, each in a block of its own.
 //
 // A runtime name is pinned by listing it: the module's own keys, sorted, must
 // be exactly the list below, so a name added or dropped at the entry point
@@ -8,6 +9,17 @@
 // Later changes add their names here.
 
 import { describe, expect, it } from "vitest";
+import type {
+  BasicHttpOptions,
+  BasicHttpRefusal,
+  BasicHttpResult,
+  DecodeRefused,
+  DecodeResult,
+  FetchTransportOptions,
+  InboundRequest,
+  ReportedSendFailure,
+} from "../src/basichttp/index.js";
+import * as basicHttpEntry from "../src/basichttp/index.js";
 import type {
   AcceptsCheck,
   CompileError,
@@ -28,6 +40,7 @@ import type {
   LoweringErrorOf,
   ParseError,
   ParseErrorReason,
+  ProcessorContext,
   StateKind,
   ValidationError,
 } from "../src/index.js";
@@ -86,6 +99,28 @@ type FailedSendTypes = [FailedSend, DeliveryFailure];
 const failedSendTypesNamed: FailedSendTypes | undefined = undefined;
 // The accepts check's answer, named the same way.
 const acceptsCheckNamed: AcceptsCheck | undefined = undefined;
+// The context a processor is called with, named the same way.
+const processorContextNamed: ProcessorContext | undefined = undefined;
+
+const BASIC_HTTP_RUNTIME_NAMES = [
+  "BASIC_HTTP_EVENT_PROCESSOR",
+  "basicHttp",
+  "decodeRequest",
+  "fetchTransport",
+];
+
+// The Basic HTTP entry point's types, each named through that entry point.
+type BasicHttpTypes = [
+  BasicHttpOptions,
+  BasicHttpRefusal,
+  BasicHttpResult,
+  ReportedSendFailure,
+  FetchTransportOptions,
+  InboundRequest,
+  DecodeResult,
+  DecodeRefused,
+];
+const basicHttpTypesNamed: BasicHttpTypes | undefined = undefined;
 
 describe("the main entry point", () => {
   // Sabotage: exporting one more function from `src/index.ts`, or dropping
@@ -119,5 +154,36 @@ describe("the main entry point", () => {
   it("exports the accepts check's answer, as a type only", () => {
     expect(acceptsCheckNamed).toBeUndefined();
     expect(Object.keys(entry)).not.toContain("AcceptsCheck");
+  });
+
+  // Sabotage: dropping `type ProcessorContext` from `src/index.ts` turns the
+  // typecheck red.
+  it("exports the processor context type, as a type only", () => {
+    expect(processorContextNamed).toBeUndefined();
+    expect(Object.keys(entry)).not.toContain("ProcessorContext");
+  });
+
+  it("exports nothing from the Basic HTTP entry point", () => {
+    for (const name of BASIC_HTTP_RUNTIME_NAMES) expect(Object.keys(entry)).not.toContain(name);
+  });
+});
+
+describe("the Basic HTTP entry point", () => {
+  // Sabotage: exporting one more function from `src/basichttp/index.ts`, or
+  // dropping `fetchTransport`, turns this red.
+  it("exports exactly the runtime names listed", () => {
+    expect(Object.keys(basicHttpEntry).sort()).toEqual(BASIC_HTTP_RUNTIME_NAMES);
+  });
+
+  // Sabotage: dropping `type ReportedSendFailure` (or any other name the
+  // tuple above lists) from `src/basichttp/index.ts` turns the typecheck red.
+  it("exports its types, as types only", () => {
+    expect(basicHttpTypesNamed).toBeUndefined();
+  });
+
+  it("answers the processor's type URI, SCXML appendix C.2's", () => {
+    expect(basicHttpEntry.BASIC_HTTP_EVENT_PROCESSOR).toBe(
+      "http://www.w3.org/TR/scxml/#BasicHTTPEventProcessor",
+    );
   });
 });

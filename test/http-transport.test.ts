@@ -30,14 +30,16 @@ function tableTransport(statuses: Readonly<Record<string, number>>): {
   readonly seen: HttpRequest[];
 } {
   const seen: HttpRequest[] = [];
-  const transport: HttpTransport = (sent) => {
-    seen.push(sent);
-    const status = Object.hasOwn(statuses, sent.url) ? statuses[sent.url] : undefined;
-    const answer: HttpAnswer =
-      status === undefined
-        ? { kind: "failure", reason: `no route to ${sent.url}` }
-        : { kind: "status", status };
-    return Promise.resolve(answer);
+  const transport: HttpTransport = {
+    post: (sent) => {
+      seen.push(sent);
+      const status = Object.hasOwn(statuses, sent.url) ? statuses[sent.url] : undefined;
+      const answer: HttpAnswer =
+        status === undefined
+          ? { kind: "failure", reason: `no route to ${sent.url}` }
+          : { kind: "status", status };
+      return Promise.resolve(answer);
+    },
   };
   return { transport, seen };
 }
@@ -54,7 +56,7 @@ describe("a host transport", () => {
   it("is handed the request as built and answers the status that came back", async () => {
     const { transport, seen } = tableTransport({ "https://library.example/scxml/desk-1": 204 });
 
-    await expect(transport(request)).resolves.toEqual({ kind: "status", status: 204 });
+    await expect(transport.post(request)).resolves.toEqual({ kind: "status", status: 204 });
     expect(seen).toEqual([request]);
     expect(sendKey(seen[0] as HttpRequest)).toBe("desk-1/returned/1/1/0/0/onentry.2.0/0");
   });
@@ -62,13 +64,13 @@ describe("a host transport", () => {
   it("answers a status outside 2xx as a status, not as a failure", async () => {
     const { transport } = tableTransport({ "https://library.example/scxml/desk-1": 503 });
 
-    await expect(transport(request)).resolves.toEqual({ kind: "status", status: 503 });
+    await expect(transport.post(request)).resolves.toEqual({ kind: "status", status: 503 });
   });
 
   it("answers a failure as a value when no response comes back, and does not reject", async () => {
     const { transport } = tableTransport({});
 
-    await expect(transport(request)).resolves.toEqual({
+    await expect(transport.post(request)).resolves.toEqual({
       kind: "failure",
       reason: "no route to https://library.example/scxml/desk-1",
     });
@@ -76,14 +78,16 @@ describe("a host transport", () => {
 
   it("refuses, at the type, an answer that is not a status or a failure", () => {
     // @ts-expect-error a bare status code is not an answer
-    const bare: HttpTransport = () => Promise.resolve(204);
+    const bare: HttpTransport = { post: () => Promise.resolve(204) };
     // @ts-expect-error an answer names its kind
-    const unnamed: HttpTransport = () => Promise.resolve({ status: 204 });
+    const unnamed: HttpTransport = { post: () => Promise.resolve({ status: 204 }) };
     // @ts-expect-error a failure carries a reason
-    const silent: HttpTransport = () => Promise.resolve({ kind: "failure" });
+    const silent: HttpTransport = { post: () => Promise.resolve({ kind: "failure" }) };
+    // @ts-expect-error a transport is an object with `post`, not a bare function
+    const bareFunction: HttpTransport = () => Promise.resolve({ kind: "status", status: 204 });
     // @ts-expect-error a request's method is POST
     const put: HttpRequest = { ...request, method: "PUT" };
 
-    expect([bare, unnamed, silent, put]).toHaveLength(4);
+    expect([bare, unnamed, silent, bareFunction, put]).toHaveLength(5);
   });
 });

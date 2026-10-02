@@ -25,6 +25,16 @@
         "types": "./dist/index.d.cts",
         "default": "./dist/index.cjs"
       }
+    },
+    "./basichttp": {
+      "import": {
+        "types": "./dist/basichttp/index.d.ts",
+        "default": "./dist/basichttp/index.js"
+      },
+      "require": {
+        "types": "./dist/basichttp/index.d.cts",
+        "default": "./dist/basichttp/index.cjs"
+      }
     }
   },
   "files": [

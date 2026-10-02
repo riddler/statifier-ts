@@ -39,6 +39,13 @@
 // reports the module unresolved, and without `main` the require half has
 // nothing to load.
 //
+// The Basic HTTP entry point, the `./basichttp` subpath, is held to the
+// modern half only: a nodenext consumer of either format resolves it through
+// the exports map's matching condition to the declarations that condition
+// names. A node10 resolver reads no exports map, so it cannot see a subpath
+// export at all, and the top-level fields do not stand in for one: a legacy
+// consumer reaches the main entry point and nothing else.
+//
 // The consumer is written into a temporary directory outside the repository,
 // with this package reached through a `node_modules` link, so the ancestor
 // lookup a bare specifier performs finds it the way a real consumer's would.
@@ -153,6 +160,15 @@ try {
     `${JSON.stringify({ type: "commonjs" }, null, 2)}\n`,
   );
   writeFileSync(join(consumerRoot, "cjs", "consumer.ts"), source);
+  // The Basic HTTP entry point's consumers, one per format as above.
+  const subpathSource = [
+    `import { basicHttp } from "${name}/basichttp";`,
+    "",
+    "export const named: string = typeof basicHttp;",
+    "",
+  ].join("\n");
+  writeFileSync(join(consumerRoot, "subpath.ts"), subpathSource);
+  writeFileSync(join(consumerRoot, "cjs", "subpath.ts"), subpathSource);
 
   const config = (file, entry, options) =>
     writeFileSync(
@@ -171,29 +187,37 @@ try {
     module: "nodenext",
     moduleResolution: "nodenext",
   });
+  config("tsconfig.subpath-esm.json", "subpath.ts", {
+    module: "nodenext",
+    moduleResolution: "nodenext",
+  });
+  config("tsconfig.subpath-cjs.json", "cjs/subpath.ts", {
+    module: "nodenext",
+    moduleResolution: "nodenext",
+  });
 
   // The trace block for one specifier: from the line that opens the
   // resolution to the line that closes it. Reading the block rather than the
   // whole trace keeps a claim about this package from being answered by some
   // other module's lines.
-  const traceBlock = (trace) => {
+  const traceBlock = (trace, specifier) => {
     const lines = trace.split("\n");
-    const start = lines.findIndex((l) => l.includes(`Resolving module '${name}' from`));
+    const start = lines.findIndex((l) => l.includes(`Resolving module '${specifier}' from`));
     if (start < 0) return null;
     const end = lines.findIndex(
-      (l, i) => i > start && l.startsWith("========") && l.includes(`Module name '${name}'`),
+      (l, i) => i > start && l.startsWith("========") && l.includes(`Module name '${specifier}'`),
     );
     if (end < 0) return null;
     return lines.slice(start, end + 1);
   };
 
-  const compile = (file) => {
+  const compile = (file, specifier = name) => {
     const run = spawnSync(process.execPath, [tsc, "-p", file, "--traceResolution"], {
       cwd: consumerRoot,
       encoding: "utf8",
     });
     const trace = `${run.stdout ?? ""}${run.stderr ?? ""}`;
-    return { status: run.status, trace, block: traceBlock(trace) };
+    return { status: run.status, trace, block: traceBlock(trace, specifier) };
   };
 
   const legacy = compile("tsconfig.legacy.json");
@@ -249,6 +273,35 @@ try {
       `${format} nodenext consumer resolved the package to '${target}'`,
       modernText.includes(
         `Module name '${name}' was successfully resolved to '${join(packageRoot, target.replace(/^\.\//, ""))}'`,
+      ),
+    );
+  }
+
+  // The Basic HTTP entry point, through the exports map only, in both formats.
+  const subpath = `${name}/basichttp`;
+  for (const [format, file, condition] of [
+    ["an ESM", "tsconfig.subpath-esm.json", "import"],
+    ["a CommonJS", "tsconfig.subpath-cjs.json", "require"],
+  ]) {
+    const target = manifest.exports?.["./basichttp"]?.[condition]?.types;
+    if (typeof target !== "string") {
+      die(`package.json exports does not name the './basichttp' entry's ${condition} types`);
+    }
+    const run = compile(file, subpath);
+    if (run.block === null) {
+      die(`the nodenext run for ${format} consumer printed no resolution trace for ${subpath}`);
+    }
+    const text = run.block.join("\n");
+    check(`${format} nodenext consumer compiles against ${subpath}`, run.status === 0);
+    check(
+      `${format} nodenext consumer resolved ${subpath} through the exports map's '${condition}' condition`,
+      text.includes(`Matched 'exports' condition '${condition}'`) &&
+        text.includes(`Using 'exports' subpath './basichttp' with target '${target}'`),
+    );
+    check(
+      `${format} nodenext consumer resolved ${subpath} to '${target}'`,
+      text.includes(
+        `Module name '${subpath}' was successfully resolved to '${join(packageRoot, target.replace(/^\.\//, ""))}'`,
       ),
     );
   }

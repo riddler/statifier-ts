@@ -1168,3 +1168,255 @@ checkAccepts(chart, declared);
 `copy.disputed` and the four after it are names the chart reacts to that the
 declaration does not state, `active`'s own descriptor first because a state's
 own transitions are numbered before its children's.
+
+## Amendment: the Basic HTTP processor (2026-10-01)
+
+Status: proposed
+
+The HTTP transport Amendment above records the seam ahead of the processor.
+This Amendment records the processor. A built-in Basic HTTP Event I/O
+Processor (SCXML appendix C.2) with the reference's wire shape - the form
+body, the `scxml-send-key` deduplication header, at-least-once delivery and
+the `_ioprocessors` entries - was ruled by the operator, 2026-10-01, and so
+were the four constraints for the JavaScript engine React Native uses: the
+default transport reads the global fetch function lazily, when a send is
+made, refuses by name when it is absent, and lives on an entry point of its
+own, so the main entry point keeps its rule of reaching no host global; the
+form body is encoded by hand, never through `URLSearchParams`, `TextEncoder`
+or `Buffer`; the engine proof drives the Basic HTTP cases through the
+conformance runner's loopback by way of the transport seam, and says it
+proves the processor's logic on that engine, not a network round trip on a
+device; and on a device the processor sends only, while an inbound decode
+helper serves a host that runs a server.
+
+The change that adds this Amendment adds the code: `basicHttp`, `requestFor`
+and `sendKey` in `src/basichttp/processor.ts`, `fetchTransport` in
+`src/basichttp/fetch-transport.ts`, `decodeRequest` in
+`src/basichttp/decode.ts`, the hand encoder and decoder in
+`src/basichttp/encoding.ts`, the entry point `src/basichttp/index.ts` named
+`./basichttp` in `package.json`'s exports map and in `tsup.config.ts`'s entry
+list, `ProcessorContext`, `entriesOf` and `holding` in `src/driver.ts`, and
+`systemVariables` in `src/datamodel.ts`. The corpus cases that name the
+processor are not claimed here: the loopback that drives them, and the claims,
+are a later change's.
+
+The reference is `Statifier.Send.BasicHTTP` in
+`lib/statifier/send/basic_http.ex`, its transport behaviour in
+`lib/statifier/send/basic_http/transport.ex` and its default adapter in
+`lib/statifier/send/basic_http/transport/httpc.ex`, all at `v2.10.0`
+(`c8894ae`), under the reference's ADR-0075 and that record's Amendment of
+2026-09-30, both at proposed at that tag.
+
+**The wire shape, decision by decision.** Each row is a decision of the
+reference's ADR-0075 at `v2.10.0` and what this package does with it:
+
+| Reference decision | What this package does | Where |
+|---|---|---|
+| 2: two type strings, the processor URI and `basichttp` | the same: `basicHttp` answers `sendTypes` naming the one processor under both | `basicHttp` in `src/basichttp/processor.ts` |
+| 3: an entry under each registered string, both with `"location"` = base URL, `/`, `_sessionid`, through an optional `ioprocessors_entry/2` | the same entry, through an optional `ioprocessorsEntry` on a send processor (decision (d) below) | `ioprocessorsEntry` in `basicHttp`; `entriesOf` in `src/driver.ts` |
+| 4: `event` as `_scxmleventname`, each `namelist` entry and `<param>` a form parameter, POST, a form body by default | the same; a map's names follow the event name in code point order, the order the reference's runtime lists a small map's string keys in | `requestFor` in `src/basichttp/processor.ts` |
+| 4: a `<content>` body as `text/plain`, the event name in the target's query string | the same, joined with `&` when the target already has a query string, as the reference's `with_query/2` joins it | `requestFor` |
+| 4: data's shape decides - a map is form-encoded, no data sends `_scxmleventname` alone, any other value is the body | the same | `requestFor` |
+| 4: no target plans C.2.2's `error.communication` in `deliver/3`, carrying the send id, and makes no request | `deliver` answers a `DeliveryFailure`, which the driver raises as a failed send carrying the send id (decision (c) below) | `basicHttp` |
+| 4: a value written as text - a string as it is, nil as `null`, undefined as the empty string, a number or a boolean as its literal | the same, a float spelled as the reference's runtime spells one; pinned by a table of the reference's own outputs | `encodeValue` and `floatText` in `src/basichttp/encoding.ts`; `test/basichttp-encoding.test.ts` |
+| 4: the form body is `URI.encode_query(pairs, :www_form)` | encoded by hand to the same bytes: UTF-8, the unreserved set kept, a space as `+` | `encodeForm` in `src/basichttp/encoding.ts` |
+| 5: a pure decoder; the first `_scxmleventname`, query before body, else `HTTP.` and the method; other form values through the text rung; `405` for a method that is not POST, `400` for any other error | `decodeRequest` answers the event a front passes to `step`, or a refusal value the front maps to the same status | `decodeRequest` in `src/basichttp/decode.ts` |
+| 6: a transport behaviour with one callback and a default on the runtime's own HTTP client, bounded by a timeout | `HttpTransport`, now an object with one `post` (decision (a) below), and `fetchTransport` on the global fetch, bounded at five seconds where the host has an abort controller and timers | `fetchTransport` in `src/basichttp/fetch-transport.ts` |
+| 8, point d: one attempt; an error or a status outside 2xx reported through `failed_send/3` | one attempt; the miss handed to the host's `report` with the sending session's id, for `reportSendFailed` (decision (c) below) | `basicHttp` |
+| Amendment 2026-09-30: `scxml-send-key`, eight fields joined by `/`, the session scope and the send id escaped outside the unreserved set, the owner as `onentry.S.B`, `onexit.S.B`, `finalize.S.B` or `transition.T`, an absent field empty | the same, the session scope being the session's id | `sendKey` in `src/basichttp/processor.ts` |
+| Amendment 2026-09-30: at-least-once, the receiver deduplicates; the decoder checks the header and sets no event field from it | the same; a value that is not eight fields whose second decodes to text is refused `malformed_send_key` | `sendKey`; `decodeRequest` |
+
+**Decision (a): the transport is an object with a `post` method.** The seam
+the HTTP transport Amendment above records was a bare function type. It is
+now `interface HttpTransport { readonly post: (request: HttpRequest) =>
+Promise<HttpAnswer> }`, and the typespec line in that Amendment,
+`export type HttpTransport = (request: HttpRequest) => Promise<HttpAnswer>;`,
+is read as amended by this one. The basis: the reference's seam is a
+behaviour with one callback, `post/3`, which a module implements, and an
+object with one method is the closer shape; and an object can gain a member
+later, such as an abort or a close, by addition, which a function type
+cannot. The package is unpublished, so no host has coded against the
+function shape.
+
+**Decision (b): a transport that throws or rejects is a miss.** The
+processor reads a `post` that throws, or whose promise rejects, as a failure
+whose reason is `transport_threw: ` and what was thrown, as text, and hands it
+to `report` like any other miss. The HTTP transport Amendment above already
+says the processor reads either as a failure answer; this records the basis
+as a declared divergence from the reference, whose `post_now/2` has no rescue,
+so a raising adapter propagates out of `perform/2`. Two rules of this package
+bear on it. Errors are values. And host code that throws while this package
+calls it propagates unchanged - which governs a call the host made and is
+still waiting on. The request is made after the call that handed the send
+has returned (decision (c)), so no host call is on the stack when the
+transport throws: propagating it would leave a rejected promise that nothing
+awaits. Reporting it as a miss is the one way it reaches the host and the
+chart.
+
+**Decision (c): a miss after the handing call reaches the chart through the
+host.** The driver keeps no state between calls, so a processor whose
+transport answers after the handing call has returned cannot reach the
+chart's current state itself. `basicHttp` therefore takes a `report`
+function, and hands it each miss as a `ReportedSendFailure`: the sending
+session's id, the send's `sendId`, `cIndex` and `owner`, and a reason. The
+host keys its states by that session id and calls `reportSendFailed` with the
+state it holds for the session now; the failed-send Amendment above says what
+that call raises. A reason is the transport's own words for a failure,
+`http_status` and the status for a status outside 2xx, `transport_threw:` and
+what was thrown, `invalid_target` for a target that is not text, and
+`timer_unavailable` for a delayed send with no timer to hold it.
+
+The request is made on a later turn of the engine's job queue than the call
+that handed the send, and its miss is never answered from `deliver`. So a
+chart that sends again on every `error.communication` makes one request per
+report the host passes back, and its loop runs through the host, one call at a
+time; it never loops inside one driver call. The one failure `deliver` answers
+within the handing call is a send with no target, which SCXML appendix C.2.2
+requires on the sender's internal queue and the reference raises from the
+`deliver/3` plan itself; a chart that answers that failure by sending again
+with no target loops within the call, as the same chart would in the
+reference's session. A delivery is a `Promise` that `deliver` answers and the
+driver does not wait for; a host that calls `deliver` itself may await it to
+know the request was made and any miss reported. `report`'s answer is not
+read, and a throw from it is not caught.
+
+**Decision (d): a processor supplies its own `_ioprocessors` entry.** A send
+processor gains an optional member, `ioprocessorsEntry(type, context)`, the
+analogue of the reference's optional `ioprocessors_entry/2`: when a session
+starts, the driver asks each registered type's processor that has one for its
+entry, with the type string and a `ProcessorContext` carrying the session's
+id, and `systemVariables` writes it under that type in place of the empty
+entry a processor without the member still gets. The entries are written once,
+at the start, and a resumed state reads the ones it started with, as before.
+`basicHttp`'s processor answers `{ location: baseUrl + "/" + sessionId }`
+under both its strings. The same context is handed to `deliver` as a third
+argument and to `cancel` as a second, as the reference's plan context carries
+`session_id` to `deliver/3` and `cancel/2`: the processor needs the session's
+id for the deduplication key's first field, for the report, and to keep two
+sessions' delayed sends apart. A processor written with fewer parameters is
+still a processor. The entry hook is asked while the starting state is
+built, so a start the driver then refuses may already have asked it; it is
+not held until the state is written, as `deliver` and `cancel` are.
+
+**Further divergences from the reference, each declared.**
+
+| Case | Reference at `v2.10.0` | This package | Basis |
+|---|---|---|---|
+| A delayed send | a timer process `perform/2` starts; at fire time it posts only while the session is running | held on the global timer under the session's id and the send id; a `<cancel>` clears it; at fire time it posts | the processor cannot see whether a session is running; a report for a stopped chart is refused `not_running` by `reportSendFailed`, so the dead letter is the host's, as the reference's documentation leaves it |
+| No global timer | not a case on that runtime | the delayed send is reported `timer_unavailable` | a host global absent is answered as a value, as the default transport answers a missing fetch |
+| A target that is not text | a raise, in the plan or in the adapter | reported `invalid_target`, and no request is made | errors are values |
+| A list, a map, a date, a datetime or a duration as a parameter value | written in the reference's language's inspect form; its ADR-0075 decision 9 leaves the encoding undecided | written as predicator's tagged-value text | the text this package already writes every value in; the reference's form is not a text another runtime reads |
+| A lone surrogate in a value | not representable in the reference's strings | written as the replacement character | what a platform encoder writes |
+| An inbound event's `origintype` | the processor URI | not carried: `step` takes a host event's name and data only | `HostEvent` has no field for it; carrying it is a change to `step` this change does not make |
+| An inbound decode error | an error tuple | a refusal value with the same reason token: `method_not_allowed`, `not_utf8`, `malformed_send_key` | errors are values |
+
+**A consequence for the corpus.** The driver calls a processor once the
+call's state is written, after the run has taken its external queue, and
+raises a failure `deliver` answered only then (the failed-send Amendment
+above). In the reference the `error.communication` a send with no target
+plans joins the internal queue within the step that sent it. A chart that
+sends itself an event and then a Basic HTTP send with no target, in one
+block, therefore takes the event first here and the `error.communication`
+first there; the W3C case that asserts the reference's order is not
+claimable through this processor until the driver raises such a failure
+within the run. That is the driver's to change, and a later change's.
+
+Typespecs:
+
+```ts
+// @riddler/statifier
+export interface ProcessorContext {
+  readonly sessionId: string;
+}
+
+export interface SendProcessor {
+  readonly deliver: (send: Send | SendDelayed, event: Event, context: ProcessorContext) => unknown;
+  readonly cancel?: (cancel: Cancel, context: ProcessorContext) => void;
+  readonly ioprocessorsEntry?: (
+    type: string,
+    context: ProcessorContext,
+  ) => Readonly<Record<string, Value>>;
+}
+
+export interface HttpTransport {
+  readonly post: (request: HttpRequest) => Promise<HttpAnswer>;
+}
+
+// @riddler/statifier/basichttp
+export const BASIC_HTTP_EVENT_PROCESSOR: "http://www.w3.org/TR/scxml/#BasicHTTPEventProcessor";
+
+export interface BasicHttpOptions {
+  readonly baseUrl: string;
+  readonly report: (failure: ReportedSendFailure) => void;
+  readonly transport?: HttpTransport;
+}
+
+export interface ReportedSendFailure extends FailedSend {
+  readonly sessionId: string;
+  readonly reason: string;
+}
+
+export type BasicHttpRefusal = "missing_base_url" | "missing_report" | "invalid_transport";
+
+export type BasicHttpResult =
+  | { readonly ok: true; readonly processor: SendProcessor; readonly sendTypes: SendProcessors }
+  | { readonly ok: false; readonly reason: BasicHttpRefusal };
+
+export function basicHttp(options: BasicHttpOptions): BasicHttpResult;
+
+export interface FetchTransportOptions {
+  readonly timeoutMs?: number;
+}
+
+export function fetchTransport(options?: FetchTransportOptions): HttpTransport;
+
+export interface InboundRequest {
+  readonly method: string;
+  readonly contentType: string | null;
+  readonly body: string;
+  readonly query: string | null;
+  readonly sendKey?: string | null;
+}
+
+export type DecodeRefused =
+  | { readonly ok: false; readonly reason: "method_not_allowed"; readonly method: string }
+  | { readonly ok: false; readonly reason: "not_utf8"; readonly part: "query" | "body" }
+  | { readonly ok: false; readonly reason: "malformed_send_key"; readonly value: string };
+
+export type DecodeResult = { readonly ok: true; readonly event: HostEvent } | DecodeRefused;
+
+export function decodeRequest(request: InboundRequest): DecodeResult;
+```
+
+Worked example. A branch posts a patron's hold notice to the loan desk, and a
+desk that answers 503 sends the chart to `notice_failed`:
+
+```ts
+import { reportSendFailed, start, step, type State } from "@riddler/statifier";
+import { basicHttp } from "@riddler/statifier/basichttp";
+
+const states = new Map<string, State>();
+const http = basicHttp({
+  baseUrl: "https://library.example/scxml",
+  report: (failure) => {
+    const state = states.get(failure.sessionId);
+    if (state === undefined) return;
+    const moved = reportSendFailed(chart, state, failure, { sendTypes });
+    if (moved.ok) states.set(failure.sessionId, moved.state);
+  },
+});
+if (!http.ok) throw new Error(http.reason);
+const sendTypes = http.sendTypes;
+// ... start "branch-7"; on `copy.available` the chart's <onentry> sends
+// id="notice" event="hold.ready" type="basichttp" to the desk with the
+// params copy="book-17", patron="ada" and renewals=2
+```
+
+The desk is handed one POST with the body
+`_scxmleventname=hold.ready&copy=book-17&patron=ada&renewals=2` and the header
+`scxml-send-key: branch-7/notice/2/1/0/2/onentry.2.0/1`, and the chart's
+`_ioprocessors['basichttp'].location` reads
+`https://library.example/scxml/branch-7`. When the desk answers 503, `report`
+is handed `{ sessionId: "branch-7", send: { sendId: "notice", ... }, reason:
+"http_status 503" }`, and the `reportSendFailed` it makes moves the chart to
+`notice_failed`. `test/basichttp.test.ts` drives the same chart.
