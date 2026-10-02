@@ -117,9 +117,14 @@ export type ValidationError =
   | ErrorOf<"cancel_sendid_and_sendidexpr", Empty>
   | ErrorOf<"cancel_no_sendid", Empty>;
 
-type Empty = Readonly<Record<never, never>>;
+/** The detail of a validation reason that carries none beyond its location. */
+export type Empty = Readonly<Record<never, never>>;
 
-type ErrorOf<R extends string, D> = {
+/**
+ * One validation refusal: the reason token `R`, a message for a human, the
+ * span it was refused at, and the detail `D` that reason carries.
+ */
+export type ErrorOf<R extends string, D> = {
   readonly reason: R;
   readonly message: string;
   readonly location: Location;

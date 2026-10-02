@@ -77,7 +77,11 @@ export type LoweringError =
       { readonly element: string; readonly attribute: string }
     >;
 
-type LoweringErrorOf<R extends string, D> = {
+/**
+ * One lowering refusal: the reason token `R`, a message for a human, the
+ * span it was refused at, and the detail `D` that reason carries.
+ */
+export type LoweringErrorOf<R extends string, D> = {
   readonly reason: R;
   readonly message: string;
   readonly location: Location;

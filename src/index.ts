@@ -7,7 +7,9 @@
 // position export and import, a running chart's state in the string-id
 // vocabulary out and back in; and the HTTP transport types, the seam a host
 // implements to make the Basic HTTP processor's requests over its own HTTP,
-// exported as types only, so nothing here reaches a host global.
+// exported as types only, so nothing here reaches a host global; and the
+// types a compile error reaches - each stage's error, its reason tokens and
+// details, and the source span it names - so a host can narrow one.
 //
 // The identity lives on the Chart wrapper, not on the Machine, by choice. The
 // Machine type is exported only because a Chart carries one: it is opaque and
@@ -22,7 +24,9 @@ export {
   type CompileError,
   type CompileOptions,
   type CompileResult,
+  type CompilerError,
   compile,
+  type ExpressionOwner,
 } from "./compiler.js";
 export type { Effect, Log } from "./core/content.js";
 export type { BindingEffect } from "./core/datamodel.js";
@@ -59,6 +63,7 @@ export type {
   Origin,
   Owner,
 } from "./datamodel.js";
+export type { StateKind } from "./document/scxml.js";
 export {
   type ActiveInvocation,
   advance,
@@ -91,6 +96,7 @@ export type {
   HttpStatus,
   HttpTransport,
 } from "./http-transport.js";
+export type { LoweringError, LoweringErrorOf } from "./lowering.js";
 export type { Machine } from "./machine.js";
 export {
   type ExportedPosition,
@@ -102,6 +108,13 @@ export {
   importPosition,
   type MalformedExport,
 } from "./position.js";
+export type {
+  DefaultTransitionOwner,
+  Empty,
+  ErrorOf,
+  ValidationError,
+} from "./validator.js";
+export type { Location, ParseError, ParseErrorReason } from "./xml/parser.js";
 
 /**
  * The version of this build, as `package.json` carries it.
