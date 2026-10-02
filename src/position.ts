@@ -222,8 +222,11 @@ function malformed(detail: MalformedExport): ImportRefused {
  * A stopped position imports stopped: `isDone` answers that the chart has
  * stopped, and `step` and `advance` refuse it as they refuse any stopped
  * chart. The donedata does not travel in a position, as the reference's
- * position does not carry it, so `isDone` answers undefined for it, and the
- * configuration it answers is the position's.
+ * position does not carry it, so `isDone` answers undefined for it. The
+ * configuration `isDone` answers is the position's, and a stopped position's
+ * configuration is empty: a chart leaves every state as it stops, and the
+ * configuration it stopped in is carried only by the `done` effect, so an
+ * imported stopped state's `isDone` answers an empty configuration.
  */
 export function importPosition(chart: Chart, exported: unknown): ImportResult {
   if (typeof exported !== "object" || exported === null || Array.isArray(exported)) {

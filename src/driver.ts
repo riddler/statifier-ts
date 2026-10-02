@@ -28,7 +28,8 @@
 //   sorted by that string, so the order says nothing about the chart.
 // - A datamodel value, and every value an event or a send carries, is
 //   written as predicator's tagged-value text: plain JSON loses an integral
-//   float, a date, a duration and undefined, and that text keeps them.
+//   float, a date, a datetime, a duration and undefined, and that text keeps
+//   them.
 // - A queued event keeps its name, type, data, cause and addressing fields.
 //   The failure an `error.execution` carries whole is not kept: its data,
 //   the failure as a value, is what `_event.data` reads, and nothing in the
@@ -538,9 +539,14 @@ export function configuration(state: State): readonly string[] {
 
 /**
  * Whether the chart has stopped and, when it has, the top-level final's
- * donedata. A state imported from a stopped position answers undefined for
- * the donedata: the donedata does not travel in a position, as the
- * reference's position does not carry it.
+ * donedata and the configuration the chart stopped in, as the `done` effect
+ * carried them.
+ *
+ * A state imported from a stopped position answers undefined for the
+ * donedata and an empty configuration. Neither travels in a position, as the
+ * reference's position carries neither: a chart leaves every state as it
+ * stops, so a stopped position's configuration is empty, and the
+ * configuration it stopped in is carried only by the `done` effect.
  */
 export function isDone(state: State): DoneStatus {
   const badShape = stateShapeFailure(state);

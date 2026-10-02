@@ -842,3 +842,54 @@ Handed a POST to `https://library.example/scxml/desk-1` it answers
 `{ kind: "status", status: 204 }`, and the send is delivered; handed one to
 any other URL it answers a failure, and the sending chart takes
 `error.communication`.
+
+## Note: the sorted sets, the refusal reasons and a stopped position (2026-10-01)
+
+This Note decides nothing new. It names three passages above that read
+inexactly against the code on `main` at `c00d227` and the reference at tag
+`v2.10.0` (`c8894ae`), and says what holds.
+
+**The sorted sets are this package's own choice.** The Determinism bullet
+"Every set of states the state or the position holds is sorted by its
+string", and each "sorted" in the exported position's table, state a rule the
+reference does not have. The reference's `export/1` (`Statifier.Position` in
+`lib/statifier/position.ex`, through its `translate_index_set/2`) answers
+`configuration`, `entered_states`, `states_to_invoke` and each
+`history_values` entry as a `MapSet`, which has no order. A JSON array has
+one, so this package chooses it: the driver writes every list of states
+sorted by its string (`names` in `src/driver.ts`, at `c00d227`), and
+`exportPosition` in `src/position.ts` copies those lists. The order is not
+a port of the reference's, and `importPosition` reads a list of states in
+any order (`indexes` in `src/driver.ts`).
+
+**The driver's refusal reasons are enumerated here.** The Decision's sentence
+"The driver's other refusal reasons are the driver's to enumerate, and its
+tests do", and the paragraph "This record asserts rules and delegates
+enumeration" where it names "the driver's full set of refusal reasons", no
+longer describe this record: its Typespecs list in full the reasons a call
+that moves a chart refuses with, in `DriveRefused`. They are `not_running`,
+`chart_mismatch`, `unencodable_value`, `invalid_duration` and
+`malformed_state`, the same five the `DriveRefusal` type in `src/driver.ts`
+names at `c00d227`. The tests hold the code to them.
+
+**A stopped position carries an empty configuration.** The Decision's line
+"`isDone(state)` answers whether the chart has stopped and, when it has, its
+donedata and its final configuration" holds for a chart driven to its stop:
+`isDone` answers the donedata and the configuration the `done` effect
+carried (`DoneRecord` and `stopped` in `src/driver.ts`, at `c00d227`). It
+does not hold for a state imported from a stopped position. The reference's
+`exit_interpreter/1` (`lib/statifier/interpreter.ex` at `v2.10.0`) removes
+each state from the configuration as it exits it and carries the
+configuration at exit only in its `done` effect, and its position has no
+field for either the donedata or that configuration: what says a chart has
+stopped is `running` and `status`. `exitInterpreter` in
+`src/core/interpreter.ts` does the same, so a stopped position's
+`configuration` is empty here as there, and `importPosition` rebuilds the
+stopped state from it: `isDone` on an imported stopped state answers an empty
+configuration and undefined for the donedata.
+
+The change that adds this Note says so in the doc comments of `isDone` in
+`src/driver.ts` and of `importPosition` in `src/position.ts`, and adds the
+datetime to the values the header comment of `src/driver.ts` says plain JSON
+loses, as the paragraph on the exported position's shapes above already
+names it.
