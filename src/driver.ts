@@ -120,10 +120,13 @@
 // queue, its origin the send's content and its `sendid` the send's id, and
 // runs the chart to a stable configuration within that call, as the
 // reference's `Interpreter.deliver_internal/5` does at v2.10.0. A processor's
-// `deliver` that answers a failure takes the same path within the call that
-// handed the send: once the processors have been called, each failed send is
-// raised in the order they were handed, and the chart runs again before the
-// call answers. A `deliver` that throws is the host's own exception and
+// `deliver` that answers a failure raises the same event within the run that
+// handed the send, at the send's place in it, ahead of anything that run has
+// yet to take from its external queue, as the reference raises the failure
+// its processor plans in `deliver/3`. Since the processors are called only
+// once the state is written, the driver makes the run again from the call's
+// own arguments with the answers it already has, and each send is handed to
+// its processor once. A `deliver` that throws is the host's own exception and
 // propagates unchanged.
 //
 // A macrostep that spends its round budget halts the driver as the
@@ -317,8 +320,9 @@ export interface DoneRecord {
 
 /**
  * What a processor's `deliver` answers for a send it could not deliver: the
- * send then fails as `reportSendFailed` fails it, within the call that handed
- * it. `reason` is the host's own words; the chart is not handed them.
+ * send then fails as `reportSendFailed` fails it, within the run that handed
+ * it, at the send's place in that run. `reason` is the host's own words; the
+ * chart is not handed them.
  */
 export interface DeliveryFailure {
   readonly kind: "failure";
@@ -505,21 +509,21 @@ export type DoneStatus =
  * registered type's entry in `_ioprocessors` is written at start and kept.
  */
 export function start(chart: Chart, options: StartOptions): DriveResult {
-  const calls: HostCall[] = [];
-  const processors = held(options.sendTypes ?? {}, calls);
-  const out: InterpreterEffect[] = [];
-  const live = launch({
-    chart,
-    sessionId: options.sessionId,
-    datamodel: new Map(Object.entries(options.datamodel ?? {})),
-    maxMacrostepRounds: options.maxMacrostepRounds ?? 10_000,
-    clock: { nowMs: 0, sequence: 0 },
-    processors,
-    out,
-    parent: null,
-    invokedAs: null,
+  return drive(options.sendTypes ?? {}, (processors) => {
+    const out: InterpreterEffect[] = [];
+    const live = launch({
+      chart,
+      sessionId: options.sessionId,
+      datamodel: new Map(Object.entries(options.datamodel ?? {})),
+      maxMacrostepRounds: options.maxMacrostepRounds ?? 10_000,
+      clock: { nowMs: 0, sequence: 0 },
+      processors,
+      out,
+      parent: null,
+      invokedAs: null,
+    });
+    return { ok: true, live, out };
   });
-  return answer(live, out, calls);
 }
 
 /**
@@ -541,16 +545,17 @@ export function step(
   event: HostEvent,
   options: DriveOptions = {},
 ): DriveResult {
-  const calls: HostCall[] = [];
-  const out: InterpreterEffect[] = [];
-  const opened = open(chart, state, heldOptions(options, calls), out);
-  if (!opened.ok) return opened;
-  const live = opened.live;
-  if (!live.core.running) return { ok: false, reason: "not_running" };
-  live.externalQueue.push({ name: event.name, type: "external", data: event.data ?? Undefined });
-  stamp(live);
-  drain(live);
-  return answer(live, out, calls);
+  return drive(options.sendTypes ?? {}, (sendTypes) => {
+    const out: InterpreterEffect[] = [];
+    const opened = open(chart, state, { ...options, sendTypes }, out);
+    if (!opened.ok) return opened;
+    const live = opened.live;
+    if (!live.core.running) return { ok: false, reason: "not_running" };
+    live.externalQueue.push({ name: event.name, type: "external", data: event.data ?? Undefined });
+    stamp(live);
+    drain(live);
+    return { ok: true, live, out };
+  });
 }
 
 /**
@@ -575,26 +580,27 @@ export function advance(
   options: DriveOptions = {},
 ): DriveResult {
   if (!Number.isFinite(ms) || ms < 0) return { ok: false, reason: "invalid_duration" };
-  const calls: HostCall[] = [];
-  const out: InterpreterEffect[] = [];
-  const opened = open(chart, state, heldOptions(options, calls), out);
-  if (!opened.ok) return opened;
-  const live = opened.live;
-  const until = live.clock.nowMs + ms;
-  for (;;) {
-    const next = nextDue(live, until);
-    if (next === undefined) break;
-    const { session, timer } = next;
-    session.timers = session.timers.filter((pending) => pending !== timer);
-    live.clock.nowMs = timer.dueMs;
-    stamp(session);
-    fire(session, timer.send);
-    // The session the timer fired in runs to a stable configuration, then
-    // each session above it takes what its child sent.
-    for (let at: Live | null = session; at !== null; at = at.parent) drain(at);
-  }
-  live.clock.nowMs = until;
-  return answer(live, out, calls);
+  return drive(options.sendTypes ?? {}, (sendTypes) => {
+    const out: InterpreterEffect[] = [];
+    const opened = open(chart, state, { ...options, sendTypes }, out);
+    if (!opened.ok) return opened;
+    const live = opened.live;
+    const until = live.clock.nowMs + ms;
+    for (;;) {
+      const next = nextDue(live, until);
+      if (next === undefined) break;
+      const { session, timer } = next;
+      session.timers = session.timers.filter((pending) => pending !== timer);
+      live.clock.nowMs = timer.dueMs;
+      stamp(session);
+      fire(session, timer.send);
+      // The session the timer fired in runs to a stable configuration, then
+      // each session above it takes what its child sent.
+      for (let at: Live | null = session; at !== null; at = at.parent) drain(at);
+    }
+    live.clock.nowMs = until;
+    return { ok: true, live, out };
+  });
 }
 
 /**
@@ -624,14 +630,15 @@ export function reportSendFailed(
 ): DriveResult {
   const send = failure?.send;
   if (!isSendOrigin(send)) return { ok: false, reason: "not_a_send" };
-  const calls: HostCall[] = [];
-  const out: InterpreterEffect[] = [];
-  const opened = open(chart, state, heldOptions(options, calls), out);
-  if (!opened.ok) return opened;
-  const live = opened.live;
-  if (!live.core.running) return { ok: false, reason: "not_running" };
-  failSend(live, send);
-  return answer(live, out, calls);
+  return drive(options.sendTypes ?? {}, (sendTypes) => {
+    const out: InterpreterEffect[] = [];
+    const opened = open(chart, state, { ...options, sendTypes }, out);
+    if (!opened.ok) return opened;
+    const live = opened.live;
+    if (!live.core.running) return { ok: false, reason: "not_running" };
+    failSend(live, send);
+    return { ok: true, live, out };
+  });
 }
 
 /** The active states' ids, root excluded, sorted. */
@@ -676,7 +683,10 @@ export function rewrite(chart: Chart, state: State): DriveResult {
   const out: InterpreterEffect[] = [];
   const opened = open(chart, state, {}, out);
   if (!opened.ok) return opened;
-  return answer(opened.live, out);
+  const codec: Codec = { failed: false };
+  const written = encodeState(codec, opened.live);
+  if (codec.failed) return { ok: false, reason: "unencodable_value" };
+  return { ok: true, state: written, effects: out };
 }
 
 // ---------------------------------------------------------------------------
@@ -991,17 +1001,22 @@ function registered(live: Live, send: Send | SendDelayed): boolean {
 }
 
 // A registered type's send: handed to its processor with the event a
-// delivery would carry, and, when delayed, held under its send id.
+// delivery would carry, and, when delayed, held under its send id. A
+// failure the processor answered is raised here, at the send's place in the
+// run, as the reference raises the failure its processor plans in
+// `deliver/3`: ahead of anything the run has yet to take.
 function handOff(live: Live, send: Send | SendDelayed): readonly InterpreterEffect[] {
   const type = send.type as string;
   if (send.kind === "send_delayed") {
     const held = live.heldSends.get(send.sendId) ?? [];
     live.heldSends.set(send.sendId, [...new Set([...held, type])].sort(byCodeUnit));
   }
-  processorFor(live.processors, type)?.deliver(send, deliveredEvent(send, live.sessionId), {
-    sessionId: live.sessionId,
-  });
-  return [];
+  const answered = processorFor(live.processors, type)?.deliver(
+    send,
+    deliveredEvent(send, live.sessionId),
+    { sessionId: live.sessionId },
+  );
+  return failed(answered) ? sendFailure(live, send) : [];
 }
 
 // A `<cancel>`: every pending timer under the id goes, and each processor
@@ -1022,10 +1037,25 @@ function processorFor(processors: SendProcessors, type: string): SendProcessor |
   return Object.hasOwn(processors, type) ? processors[type] : undefined;
 }
 
-// A call to a host's processor, held until the call's state is written. A
-// delivery that failed answers the send, to be raised as failed; every other
-// call answers null.
-type HostCall = () => SendOrigin | null;
+// A call to a host's processor, held until the call's state is written. It
+// answers whether the processor answered a failure: only a delivery can.
+type HostCall = () => boolean;
+
+// What one driver call has asked its host's processors. `answered` holds,
+// in the order the run made them, whether each call made so far answered a
+// failure; it outlives a run, since a run that a failure changes is made
+// again. `next` counts the calls the current run has reached, and `held`
+// keeps the calls it reached past `answered`, to be made once its state is
+// written.
+interface Ledger {
+  readonly answered: boolean[];
+  next: number;
+  readonly held: HostCall[];
+}
+
+// The answer a processor call already made gives a run made again: a
+// failure, or nothing.
+const ANSWERED_FAILURE: DeliveryFailure = { kind: "failure", reason: "" };
 
 // The fields of a send a failure event is built from.
 type SendOrigin = Pick<SendFields, "sendId" | "cIndex" | "owner">;
@@ -1054,48 +1084,73 @@ function failed(answered: unknown): boolean {
   );
 }
 
-// The host's processors with each call held on `calls` rather than made: the
-// same types, so the registered set and `_ioprocessors` read the same, a
-// `cancel` only where the host gave one, and the `ioprocessorsEntry` the host
-// gave passed through unheld, since it is asked while the state is built
-// rather than once it is written. A type the host listed with no
+// The host's processors with each call answered from the ledger when an
+// earlier run of the same driver call made it, and held on the ledger
+// otherwise: the same types, so the registered set and `_ioprocessors` read
+// the same, a `cancel` only where the host gave one, and the
+// `ioprocessorsEntry` the host gave asked unheld, since it is asked while
+// the state is built rather than once it is written, and once per type and
+// session however often the run is made. A type the host listed with no
 // processor stays listed and is handed nothing, as it was before. Built as
 // own entries, so a type named `__proto__` stays a type rather than setting
 // the prototype of the object that holds them.
-function held(processors: SendProcessors, calls: HostCall[]): SendProcessors {
+function held(
+  processors: SendProcessors,
+  ledger: Ledger,
+  entries: Map<string, Readonly<Record<string, Value>>>,
+): SendProcessors {
   return Object.fromEntries(
     Object.keys(processors).map((type): [string, SendProcessor] => [
       type,
-      holding(processors[type], calls),
+      holding(processors[type], ledger, entries),
     ]),
   );
 }
 
-function holding(processor: SendProcessor | undefined, calls: HostCall[]): SendProcessor {
+function holding(
+  processor: SendProcessor | undefined,
+  ledger: Ledger,
+  entries: Map<string, Readonly<Record<string, Value>>>,
+): SendProcessor {
   if (processor === undefined || processor === null) return { deliver: () => {} };
+  // The call's place among the calls the run makes: answered when an earlier
+  // run made it, held otherwise.
+  const reached = (call: HostCall): boolean | undefined => {
+    const at = ledger.next;
+    ledger.next += 1;
+    if (at < ledger.answered.length) return ledger.answered[at];
+    ledger.held.push(call);
+    return undefined;
+  };
+  const entry = processor.ioprocessorsEntry;
   return {
-    deliver: (send, event, context) => {
-      calls.push(() => (failed(processor.deliver(send, event, context)) ? send : null));
-      return undefined;
-    },
+    deliver: (send, event, context) =>
+      reached(() => failed(processor.deliver(send, event, context))) === true
+        ? ANSWERED_FAILURE
+        : undefined,
     ...(processor.cancel === undefined
       ? {}
       : {
           cancel: (c: Cancel, context: ProcessorContext) => {
-            calls.push(() => {
+            reached(() => {
               processor.cancel?.(c, context);
-              return null;
+              return false;
             });
           },
         }),
-    ...(processor.ioprocessorsEntry === undefined
+    ...(entry === undefined
       ? {}
-      : { ioprocessorsEntry: processor.ioprocessorsEntry }),
+      : {
+          ioprocessorsEntry: (type: string, context: ProcessorContext) => {
+            const key = `${type}\u0000${context.sessionId}`;
+            const known = entries.get(key);
+            if (known !== undefined) return known;
+            const asked = entry(type, context);
+            entries.set(key, asked);
+            return asked;
+          },
+        }),
   };
-}
-
-function heldOptions(options: DriveOptions, calls: HostCall[]): DriveOptions {
-  return { ...options, sendTypes: held(options.sendTypes ?? {}, calls) };
 }
 
 // The chart stopped: its donedata and final configuration are kept, and its
@@ -1165,15 +1220,20 @@ function fire(live: Live, send: SendDelayed): void {
 // and its `sendid` the send's id unconditionally, then the effects that raise
 // left are acted on and the session takes what is queued.
 function failSend(live: Live, send: SendOrigin): void {
-  const origin: Origin = { kind: "content", cIndex: send.cIndex, owner: send.owner };
-  perform(
-    live,
-    deliverInternal(live, "platform", "error.communication", origin, {
-      data: Undefined,
-      sendid: send.sendId,
-    }),
-  );
+  perform(live, sendFailure(live, send));
   drain(live);
+}
+
+// The failed send's `error.communication` on the internal queue, its origin
+// the send's content and its `sendid` the send's id unconditionally, as the
+// reference's `failed_send/3` and the Basic HTTP processor's `deliver/3`
+// plan both write it; answers the effects the chart's run left.
+function sendFailure(live: Live, send: SendOrigin): readonly InterpreterEffect[] {
+  const origin: Origin = { kind: "content", cIndex: send.cIndex, owner: send.owner };
+  return deliverInternal(live, "platform", "error.communication", origin, {
+    data: Undefined,
+    sendid: send.sendId,
+  });
 }
 
 // A send to something this driver cannot reach: `error.communication` on the
@@ -1373,25 +1433,47 @@ interface Codec {
   failed: boolean;
 }
 
-// The call's answer. The processor calls held during the call run only once
-// its state is written, in the order the call made them: a refused call hands
-// a processor nothing, so a host that retries it hands nothing twice. A
-// delivery that answered a failure is raised as a failed send once the
-// calls have run, each in the order it was handed, and the state is written
-// again; the calls that run made are held and run the same way.
-function answer(live: Live, effects: InterpreterEffect[], calls: HostCall[] = []): DriveResult {
+// What one run of a driver call leaves: the session and its effects, or the
+// call's refusal.
+type Ran =
+  | { readonly ok: true; readonly live: Live; readonly out: InterpreterEffect[] }
+  | DriveRefused;
+
+// A driver call: its run, made over the host's processors with their calls
+// held, and its answer. The calls the run held are made only once its state
+// is written, in the order the run made them: a refused call hands a
+// processor nothing, so a host that retries it hands nothing twice. A
+// delivery that answers a failure belongs to the run at the send's place,
+// so the calls after it, which a run without the failure made, are not made;
+// the run is made again from the call's own arguments, every call it makes
+// up to the failure answered from the ledger rather than made twice and the
+// failure raised where the send was handed, and the calls it holds past them
+// are made the same way. The run is the same up to the failure each time,
+// since everything it reads but the processors' answers is the call's
+// arguments, so each send is handed to its processor once.
+function drive(processors: SendProcessors, run: (processors: SendProcessors) => Ran): DriveResult {
+  const answered: boolean[] = [];
+  const entries = new Map<string, Readonly<Record<string, Value>>>();
   for (;;) {
+    const ledger: Ledger = { answered, next: 0, held: [] };
+    const ran = run(held(processors, ledger, entries));
+    if (!ran.ok) return ran;
     const codec: Codec = { failed: false };
-    const state = encodeState(codec, live);
+    const state = encodeState(codec, ran.live);
     if (codec.failed) return { ok: false, reason: "unencodable_value" };
-    const missed: SendOrigin[] = [];
-    for (const call of calls.splice(0)) {
-      const send = call();
-      if (send !== null) missed.push(send);
-    }
-    if (missed.length === 0) return { ok: true, state, effects };
-    for (const send of missed) failSend(live, send);
+    if (!madeUntilFailure(ledger)) return { ok: true, state, effects: ran.out };
   }
+}
+
+// Makes the held calls in order, recording each answer, up to and including
+// the first that answers a failure; answers whether one did.
+function madeUntilFailure(ledger: Ledger): boolean {
+  for (const call of ledger.held) {
+    const failure = call();
+    ledger.answered.push(failure);
+    if (failure) return true;
+  }
+  return false;
 }
 
 function text(codec: Codec, v: Value): string {

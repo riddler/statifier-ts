@@ -1420,3 +1420,105 @@ The desk is handed one POST with the body
 is handed `{ sessionId: "branch-7", send: { sendId: "notice", ... }, reason:
 "http_status 503" }`, and the `reportSendFailed` it makes moves the chart to
 `notice_failed`. `test/basichttp.test.ts` drives the same chart.
+
+## Amendment: a failure `deliver` answers is raised within the run that handed the send (2026-10-01)
+
+Status: proposed
+
+The failed-send Amendment above raises a failure a processor's `deliver`
+answers only once the processors have been called, after the run that handed
+the send has taken its external queue. The Basic HTTP processor Amendment
+above records what that costs: a send with no target fails after the events
+the same run sent the session itself, where the reference raises it ahead of
+them, and the W3C case that asserts the reference's order is not claimable
+through the processor "until the driver raises such a failure within the
+run". This Amendment records that change. The change that adds it changes
+`handOff`, `holding`, `held` and `failSend` in `src/driver.ts`, adds `drive`,
+`madeUntilFailure` and `sendFailure` there in place of `answer`, and adds the
+tests in `test/driver-failed-send.test.ts` and `test/basichttp.test.ts`.
+
+**When the failure is raised.** A failure `deliver` answers is raised at the
+send's place in the run that handed it: `error.communication` joins the
+internal queue when the send is handed, its origin the send's content and its
+`sendid` the send's id whether or not the author named it, and the chart runs
+to a stable configuration there, as for a send the driver cannot route; the
+effects that leaves are acted on after the rest of the batch the send came
+in, and the run then takes its external queue. An event the same block sent
+the session itself is therefore taken after the failure, not before it. The
+event is the one `reportSendFailed` raises; only its timing changes.
+
+The reference at `v2.10.0` (`c8894ae`): the Basic HTTP processor's
+`deliver/3` (`lib/statifier/send/basic_http.ex`) plans a send with no target
+as `{:raise, :platform, "error.communication", {:content, send.c_index,
+send.owner}, sendid: send.send_id}`; `Statifier.Session.Effects.plan/2`
+(`lib/statifier/session/effects.ex`) calls `deliver/3` while it plans the
+batch; `perform_batch/3` in `lib/statifier/session.ex` performs the planned
+instructions in order, and `perform_instruction/3`'s `{:raise, ...}` clause
+reaches `deliver_internal/6` there, which runs
+`Statifier.Interpreter.deliver_internal/5` at that instruction's place and
+queues the effects it answers for `drain_deferred/1`. A send to the session
+itself is planned as `{:enqueue_event, event}`, which `perform_instruction/3`
+puts on the session's inbox, taken only once the step is done.
+
+**A refused call still hands a processor nothing.** The Decision's rule that
+the processors are called only once the call's state is written stands. To
+raise a failure where the send was handed while keeping it, the driver makes
+the call's run, writes its state and makes the calls the run held, in order;
+when one answers a failure it makes no later one, since the run that held
+them is not the call's run, and makes the run again from the call's own
+arguments. A call an earlier run already made is answered from what it
+answered then and not made again, the failure is raised at its send, and the
+calls held past it are made the same way. The run reads nothing but the
+call's arguments and the processors' answers, so it is the same up to the
+failure each time, and each send the call's final run hands is handed to its
+processor once; a `cancel` is told once the same way. A processor's
+`ioprocessorsEntry` is asked once per type and session within a call, however
+often its run is made. A call whose runs meet n failures makes its run n + 1
+times.
+
+The one exception is the failed-send Amendment's own consequence, unchanged
+in kind: a run made again after a failure may leave a value the state cannot
+write, and the call is then refused with `unencodable_value` after the
+processor calls made before that failure. A host that retries that call hands
+those sends again.
+
+**The failed-send Amendment's ordering sentence.** Its sentence that "once
+they have run, each send whose `deliver` answered a failure is raised as a
+failed send, in the order the sends were handed, the state is written again,
+and the processor calls that run made are run the same way" is read as
+amended by this one: each failure is raised at its send's place in the run.
+Its statement that "the reference's processor never reports a miss from
+`deliver/3`" holds for a miss a processor learns while performing; a failure
+known when the send is planned, which the reference's `deliver/3` plans as a
+`{:raise, ...}` instruction, is the counterpart of a `DeliveryFailure` here.
+
+**A chart that sends again on every failure.** A chart that answers a
+failure `deliver` answers by sending again to a processor that fails it again
+still does not return from the call: each failure makes the run again, one
+send further, without end. This change does not bound it, and the round
+budget does not: `deliverInternal` in `src/driver.ts` starts the budget afresh
+for each raised event, as `Statifier.Interpreter.deliver_internal/5` does
+through `main_event_loop/1` (`lib/statifier/interpreter.ex` at `v2.10.0`), so
+no budget spans the raises in either implementation. In the reference the
+same chart keeps its session in `drain_deferred/1`, one raise after another;
+that reading is of the code, not of a run. Whether to bound the loop, and how
+the refusal would read, stays open.
+
+**The Basic HTTP processor Amendment's loop sentence.** Its sentence that a
+chart answering the no-target failure by sending again with no target "loops
+within the call, as the same chart would in the reference's session" is read
+as amended by this one: the loop is within the call, one run of it per
+failure as the paragraph above says, and the reference's session loops within
+the step that sent it, in `drain_deferred/1`; neither applies a round budget
+across the raises.
+
+**The corpus.** `w3c/test577`, driven through `basicHttp` with a transport
+that records requests and makes none, now rests in `pass`: the processor's
+no-target failure is taken before `event1`, which the same block sent the
+session itself, and no request is made, which is the reason the reference's
+harness passes it (`with_event_io_processors/2` in
+`lib/mix/statifier/corpus/host_case.ex` at `v2.10.0` registers the processor
+over a loopback front). Before this change the chart took `event1` first and
+rested in `fail`. The case is not claimed here: the runner registers no
+processor, and the loopback that drives the Basic HTTP cases, and their
+claims, are a later change's.
