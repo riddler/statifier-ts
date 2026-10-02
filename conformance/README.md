@@ -90,11 +90,16 @@ value and no case is left out. The runner drives each scion and w3c case
 through the interpreter, compares the active leaf set after the start and
 after each event as the reference's harness does, and moves a virtual clock
 by the two knobs ADR-0003 fixes (a settle window of 100 ms before each event,
-a deadline of 4000 ms after it). The reference's harness drives the two
-suites through one function (`test_scxml/4` in
-`lib/statifier/testing/case.ex` at `v2.9.0`), and the runner drives them
-through one drive: a w3c case carries no step and expects its chart to rest
-in the `pass` state once it has run as far as it can. A w3c case that needs
+a deadline of 4000 ms after it). The reference's runner routes a case of any
+suite by whether it carries a `host` object (`run_case/1` in
+`lib/mix/statifier/corpus/runner.ex` at `v2.10.0`). A case with none goes
+through one function (`test_scxml/4` in `lib/statifier/testing/case.ex`),
+and the runner drives every such scion and w3c case through one drive: a w3c
+case carries no step and expects its chart to rest in the `pass` state once
+it has run as far as it can. A case with one, which at `v2.10.0` includes a
+w3c case naming an Event I/O Processor, goes through the reference's
+host-case harness, and the runner drives it through its host-case drive,
+below. A w3c case that needs
 `<invoke>` is driven with its child run in process by the driver, on the
 same virtual clock, as the reference's harness drives it through a session.
 The reference's rule for a feature a harness does not run - fail the case
@@ -106,13 +111,27 @@ names the Event I/O Processors the host runs, by URI (the copy's
 `RATCHET.md`, "The host object"). The reference's runner registers each under
 its URI and its short form and delivers every send to it through a loopback
 front it starts for the case (`with_event_io_processors/2` in
-`lib/mix/statifier/corpus/host_case.ex` at `v2.10.0`). The runner here
-registers no processor yet (`PROCESSORS_REGISTERED` in
-`test/conformance/w3c.ts`), so such a case fails before it is driven, with the
-reason that it names an Event I/O Processor this runner does not register,
-followed by the processor's URI. The copy's `RATCHET.md` says what that means
-for a registry: an implementation that does not run a processor the case
-names leaves the case unclaimed.
+`lib/mix/statifier/corpus/host_case.ex` at `v2.10.0`), an HTTP server on a
+local port (`Mix.Statifier.BasicHTTPFront` in
+`lib/mix/statifier/basic_http_front.ex`). Its host-case harness runs no
+feature check. The runner here routes such a case to the host-case drive,
+with no feature check either, and registers the package's own Basic HTTP
+processor (`basicHttp` from `@riddler/statifier/basichttp`, the one member
+of the closed set, `EVENT_IO_PROCESSORS` in `test/conformance/loopback.ts`)
+under its URI and its short form `basichttp`. Its transport is an in-memory
+loopback front (`loopbackFront` in the same file), the reference's front
+without the socket: a request to the front's base URL, `/`, and the case's
+session id is decoded by the package's own `decodeRequest` and its event
+stepped into the session, answering 204; a path that names no live session
+answers 404, a method other than POST 405, a request that forms no event
+400; and it does not deduplicate, as the reference's front does not. A claim
+of such a case rests on that loopback: it proves the processor's and the
+core's event I/O logic, not a network round trip (ADR-0003's Amendment "the
+Basic HTTP cases are driven through a loopback front"). A case naming a
+processor outside the closed set fails before it is driven, with the reason
+that it names an Event I/O Processor this runner does not register, followed
+by the processor's URI; the copy's `RATCHET.md` says an implementation that
+does not run a processor the case names leaves the case unclaimed.
 
 The reference's runner routes a statifier case by whether it carries a `host`
 object (`run_case/1` in `lib/mix/statifier/corpus/runner.ex` at `v2.9.0`).
@@ -224,18 +243,22 @@ w3c suite falls in three groups:
   lacks as undefined and `@riddler/predicator` compares undefined with
   undefined as undefined, not true, so two objects that carry an undefined
   field compare unequal, even one object compared with itself;
-- the cases whose `host.event_io_processors` names the Basic HTTP Event I/O
-  Processor, which fail before they are driven because the runner registers
-  no processor yet (under "Run" above): `w3c/test509`, `w3c/test510`,
-  `w3c/test518`, `w3c/test519`, `w3c/test520`, `w3c/test522`, `w3c/test531`,
-  `w3c/test532`, `w3c/test534`, `w3c/test567` and `w3c/test577`, which the
-  reference claims, and `w3c/test201`, which the reference's registry does
-  not list, because it expects a send delivered from outside the session to
-  arrive ahead of a send the same step appends to the session's own external
-  queue, which no delivery over HTTP does (the copy's `RATCHET.md`, "The host
-  object");
+- `w3c/test201`, which names the Basic HTTP Event I/O Processor and which the
+  reference's registry does not list, because it expects a send delivered
+  from outside the session to arrive ahead of a send the same step appends to
+  the session's own external queue, which no delivery over HTTP does (the
+  copy's `RATCHET.md`, "The host object"); it is driven through the loopback
+  front (under "Run" above) and fails here on the configuration it rests in,
+  for that cause;
 - `w3c/test330` and `w3c/test552`, which the reference's registry does not
   list, and which fail here on the configuration the chart rests in.
+
+The cases whose `host.event_io_processors` names the Basic HTTP Event I/O
+Processor and which the reference claims - `w3c/test509`, `w3c/test510`,
+`w3c/test518`, `w3c/test519`, `w3c/test520`, `w3c/test522`, `w3c/test531`,
+`w3c/test532`, `w3c/test534`, `w3c/test567` and `w3c/test577` - are claimed:
+the run drives each through the loopback front, and the claim rests on that
+front, not on a network round trip.
 
 The run fails no case in the statifier suite.
 `statifier/accepts/loan_declares_an_unreachable_event`, the accepts case, is

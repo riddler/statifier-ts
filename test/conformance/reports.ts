@@ -41,14 +41,16 @@ export function selectSuites(
 }
 
 /** Runs the suites named (all when none is) against the vendored corpus. */
-export function runVendored(
+export async function runVendored(
   names: readonly string[] = [],
   runCase?: RunCase,
   root: string = CONFORMANCE_ROOT,
-): SuiteReport[] {
+): Promise<SuiteReport[]> {
   const manifest = loadManifest(root);
   const suites = selectSuites(loadSuites(root, manifest), names);
-  return suites.map((suite) => runSuite(suite, manifest.corpus_hash, runCase));
+  const reports: SuiteReport[] = [];
+  for (const suite of suites) reports.push(await runSuite(suite, manifest.corpus_hash, runCase));
+  return reports;
 }
 
 /**

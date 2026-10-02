@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 import type {
   CaseResult,
   CorpusCase,
@@ -62,12 +62,26 @@ function registry(entries: Registry["entries"], claims?: readonly string[]): Reg
   };
 }
 
+// A report of one fixture suite, written as the runner writes one: every case
+// in corpus order, a pass for each case named passing and a reasoned fail for
+// every other.
 function reportOf(suite: CorpusSuite, passing: readonly string[]): SuiteReport {
-  return runSuite(suite, HASH, (testCase) =>
-    passing.includes(testCase.id)
-      ? { result: "pass" }
-      : { result: "fail", reason: "core not implemented" },
-  );
+  return {
+    implementation: "statifier-ts",
+    corpus_hash: HASH,
+    suite: suite.suite,
+    results: suite.cases.map(
+      (testCase): CaseResult =>
+        passing.includes(testCase.id)
+          ? { case_id: testCase.id, suite: testCase.suite, result: "pass" }
+          : {
+              case_id: testCase.id,
+              suite: testCase.suite,
+              result: "fail",
+              reason: "core not implemented",
+            },
+    ),
+  };
 }
 
 function resultsOf(passing: readonly string[]): CaseResult[] {
@@ -82,7 +96,11 @@ describe("this package's registry, as committed", () => {
   const manifest = loadManifest();
   const suites = loadSuites();
   const committed = loadRegistry();
-  const results = suites.flatMap((suite) => runSuite(suite, manifest.corpus_hash).results);
+  const results: CaseResult[] = [];
+  beforeAll(async () => {
+    for (const suite of suites)
+      results.push(...(await runSuite(suite, manifest.corpus_hash)).results);
+  });
 
   it("is pinned, in the ratchet's encoding, and claims every statifier case, every diff case among them", () => {
     expect(committed.implementation).toBe("statifier-ts");

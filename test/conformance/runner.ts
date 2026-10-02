@@ -14,6 +14,10 @@
 // `test/conformance/statifier.ts`; a case of any other suite fails with the
 // reason that its suite is not driven, and running a case is a function the
 // caller may hand in instead.
+//
+// A suite's report is a promise, because a case whose host runs an Event I/O
+// Processor settles on the job queue, as its deliveries do. The cases still
+// run one after another in corpus order, each settled before the next starts.
 
 import type {
   CaseResult,
@@ -30,8 +34,11 @@ export type CaseOutcome =
   | { readonly result: "pass" }
   | { readonly result: "fail"; readonly reason: string };
 
-/** Runs one case. */
-export type RunCase = (testCase: CorpusCase) => CaseOutcome;
+/**
+ * Runs one case, answering its outcome or a promise of it: a case whose host
+ * runs an Event I/O Processor settles on the job queue, as its deliveries do.
+ */
+export type RunCase = (testCase: CorpusCase) => CaseOutcome | Promise<CaseOutcome>;
 
 /** The reason a case of a suite the runner does not drive yet fails with. */
 export function suiteNotDriven(suite: string): string {
@@ -70,10 +77,10 @@ function messageOf(value: unknown): string {
  * Sabotage: passing an unrecognised outcome through as it came turns the
  * runner test that hands in a third value red. It was run and reverted.
  */
-function runOne(testCase: CorpusCase, runCase: RunCase): CaseResult {
+async function runOne(testCase: CorpusCase, runCase: RunCase): Promise<CaseResult> {
   let outcome: unknown;
   try {
-    outcome = runCase(testCase);
+    outcome = await runCase(testCase);
   } catch (error) {
     return {
       case_id: testCase.id,
@@ -96,18 +103,21 @@ function runOne(testCase: CorpusCase, runCase: RunCase): CaseResult {
 }
 
 /**
- * Runs every case of one suite, in corpus order, and answers the report: the
- * corpus hash it is a run of, the suite, and one result per case.
+ * Runs every case of one suite, one after another in corpus order, each
+ * settled before the next starts, and answers the report: the corpus hash it
+ * is a run of, the suite, and one result per case.
  */
-export function runSuite(
+export async function runSuite(
   suite: CorpusSuite,
   corpusHash: string,
   runCase: RunCase = runCorpusCase,
-): SuiteReport {
+): Promise<SuiteReport> {
+  const results: CaseResult[] = [];
+  for (const testCase of suite.cases) results.push(await runOne(testCase, runCase));
   return {
     implementation: "statifier-ts",
     corpus_hash: corpusHash,
     suite: suite.suite,
-    results: suite.cases.map((testCase) => runOne(testCase, runCase)),
+    results,
   };
 }

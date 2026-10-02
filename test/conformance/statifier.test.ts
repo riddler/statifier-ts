@@ -65,16 +65,16 @@ const ROUTED: SendItem = {
 };
 
 describe("a statifier case with no host object", () => {
-  it("is driven as a scion case is, and passes on its configurations", () => {
+  it("is driven as a scion case is, and passes on its configurations", async () => {
     const testCase = statifierCase("library/patron_checkout_refused_while_owed");
     expect(testCase.host).toBeUndefined();
-    expect(runStatifierCase(testCase)).toEqual({ result: "pass" });
+    expect(await runStatifierCase(testCase)).toEqual({ result: "pass" });
   });
 
-  it("fails a planted wrong configuration, naming both leaf sets", () => {
+  it("fails a planted wrong configuration, naming both leaf sets", async () => {
     const testCase = statifierCase("library/patron_initial_both_regions");
     const planted = { ...testCase, initial_configuration: ["nowhere"] };
-    expect(runStatifierCase(planted)).toMatchObject({
+    expect(await runStatifierCase(planted)).toMatchObject({
       result: "fail",
       reason: expect.stringMatching(
         /^the initial configuration: expected active leaf states \[nowhere\], got /,
@@ -84,21 +84,21 @@ describe("a statifier case with no host object", () => {
 });
 
 describe("a statifier case with a host object", () => {
-  it("passes when the sends handed to the host are exactly the expected ones", () => {
+  it("passes when the sends handed to the host are exactly the expected ones", async () => {
     const testCase = statifierCase("send/registered_immediate");
     expect(expectSends(testCase)).toHaveLength(1);
-    expect(runStatifierCase(testCase)).toEqual({ result: "pass" });
+    expect(await runStatifierCase(testCase)).toEqual({ result: "pass" });
   });
 
   // Sabotage: answering a pass without comparing the handed sends turns this
   // red. It was run and reverted.
-  it("fails a planted wrong expected send, naming both lists", () => {
+  it("fails a planted wrong expected send, naming both lists", async () => {
     const testCase = statifierCase("send/registered_immediate");
     const [sent] = expectSends(testCase);
     const planted = withHost(testCase, {
       expect_sends: [{ ...sent, target: "returned_records" }],
     });
-    const outcome = runStatifierCase(planted);
+    const outcome = await runStatifierCase(planted);
     expect(outcome).toMatchObject({ result: "fail" });
     expect("reason" in outcome ? outcome.reason : "").toMatch(
       /^expected the sends handed to the host \[.*"target":"returned_records".*\], got \[.*"target":"joined_records".*\]$/,
@@ -107,26 +107,26 @@ describe("a statifier case with a host object", () => {
 
   // Sabotage: comparing only the length of the two lists turns this red on
   // the swapped order. It was run and reverted.
-  it("fails a send missing, a send extra, or two sends out of order", () => {
+  it("fails a send missing, a send extra, or two sends out of order", async () => {
     const testCase = statifierCase("library/loan_returned_sends_copy_available");
     const sends = expectSends(testCase);
     expect(sends).toHaveLength(3);
     for (const planted of [sends.slice(0, 2), [...sends, ROUTED], [sends[1], sends[0], sends[2]]]) {
-      expect(runStatifierCase(withHost(testCase, { expect_sends: planted }))).toMatchObject({
+      expect(await runStatifierCase(withHost(testCase, { expect_sends: planted }))).toMatchObject({
         result: "fail",
         reason: expect.stringMatching(/^expected the sends handed to the host /),
       });
     }
-    expect(runStatifierCase(testCase)).toEqual({ result: "pass" });
+    expect(await runStatifierCase(testCase)).toEqual({ result: "pass" });
   });
 
   // Sabotage: passing no send types to the driver turns this red: the chart
   // finds no `myapp:sink` entry in `_ioprocessors` and rests in `unlisted`.
   // It was run and reverted.
-  it("registers the case's send types, so `_ioprocessors` lists them", () => {
+  it("registers the case's send types, so `_ioprocessors` lists them", async () => {
     const testCase = statifierCase("system_variables/registered_ioprocessors");
-    expect(runStatifierCase(testCase)).toEqual({ result: "pass" });
-    expect(runStatifierCase(withHost(testCase, { send_types: [] }))).toEqual({
+    expect(await runStatifierCase(testCase)).toEqual({ result: "pass" });
+    expect(await runStatifierCase(withHost(testCase, { send_types: [] }))).toEqual({
       result: "fail",
       reason: "the initial configuration: expected active leaf states [listed], got [unlisted]",
     });
@@ -135,51 +135,53 @@ describe("a statifier case with a host object", () => {
   // Sabotage: injecting the step's event with its name only, as the scion
   // drive does, turns this red: the routed send carries no copy id. It was run
   // and reverted.
-  it("injects a step's data as the event's payload", () => {
-    expect(runHostCase(returnCase([ROUTED]))).toEqual({ result: "pass" });
+  it("injects a step's data as the event's payload", async () => {
+    expect(await runHostCase(returnCase([ROUTED]))).toEqual({ result: "pass" });
     expect(
-      runHostCase(
+      await runHostCase(
         returnCase([{ ...ROUTED, event: { name: "copy.available", data: { copy_id: "c-8" } } }]),
       ),
     ).toMatchObject({ result: "fail" });
   });
 
-  it("writes a delayed send's delay and an author's send id into its item", () => {
+  it("writes a delayed send's delay and an author's send id into its item", async () => {
     const testCase = statifierCase("library/hold_queue_head_gets_pickup_timer");
     const [held] = expectSends(testCase);
     expect(held).toMatchObject({ delay_ms: 604800000, send_id: "pickup" });
-    expect(runStatifierCase(testCase)).toEqual({ result: "pass" });
+    expect(await runStatifierCase(testCase)).toEqual({ result: "pass" });
     const { delay_ms: _delay, ...undelayed } = held as SendItem;
-    expect(runStatifierCase(withHost(testCase, { expect_sends: [undelayed] }))).toMatchObject({
-      result: "fail",
-    });
+    expect(await runStatifierCase(withHost(testCase, { expect_sends: [undelayed] }))).toMatchObject(
+      {
+        result: "fail",
+      },
+    );
   });
 });
 
 describe("a cancelled send", () => {
-  it("agrees when a cancel naming it reached the host", () => {
+  it("agrees when a cancel naming it reached the host", async () => {
     const testCase = statifierCase("send/registered_delayed_cancel");
     expect(expectSends(testCase)[0]?.outcome).toBe("cancelled");
-    expect(runStatifierCase(testCase)).toEqual({ result: "pass" });
+    expect(await runStatifierCase(testCase)).toEqual({ result: "pass" });
   });
 
   // Sabotage: marking every delayed send the expectation asks for, whether a
   // cancel reached it or not, turns this red. It was run and reverted.
-  it("disagrees when its item says cancelled and no cancel reached it", () => {
+  it("disagrees when its item says cancelled and no cancel reached it", async () => {
     const testCase = statifierCase("library/hold_queue_head_gets_pickup_timer");
     const [held] = expectSends(testCase);
     const planted = withHost(testCase, { expect_sends: [{ ...held, outcome: "cancelled" }] });
-    expect(runStatifierCase(planted)).toMatchObject({
+    expect(await runStatifierCase(planted)).toMatchObject({
       result: "fail",
       reason: expect.stringMatching(/^expected the sends handed to the host /),
     });
   });
 
-  it("is not compared when its item claims nothing about a cancel", () => {
+  it("is not compared when its item claims nothing about a cancel", async () => {
     const testCase = statifierCase("send/registered_delayed_cancel");
     const [held] = expectSends(testCase);
     const { outcome: _outcome, ...unmarked } = held as SendItem;
-    expect(runStatifierCase(withHost(testCase, { expect_sends: [unmarked] }))).toEqual({
+    expect(await runStatifierCase(withHost(testCase, { expect_sends: [unmarked] }))).toEqual({
       result: "pass",
     });
   });
@@ -188,20 +190,20 @@ describe("a cancelled send", () => {
 describe("a send the host reports failed", () => {
   // Sabotage: the runner not reporting the marked send (`takeFailed`
   // answering an empty list), or not marking its item failed, turns this red.
-  it("is reported through the driver, and the sender takes the transition naming its sendid", () => {
+  it("is reported through the driver, and the sender takes the transition naming its sendid", async () => {
     const testCase = statifierCase("send/registered_send_failed");
     expect(expectSends(testCase)[0]?.outcome).toBe("fail");
-    expect(runStatifierCase(testCase)).toEqual({ result: "pass" });
+    expect(await runStatifierCase(testCase)).toEqual({ result: "pass" });
   });
 
   // The pass is not vacuous: the same case with its item claiming nothing
   // about a failure is not reported, and the chart rests where the send left
   // it, so it is the report that moves the chart to the state the case expects.
-  it("is not reported when its item claims nothing, so the pass rests on the report", () => {
+  it("is not reported when its item claims nothing, so the pass rests on the report", async () => {
     const testCase = statifierCase("send/registered_send_failed");
     const [failing] = expectSends(testCase);
     const { outcome: _outcome, ...unmarked } = failing as SendItem;
-    expect(runStatifierCase(withHost(testCase, { expect_sends: [unmarked] }))).toEqual({
+    expect(await runStatifierCase(withHost(testCase, { expect_sends: [unmarked] }))).toEqual({
       result: "fail",
       reason:
         'step 1 (event "copy.available"): expected active leaf states [notice_failed], got [notifying]',
@@ -218,34 +220,36 @@ describe("the accepts case", () => {
 
   // Sabotage: `checkAccepts` keeping the descriptors that DO match a declared
   // name in `undeclared` turns this red. It was run and reverted.
-  it("passes: the check answers the expected lists before the case is driven", () => {
-    expect(runStatifierCase(statifierCase(ID))).toEqual({ result: "pass" });
+  it("passes: the check answers the expected lists before the case is driven", async () => {
+    expect(await runStatifierCase(statifierCase(ID))).toEqual({ result: "pass" });
   });
 
   // The pass is not vacuous: the runner compares the check's two lists with
   // the expected ones, order included, before the case is driven, as the
   // reference's harness does, so an expectation the check does not answer
   // fails the case naming both.
-  it("fails an expectation the check does not answer, order included", () => {
+  it("fails an expectation the check does not answer, order included", async () => {
     const testCase = statifierCase(ID);
     const { unreachable, undeclared } = expectAccepts(testCase);
     const reordered = { unreachable, undeclared: [...undeclared].reverse() };
-    expect(runStatifierCase(withHost(testCase, { expect_accepts: reordered }))).toEqual({
+    expect(await runStatifierCase(withHost(testCase, { expect_accepts: reordered }))).toEqual({
       result: "fail",
       reason:
         'expected the accepts check {"undeclared":["dispute.resolved","loan.lost","loan.due","loan.due_soon","copy.disputed"],"unreachable":["loan.archived"]}, got {"undeclared":["copy.disputed","loan.due_soon","loan.due","loan.lost","dispute.resolved"],"unreachable":["loan.archived"]}',
     });
     const reachable = { unreachable: [], undeclared };
-    expect(runStatifierCase(withHost(testCase, { expect_accepts: reachable }))).toMatchObject({
-      result: "fail",
-      reason: expect.stringMatching(/^expected the accepts check /),
-    });
+    expect(await runStatifierCase(withHost(testCase, { expect_accepts: reachable }))).toMatchObject(
+      {
+        result: "fail",
+        reason: expect.stringMatching(/^expected the accepts check /),
+      },
+    );
   });
 
   // The declaration is what the check reads: declaring every name the chart
   // listens for leaves nothing undeclared, so the expected lists no longer
   // agree.
-  it("reads the case's declared events", () => {
+  it("reads the case's declared events", async () => {
     const testCase = statifierCase(ID);
     const declared = [
       "loan.renew",
@@ -257,7 +261,7 @@ describe("the accepts case", () => {
       "loan.lost",
       "dispute.resolved",
     ];
-    expect(runStatifierCase(withHost(testCase, { declared_events: declared }))).toEqual({
+    expect(await runStatifierCase(withHost(testCase, { declared_events: declared }))).toEqual({
       result: "fail",
       reason:
         'expected the accepts check {"undeclared":["copy.disputed","loan.due_soon","loan.due","loan.lost","dispute.resolved"],"unreachable":["loan.archived"]}, got {"undeclared":[],"unreachable":["loan.archived"]}',
@@ -266,18 +270,18 @@ describe("the accepts case", () => {
 
   // Sabotage: comparing the check only when both keys are present, and
   // otherwise driving the case, turns this red. It was run and reverted.
-  it("fails either key without the other, as the reference's harness does", () => {
+  it("fails either key without the other, as the reference's harness does", async () => {
     const testCase = statifierCase(ID);
     const { declared_events, expect_accepts, ...rest } = testCase.host ?? {};
-    expect(runStatifierCase({ ...testCase, host: { ...rest, declared_events } })).toEqual({
+    expect(await runStatifierCase({ ...testCase, host: { ...rest, declared_events } })).toEqual({
       result: "fail",
       reason: "declared_events is present without expect_accepts",
     });
-    expect(runStatifierCase({ ...testCase, host: { ...rest, expect_accepts } })).toEqual({
+    expect(await runStatifierCase({ ...testCase, host: { ...rest, expect_accepts } })).toEqual({
       result: "fail",
       reason: "expect_accepts is present without declared_events",
     });
-    expect(runStatifierCase({ ...testCase, host: rest })).toEqual({ result: "pass" });
+    expect(await runStatifierCase({ ...testCase, host: rest })).toEqual({ result: "pass" });
   });
 });
 
@@ -286,20 +290,20 @@ describe("a diff case", () => {
 
   // Sabotage: failing a case that carries `to_source` before it is driven, as
   // this runner did before, turns this red. It was run and reverted.
-  it("is driven as any other host case, and passes on its configurations and sends", () => {
+  it("is driven as any other host case, and passes on its configurations and sends", async () => {
     expect(diff).toHaveLength(10);
     for (const testCase of diff) {
       expect(Object.hasOwn(testCase.host ?? {}, "to_source"), testCase.id).toBe(true);
-      expect(runStatifierCase(testCase), testCase.id).toEqual({ result: "pass" });
+      expect(await runStatifierCase(testCase), testCase.id).toEqual({ result: "pass" });
     }
   });
 
   // Sabotage: answering a pass without comparing the initial configuration
   // turns this red. It was run and reverted.
-  it("fails a planted wrong configuration, so the pass is not vacuous", () => {
+  it("fails a planted wrong configuration, so the pass is not vacuous", async () => {
     for (const testCase of diff) {
       const planted = { ...testCase, initial_configuration: ["nowhere"] };
-      expect(runStatifierCase(planted), testCase.id).toMatchObject({
+      expect(await runStatifierCase(planted), testCase.id).toMatchObject({
         result: "fail",
         reason: expect.stringMatching(
           /^the initial configuration: expected active leaf states \[nowhere\], got /,
@@ -310,10 +314,10 @@ describe("a diff case", () => {
 
   // Sabotage: answering a pass without comparing the handed sends turns this
   // red. It was run and reverted.
-  it("fails a planted extra expected send, so the pass is not vacuous", () => {
+  it("fails a planted extra expected send, so the pass is not vacuous", async () => {
     for (const testCase of diff) {
       const planted = withHost(testCase, { expect_sends: [...expectSends(testCase), ROUTED] });
-      expect(runStatifierCase(planted), testCase.id).toMatchObject({
+      expect(await runStatifierCase(planted), testCase.id).toMatchObject({
         result: "fail",
         reason: expect.stringMatching(/^expected the sends handed to the host /),
       });
@@ -322,7 +326,7 @@ describe("a diff case", () => {
 
   // The four diff keys are compared by the reference's own test suite, never
   // by its runner, so changing them changes nothing here.
-  it("compares none of the four diff keys, as the reference's runner compares none", () => {
+  it("compares none of the four diff keys, as the reference's runner compares none", async () => {
     for (const testCase of diff) {
       const planted = withHost(testCase, {
         to_source: "<scxml/>",
@@ -330,7 +334,7 @@ describe("a diff case", () => {
         expect_diff: { class: "breaking", reasons: [] },
         expect_compatible_at: !testCase.host?.expect_compatible_at,
       });
-      expect(runStatifierCase(planted), testCase.id).toEqual({ result: "pass" });
+      expect(await runStatifierCase(planted), testCase.id).toEqual({ result: "pass" });
     }
   });
 });
