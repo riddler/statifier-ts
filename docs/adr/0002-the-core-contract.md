@@ -1683,3 +1683,115 @@ exports a `ParseError` of its own, the expression parser's, which a
 imports both renames one at the import, as `src/compiler.ts` does
 (`ParseError as ExpressionParseError`); the TSDoc on `ParseError` and the
 README say so.
+
+## Amendment: a child inherits the host's send types and observers when a call asks (2026-10-01)
+
+Status: proposed
+
+The child-session Amendment above says a child session "runs with no
+registered send type, and its effects are not among a call's effects, which
+are the host's session's own." This Amendment keeps that as the default and
+supersedes it, add-only, for a call that opts in: inheritance is opt-in on
+the invoking session and off by default, as the reference's session options
+are, ruled by the operator, 2026-10-01. The change that adds this Amendment
+adds the options `inheritSendTypes` and `inheritObservers` to `DriveOptions`,
+the types `ChildEffect` and `DriveEffect`, and `inheritanceOf` and
+`inheritedBy` in `src/driver.ts`; changes `launch`, `invoke`, `perform`,
+`open`, `decodeInvocation` and `decodeState` there; exports both types from
+`src/index.ts`; and adds the tests in `test/driver-child-inherits.test.ts`.
+
+The reference at `v2.10.0` (`c8894ae`), `lib/statifier/session.ex`:
+`start_session/4` starts an invocation's child with the options
+`inherited_observer_opts/1` and `inherited_send_type_opts/1` answer. Each
+answers none while the session's flag is false, the default the session's
+state struct gives `inherit_observers` and `inherit_send_types`. With
+`inherit_send_types` true, the child is started with the session's
+`send_types` map and the flag; with `inherit_observers` true, with the
+session's `trace`, its subscribers as they stand, and the flag. The flag
+passes on, so one opt-in at the root reaches the whole invoke tree.
+`start_link/2`'s documentation of `:inherit_observers` says each inherited
+subscriber receives the child's messages under the child's own session id.
+
+The options, per option:
+
+| Option | Absent or false | True | Reference at `v2.10.0` |
+|---|---|---|---|
+| `inheritSendTypes` | a child registers no send type: a send of a type the host registers raises `error.execution` in it, and its `_ioprocessors` holds no entry for that type | every session of the tree is started, and decoded from the state a call is handed, with the call's processors: its `_ioprocessors` holds their entries, asked with its own session id, and a send of a registered type is handed to its processor with the child's session id in the `ProcessorContext` | `inherited_send_type_opts/1`, `:inherit_send_types` |
+| `inheritObservers` | a child's effects are not among the call's effects, and a child starts with its trace flag clear | every effect a child's run answers is among the call's effects, in the order the run made it, as a `ChildEffect` naming the child's session id; a grandchild's is reported under its own session id, never nested; a child starts with its parent's trace flag | `inherited_observer_opts/1`, `:inherit_observers` |
+
+**Where a host sets them.** On `DriveOptions`, so `start`, whose options
+extend it, and every later call take them beside `sendTypes`. The reference
+fixes each flag at start in session state that outlives the call. Here a
+session's state is plain data the host holds, and the registered processors
+are passed with every call and never stored (the Decision's paragraph "The
+host's send processors are passed on every call, never stored"), so the
+option that says where those processors reach is passed with them, under the
+same rule: the same value for a session's whole life, since a child's
+`_ioprocessors` is written as it starts. Two options rather than one, as the
+reference has two: a host may have a child's sends delivered without
+watching its effects, or watch a child without handing it processors.
+
+**The tag.** A child's session id stays the parent's, a dot and the invoke
+id, as the child-session Amendment decides, so the same calls answer the
+same effects; it is the id a `ChildEffect` carries and the one a processor's
+context names. A `ChildEffect` is the driver's: the core's effect union is
+unchanged, and the effect it wraps is the one the child's run answered. The
+reference delivers a child's messages to its observers as they happen; here
+a call answers a child's effects within the call that produced them, as it
+answers the host session's.
+
+**What a child's handed send keeps.** A child's processor calls are held on
+the call's one ledger with the host session's and made only once the call's
+state is written, in the order the run made them, and a failure a `deliver`
+answers for a child's send is raised in that child at the send's place within
+the run (`holding`, `handOff` and `drive` in `src/driver.ts`), as the failed
+send and in-run failure Amendments above decide for the host's session.
+
+Not ported. The reference's `inherit_invoke_handlers` has no counterpart: the
+child-session Amendment ports no invoke handler. Its subscribers are a
+snapshot taken as the child starts; here the call that sets
+`inheritObservers` is the one that reports, whenever the child started.
+
+Typespecs:
+
+```ts
+interface DriveOptions {
+  readonly sendTypes?: SendProcessors;
+  readonly inheritSendTypes?: boolean; // false when absent
+  readonly inheritObservers?: boolean; // false when absent
+}
+
+interface ChildEffect {
+  readonly kind: "child";
+  readonly sessionId: string; // the child's: the parent's, a dot and the invoke id
+  readonly effect: InterpreterEffect;
+}
+
+type DriveEffect = InterpreterEffect | ChildEffect;
+
+type DriveResult =
+  | { ok: true; state: State; effects: readonly DriveEffect[] }
+  | DriveRefused;
+```
+
+Worked example. A depot invokes a courier whose `<onentry>` logs `'loaded'`
+and scans the parcel through the host's `parcel:scan` type:
+
+```ts
+const handed: [string, string][] = [];
+const scanner: SendProcessor = {
+  deliver: (_send, event, context) => { handed.push([event.name, context.sessionId]); },
+};
+const started = start(depot, {
+  sessionId: "depot-1",
+  sendTypes: { "parcel:scan": scanner },
+  inheritSendTypes: true,
+  inheritObservers: true,
+});
+```
+
+`handed` is `[["parcel.loaded", "depot-1.courier"]]`, and the call's effects
+include `{ kind: "child", sessionId: "depot-1.courier", effect }` for the
+courier's `datamodel_init`, its `log` and its `send`, after the depot's own
+`invoke`. Without the two options the scan raises `error.execution` in the
+courier and none of its effects is among the call's effects.

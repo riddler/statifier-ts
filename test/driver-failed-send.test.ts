@@ -10,10 +10,10 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { type Chart, compile } from "../src/compiler.js";
-import type { InterpreterEffect } from "../src/core/interpreter.js";
 import type { Send, SendDelayed } from "../src/core/send.js";
 import {
   type DeliveryFailure,
+  type DriveEffect,
   type DriveOptions,
   type DriveResult,
   reportSendFailed,
@@ -31,14 +31,14 @@ function chartOf(source: string): Chart {
   return result.chart;
 }
 
-type Moved = { readonly state: State; readonly effects: readonly InterpreterEffect[] };
+type Moved = { readonly state: State; readonly effects: readonly DriveEffect[] };
 
 function ok(result: DriveResult): Moved {
   if (!result.ok) throw new Error(`refused: ${result.reason}`);
   return result;
 }
 
-function logged(effects: readonly InterpreterEffect[]): [string, unknown][] {
+function logged(effects: readonly DriveEffect[]): [string, unknown][] {
   return effects.flatMap((effect) =>
     effect.kind === "log" ? [[effect.label ?? "", effect.value] as [string, unknown]] : [],
   );

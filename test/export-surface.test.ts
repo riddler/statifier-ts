@@ -24,12 +24,14 @@ import type {
   AcceptsCheck,
   Chart,
   ChartIdentity,
+  ChildEffect,
   CompileError,
   CompileOptions,
   CompileResult,
   CompilerError,
   DefaultTransitionOwner,
   DeliveryFailure,
+  DriveEffect,
   ExpressionOwner,
   FailedSend,
   HttpAnswer,
@@ -111,6 +113,9 @@ const failedSendTypesNamed: FailedSendTypes | undefined = undefined;
 const acceptsCheckNamed: AcceptsCheck | undefined = undefined;
 // The context a processor is called with, named the same way.
 const processorContextNamed: ProcessorContext | undefined = undefined;
+// The effects a driver call answers, a child's included, named the same way.
+type DriveEffectTypes = [DriveEffect, ChildEffect];
+const driveEffectTypesNamed: DriveEffectTypes | undefined = undefined;
 
 const BASIC_HTTP_RUNTIME_NAMES = [
   "BASIC_HTTP_EVENT_PROCESSOR",
@@ -171,6 +176,14 @@ describe("the main entry point", () => {
   it("exports the processor context type, as a type only", () => {
     expect(processorContextNamed).toBeUndefined();
     expect(Object.keys(entry)).not.toContain("ProcessorContext");
+  });
+
+  // Sabotage: dropping `type ChildEffect` from `src/index.ts` turns the
+  // typecheck red.
+  it("exports the drive effect types, as types only", () => {
+    expect(driveEffectTypesNamed).toBeUndefined();
+    expect(Object.keys(entry)).not.toContain("ChildEffect");
+    expect(Object.keys(entry)).not.toContain("DriveEffect");
   });
 
   it("exports nothing from the Basic HTTP entry point", () => {

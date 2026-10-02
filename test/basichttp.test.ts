@@ -16,10 +16,10 @@ import {
 } from "../src/basichttp/index.js";
 import { requestFor, sendKey } from "../src/basichttp/processor.js";
 import { type Chart, compile } from "../src/compiler.js";
-import type { InterpreterEffect } from "../src/core/interpreter.js";
 import type { Cancel, Send, SendDelayed } from "../src/core/send.js";
 import {
   advance,
+  type DriveEffect,
   type DriveResult,
   type ProcessorContext,
   reportSendFailed,
@@ -38,14 +38,14 @@ function chartOf(source: string): Chart {
   return result.chart;
 }
 
-type Moved = { readonly state: State; readonly effects: readonly InterpreterEffect[] };
+type Moved = { readonly state: State; readonly effects: readonly DriveEffect[] };
 
 function ok(result: DriveResult): Moved {
   if (!result.ok) throw new Error(`refused: ${result.reason}`);
   return result;
 }
 
-function logged(effects: readonly InterpreterEffect[]): Record<string, unknown> {
+function logged(effects: readonly DriveEffect[]): Record<string, unknown> {
   return Object.fromEntries(
     effects.flatMap((effect) =>
       effect.kind === "log" ? [[effect.label ?? "", effect.value]] : [],
