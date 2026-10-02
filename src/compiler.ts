@@ -98,8 +98,8 @@ export type ExpressionOwner =
  * and the element otherwise, and `error` is the expression language's own
  * refusal, in the expression's coordinates.
  *
- * It is not exported by name: a host meets it as one member of
- * `CompileError`.
+ * It is one member of `CompileError`, and the entry point exports it by
+ * name so a host can narrow a compile error to it.
  */
 export interface CompilerError {
   readonly reason: "expression_compile_error";

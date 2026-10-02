@@ -9,11 +9,24 @@
 
 import { describe, expect, it } from "vitest";
 import type {
+  CompileError,
+  CompilerError,
+  DefaultTransitionOwner,
+  Empty,
+  ErrorOf,
+  ExpressionOwner,
   HttpAnswer,
   HttpFailure,
   HttpRequest,
   HttpStatus,
   HttpTransport,
+  Location,
+  LoweringError,
+  LoweringErrorOf,
+  ParseError,
+  ParseErrorReason,
+  StateKind,
+  ValidationError,
 } from "../src/index.js";
 import * as entry from "../src/index.js";
 
@@ -34,6 +47,36 @@ const RUNTIME_NAMES = [
 type TransportTypes = [HttpTransport, HttpRequest, HttpAnswer, HttpStatus, HttpFailure];
 const transportTypesNamed: TransportTypes | undefined = undefined;
 
+// The types a compile error reaches, each named through the entry point:
+// every type the declarations of `CompileResult`, `CompileError` and
+// `CompileOptions` reach, except the opaque `Machine` a `Chart` carries and
+// the expression language's own refusal, which its package exports. Removing
+// one of them from `src/index.ts` makes this declaration fail to typecheck.
+type CompileErrorTypes = [
+  ParseError,
+  ParseErrorReason,
+  Location,
+  LoweringError,
+  LoweringErrorOf<"stray_text", { readonly text: string }>,
+  ValidationError,
+  ErrorOf<"empty_id", Empty>,
+  DefaultTransitionOwner,
+  StateKind,
+  CompilerError,
+  ExpressionOwner,
+];
+const compileErrorTypesNamed: CompileErrorTypes | undefined = undefined;
+
+// A compile error is exactly one of the four named stage errors: a member
+// added to `CompileError` that is not one of them, or one dropped, makes
+// `CompileErrorIsTheNamedUnion` false and this declaration fail to typecheck.
+type Equal<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false;
+type CompileErrorIsTheNamedUnion = Equal<
+  CompileError,
+  ParseError | LoweringError | ValidationError | CompilerError
+>;
+const compileErrorIsTheNamedUnion: CompileErrorIsTheNamedUnion = true;
+
 describe("the main entry point", () => {
   // Sabotage: exporting one more function from `src/index.ts`, or dropping
   // `version`, turns this red.
@@ -44,5 +87,12 @@ describe("the main entry point", () => {
   it("exports the HTTP transport types, as types only", () => {
     expect(transportTypesNamed).toBeUndefined();
     expect(Object.keys(entry).filter((name) => name.startsWith("Http"))).toEqual([]);
+  });
+
+  // Sabotage: dropping `type Location` (or any other name the tuple above
+  // lists) from `src/index.ts` turns the typecheck red.
+  it("exports the types a compile error reaches, as types only", () => {
+    expect(compileErrorTypesNamed).toBeUndefined();
+    expect(compileErrorIsTheNamedUnion).toBe(true);
   });
 });
