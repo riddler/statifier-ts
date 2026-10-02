@@ -541,11 +541,13 @@ lint, a gate stage, checks `src/` for those constructs and passes.
 That is a check on the text. A check on a run - the conformance corpus driven
 through this package on the JavaScript engine React Native uses, and diffed
 against a run on the server runtime - is what `scripts/hermes-conformance.mjs`
-does. The engine proof was run on 2026-10-01, at commit `15980e9` on `main`,
-on the standalone Hermes VM, release 0.12.0, bytecode version 89: every suite
-agreed row for row with the same run on Node, with zero differences - scion
-119 rows, w3c 168 and statifier 31, every case of the vendored corpus,
-none left out.
+does. The engine proof was last run on 2026-10-02, at commit `5560a8c` on
+`main`, after the nested-location writes and with `@riddler/predicator` 0.5.0
+installed, on the standalone Hermes VM, release 0.12.0, bytecode version 89:
+every suite agreed row for row with the same run on Node, with zero
+differences - scion 119 rows, w3c 168 and statifier 31, every case of the
+vendored corpus, none left out. Its first run, on 2026-10-01 at commit
+`15980e9`, also found zero differences.
 
 What the proof covers is narrower than "React Native". The standalone VM is
 an older release than the engine current React Native ships, so the bundle it

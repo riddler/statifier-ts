@@ -239,6 +239,20 @@ Every suite agreed row for row. The rows agree on fails as well as passes:
 the three w3c cases the run fails on Node (under "What is not yet claimed"
 below) fail on the VM with the same reason.
 
+**The result, 2026-10-02.** Run again at commit `5560a8c` on `main`, after
+the writes to nested locations and the `datamodel_change` answered for an
+`idlocation` write, with `@riddler/predicator` 0.5.0 installed, the corpus at
+`v2.10.0`, on the same VM, release 0.12.0, bytecode version 89:
+
+| Suite | Rows on Node | Rows on the VM | Differences |
+|---|---|---|---|
+| `scion` | 119 | 119 | 0 |
+| `w3c` | 168 | 168 | 0 |
+| `statifier` | 31 | 31 | 0 |
+
+Every suite agreed row for row again, fails included: the same three w3c
+cases fail on Node and on the VM with the same reason.
+
 **What it covers.** The standalone VM is an older release than the engine
 current React Native ships. It refuses the `class` keyword, so its bundle is
 put through a class transform, and it refuses an `async` function, so its

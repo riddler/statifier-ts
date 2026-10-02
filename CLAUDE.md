@@ -214,13 +214,14 @@ drift fails the gate and nothing is fixed silently, so run
   and pins it states with the registries, the vendored manifest, the
   provenance record and `package.json`.
 - `scripts/hermes-conformance.mjs` is not a gate stage; it was run against
-  this package on 2026-10-01, and the README's Engines section carries the
-  result and its scope. It is copied from the predicator sibling, where it runs
-  the conformance surfaces on the engine React Native uses; here it drives
-  every suite of the vendored corpus through `test/conformance/runner.ts`, and
-  running it is a deliberate step, never a gate's. The runner drives the scion,
-  w3c and statifier suites through the interpreter, the three the vendored
-  manifest lists, so a run proves agreement case by case on every suite.
+  this package on 2026-10-01 and again on 2026-10-02, and the README's Engines
+  section carries the latest result and its scope. It is copied from the
+  predicator sibling, where it runs the conformance surfaces on the engine
+  React Native uses; here it drives every suite of the vendored corpus through
+  `test/conformance/runner.ts`, and running it is a deliberate step, never a
+  gate's. The runner drives the scion, w3c and statifier suites through the
+  interpreter, the three the vendored manifest lists, so a run proves
+  agreement case by case on every suite.
 
 ## Conventions
 
