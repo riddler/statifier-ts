@@ -26,6 +26,16 @@
 // rule stays: a feature added to the list fails every case that needs it
 // before the drive.
 //
+// A w3c case may carry a `host` object whose one key, `event_io_processors`,
+// names the Event I/O Processors the host runs, by URI (the vendored
+// `RATCHET.md`, "The host object"). The reference's runner registers each
+// under its URI and its short form, delivering through a loopback front it
+// starts for the case (`with_event_io_processors/2` in
+// `lib/mix/statifier/corpus/host_case.ex` at v2.10.0). An implementation that
+// does not run a processor the case names leaves the case unclaimed, so this
+// runner fails such a case before it is driven, naming each processor no
+// registration here answers. None is registered yet.
+//
 // Like the runner, this reaches nothing outside the language.
 
 import type { CorpusCase } from "../../scripts/lib/corpus-rules.d.mts";
@@ -51,15 +61,62 @@ export function featuresNotRun(
 }
 
 /**
- * Runs one w3c case: a fail naming every feature the case needs that this
- * package does not run (`notRun`, the package's list unless a caller names
- * another), before anything is driven; otherwise the drive's pass, or its
- * fail with the comparison's finding.
+ * The Event I/O Processors, by URI, this runner registers for a w3c case:
+ * none. A case whose `host.event_io_processors` names one fails before it is
+ * driven.
+ */
+export const PROCESSORS_REGISTERED: readonly string[] = Object.freeze([]);
+
+/**
+ * The head of the reason a case fails with when it names an Event I/O
+ * Processor this runner does not register; the processors follow it.
+ */
+export const PROCESSOR_NOT_REGISTERED =
+  "names an Event I/O Processor this runner does not register";
+
+/**
+ * The processors a case's `host.event_io_processors` names that `registered`
+ * (the runner's list unless a caller names another) does not hold, in corpus
+ * order. A case with no host object, or a host object without the key, names
+ * none. A value that is not a list of URIs is named whole, as it came, so a
+ * malformed key fails its case rather than being read as naming nothing.
+ */
+export function processorsNotRegistered(
+  testCase: CorpusCase,
+  registered: readonly string[] = PROCESSORS_REGISTERED,
+): string[] {
+  const named = testCase.host?.event_io_processors;
+  if (named === undefined) return [];
+  if (!Array.isArray(named) || !named.every((uri) => typeof uri === "string")) {
+    return [JSON.stringify(named)];
+  }
+  return named.filter((uri: string) => !registered.includes(uri));
+}
+
+/**
+ * Runs one w3c case: a fail naming every Event I/O Processor the case names
+ * that no registration here answers (`registered`, the runner's list unless a
+ * caller names another), then a fail naming every feature the case needs that
+ * this package does not run (`notRun`, the package's list unless a caller
+ * names another), each before anything is driven; otherwise the drive's pass,
+ * or its fail with the comparison's finding.
+ *
+ * Sabotage: driving a case whose processor is not registered, without the
+ * processor check, turns the w3c test that fails it before the drive red. It
+ * was run and reverted.
  */
 export function runW3cCase(
   testCase: CorpusCase,
   notRun: readonly string[] = FEATURES_NOT_RUN,
+  registered: readonly string[] = PROCESSORS_REGISTERED,
 ): CaseOutcome {
+  const unregistered = processorsNotRegistered(testCase, registered);
+  if (unregistered.length > 0) {
+    return {
+      result: "fail",
+      reason: `${PROCESSOR_NOT_REGISTERED}: ${unregistered.join(", ")}`,
+    };
+  }
   const missing = featuresNotRun(testCase, notRun);
   if (missing.length > 0) {
     return {

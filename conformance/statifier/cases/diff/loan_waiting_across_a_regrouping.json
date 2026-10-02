@@ -1,0 +1,61 @@
+{
+  "description": "The same damaged outcome with the waiting state kept by id but moved: the edit gathers awaiting_return and overdue under a new compound state checked_out. Each of the two can be active and now has another parent, so the pair is breaking, the two parent changes reported before the added checked_out and the three additions the damaged outcome makes. A loan waits in awaiting_return with its due-date timer handed to the host, and at that position the predicate answers false: the active state's parent differs, and awaiting_return without checked_out is not a legal configuration of the new chart.",
+  "initial_configuration": [
+    "awaiting_return"
+  ],
+  "steps": [],
+  "host": {
+    "send_types": [
+      "library:timer",
+      "library:route"
+    ],
+    "expect_sends": [
+      {
+        "type": "library:timer",
+        "target": "loan",
+        "event": {
+          "name": "loan.due"
+        },
+        "delay_ms": 1814400000,
+        "send_id": "due"
+      }
+    ],
+    "expect_diff": {
+      "class": "breaking",
+      "reasons": [
+        {
+          "reason": "state_changed",
+          "state": "awaiting_return",
+          "fields": [
+            "parent"
+          ]
+        },
+        {
+          "reason": "state_changed",
+          "state": "overdue",
+          "fields": [
+            "parent"
+          ]
+        },
+        {
+          "reason": "state_added",
+          "state": "checked_out"
+        },
+        {
+          "reason": "state_added",
+          "state": "in_repair"
+        },
+        {
+          "reason": "transition_added",
+          "state": "check_in",
+          "t_index": 3
+        },
+        {
+          "reason": "data_added",
+          "data_id": "damaged"
+        }
+      ]
+    },
+    "expect_compatible_at": false
+  }
+}

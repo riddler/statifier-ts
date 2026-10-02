@@ -369,7 +369,7 @@ emit yet.
 
 The conformance corpus is the reference's, and it is the spec: a case this
 package answers differently from the corpus is this package's bug. The corpus
-is copied byte for byte from the reference at tag `v2.9.0`, recorded in the
+is copied byte for byte from the reference at tag `v2.10.0`, recorded in the
 provenance file `conformance/statifier.vendored.json`, and never edited by
 hand. Its registry, `conformance/registry.json`, lists the cases this package
 claims to pass - written only by a run that observed the pass, and never
@@ -377,25 +377,28 @@ narrowed.
 
 **The claim:** this package makes four claims, with 291 entries in its
 registry: `scion` with 119 entries out of the suite's 119 cases, `statifier`
-with 19 entries out of the suite's 28 cases, `w3c-mandatory` with 151 entries
+with 19 entries out of the suite's 31 cases, `w3c-mandatory` with 151 entries
 out of the w3c suite's 154 mandatory cases, and `w3c-optional` with 2 entries
-out of its 2 optional cases. A claim is exactly its entries: a case with no
+out of its 14 optional cases. A claim is exactly its entries: a case with no
 entry is one this package does not claim to pass.
 
-**The gap:** it does not yet claim the 1 w3c case and the 9 statifier cases
-the reference's own registry lists that this package's does not, nor the 2 w3c
+**The gap:** it does not yet claim the 12 w3c cases and the 12 statifier cases
+the reference's own registry lists that this package's does not, nor the 3 w3c
 cases the reference's registry does not list either. `pnpm conformance` runs
 the corpus, writes one report per suite under `reports/`, and prints both
 lists, every unclaimed case with the reason the run failed it, and each case
 the reference claims with the features it needs in the corpus's own words. The
 runner drives the scion, w3c and statifier suites through the interpreter. A
-w3c case that needs `<invoke>` is driven with its child run in process. A
-statifier case that carries a host object registers its send types with the
-driver, and agrees only when the sends handed to them are exactly the ones it
-expects; the accepts case and the diff cases fail before they are driven,
-because this package does not port the reference's accepts check or its chart
-diff, and a case that asks the host to report a send failed fails because the
-driver offers a host no way to.
+w3c case that needs `<invoke>` is driven with its child run in process. A w3c
+case that names an Event I/O Processor in its host object (the Basic HTTP
+processor is the one such cases name) fails before it is driven, naming the
+processor, because the runner registers none yet. A statifier case that
+carries a host object registers its send types with the driver, and agrees
+only when the sends handed to them are exactly the ones it expects; the
+accepts case and the diff cases fail before they are driven, because this
+package does not port the reference's accepts check or its chart diff, and a
+case that asks the host to report a send failed fails because the driver
+offers a host no way to.
 
 ```bash
 pnpm conformance      # run the corpus and print the gap list

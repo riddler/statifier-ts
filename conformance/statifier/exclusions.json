@@ -41,12 +41,6 @@
     },
     {
       "suite": "w3c",
-      "key": "test201",
-      "reason": "needs_basichttp",
-      "detail": "BasicHTTP Event I/O Processor as a <send type>: the event is delivered only by a processor that implements HTTP POST"
-    },
-    {
-      "suite": "w3c",
       "key": "test216",
       "reason": "needs_invoke_src",
       "detail": "<invoke srcexpr> evaluated as src: the child is loaded from src, which is never dereferenced (ADR-0038)",
@@ -79,72 +73,6 @@
       "reason": "needs_invoke_src",
       "detail": "top-level <data> values supplied at instantiation: the child is loaded from src, which is never dereferenced (ADR-0038)",
       "adr": 38
-    },
-    {
-      "suite": "w3c",
-      "key": "test509",
-      "reason": "needs_basichttp",
-      "detail": "BasicHTTP Event I/O Processor MUST accept POST requests"
-    },
-    {
-      "suite": "w3c",
-      "key": "test510",
-      "reason": "needs_basichttp",
-      "detail": "BasicHTTP Event I/O Processor MUST validate and enqueue the message"
-    },
-    {
-      "suite": "w3c",
-      "key": "test518",
-      "reason": "needs_basichttp",
-      "detail": "BasicHTTP Event I/O Processor namelist -> POST parameter mapping"
-    },
-    {
-      "suite": "w3c",
-      "key": "test519",
-      "reason": "needs_basichttp",
-      "detail": "BasicHTTP Event I/O Processor param children -> POST parameter mapping"
-    },
-    {
-      "suite": "w3c",
-      "key": "test520",
-      "reason": "needs_basichttp",
-      "detail": "BasicHTTP Event I/O Processor content child -> message body"
-    },
-    {
-      "suite": "w3c",
-      "key": "test522",
-      "reason": "needs_basichttp",
-      "detail": "BasicHTTP Event I/O Processor _ioprocessors['basichttp'] entry"
-    },
-    {
-      "suite": "w3c",
-      "key": "test531",
-      "reason": "needs_basichttp",
-      "detail": "BasicHTTP Event I/O Processor _scxmleventname -> event name"
-    },
-    {
-      "suite": "w3c",
-      "key": "test532",
-      "reason": "needs_basichttp",
-      "detail": "BasicHTTP Event I/O Processor HTTP method -> event name fallback"
-    },
-    {
-      "suite": "w3c",
-      "key": "test534",
-      "reason": "needs_basichttp",
-      "detail": "BasicHTTP Event I/O Processor send/@event -> _scxmleventname"
-    },
-    {
-      "suite": "w3c",
-      "key": "test567",
-      "reason": "needs_basichttp",
-      "detail": "BasicHTTP Event I/O Processor message content -> _event.data"
-    },
-    {
-      "suite": "w3c",
-      "key": "test577",
-      "reason": "needs_basichttp",
-      "detail": "BasicHTTP Event I/O Processor missing target -> error.communication"
     }
   ]
 }

@@ -13,7 +13,7 @@ import { eventValue } from "../../src/datamodel.js";
 import { gapLines, KNOWN_CAUSES, unclaimedByEither, unclaimedByEitherLines } from "./reports.js";
 import { type RunCase, runCorpusCase, runSuite, suiteNotDriven } from "./runner.js";
 import { runScionCase } from "./scion.js";
-import { featuresNotRun } from "./w3c.js";
+import { featuresNotRun, PROCESSOR_NOT_REGISTERED, processorsNotRegistered } from "./w3c.js";
 
 const manifest = loadManifest();
 const suites = loadSuites();
@@ -40,7 +40,7 @@ describe("the runner over the vendored corpus", () => {
   it("drives every w3c case through the interpreter, and every case it claims passes", () => {
     const report = runSuite(suiteNamed("w3c"), manifest.corpus_hash);
     expect(report.suite).toBe("w3c");
-    expect(report.results).toHaveLength(156);
+    expect(report.results).toHaveLength(168);
     const passed = new Set(
       report.results.filter((result) => result.result === "pass").map((result) => result.case_id),
     );
@@ -55,7 +55,7 @@ describe("the runner over the vendored corpus", () => {
 
   // Sabotage: restoring `invoke_elements` to the features not run turns this
   // red on every invoke case, each failed before its drive.
-  it("drives every w3c case, an invoke case included, and every fail is the comparison's", () => {
+  it("drives every w3c case naming no processor, an invoke case included, and every fail is the comparison's", () => {
     const report = runSuite(suiteNamed("w3c"), manifest.corpus_hash);
     const cases = new Map(suiteNamed("w3c").cases.map((testCase) => [testCase.id, testCase]));
     const invoking = suiteNamed("w3c")
@@ -64,18 +64,55 @@ describe("the runner over the vendored corpus", () => {
     expect(invoking.length).toBeGreaterThan(0);
     for (const testCase of suiteNamed("w3c").cases) expect(featuresNotRun(testCase)).toEqual([]);
     for (const result of report.results.filter((candidate) => candidate.result === "fail")) {
-      expect(cases.get(result.case_id)?.required_features).not.toContain("invoke_elements");
+      const testCase = cases.get(result.case_id);
+      if (testCase === undefined) throw new Error(`${result.case_id} is not in the w3c suite`);
+      if (processorsNotRegistered(testCase).length > 0) continue;
+      expect(testCase.required_features).not.toContain("invoke_elements");
       expect(result.reason).toMatch(/^the initial configuration: expected active leaf states /);
     }
     const passed = report.results.filter((result) => result.result === "pass");
     expect(passed.map((result) => result.case_id)).toEqual(expect.arrayContaining(invoking));
   });
 
+  // Sabotage: driving a case whose processor is not registered, without the
+  // processor check, turns this red: each fails on the comparison instead.
+  // It was run and reverted.
+  it("fails every w3c case naming a processor before the drive, naming it, and claims none", () => {
+    const report = runSuite(suiteNamed("w3c"), manifest.corpus_hash);
+    const naming = suiteNamed("w3c")
+      .cases.filter((testCase) => testCase.host?.event_io_processors !== undefined)
+      .map((testCase) => testCase.id);
+    expect(naming).toEqual([
+      "w3c/test201",
+      "w3c/test509",
+      "w3c/test510",
+      "w3c/test518",
+      "w3c/test519",
+      "w3c/test520",
+      "w3c/test522",
+      "w3c/test531",
+      "w3c/test532",
+      "w3c/test534",
+      "w3c/test567",
+      "w3c/test577",
+    ]);
+    for (const id of naming) {
+      expect(report.results.find((result) => result.case_id === id)).toEqual({
+        case_id: id,
+        suite: "w3c",
+        result: "fail",
+        reason: `${PROCESSOR_NOT_REGISTERED}: http://www.w3.org/TR/scxml/#BasicHTTPEventProcessor`,
+      });
+    }
+    const claimed = new Set(loadRegistry().entries.map((entry) => entry.case_id));
+    expect(naming.filter((id) => claimed.has(id))).toEqual([]);
+  });
+
   // Sabotage: answering the statifier suite with the not-driven reason turns
   // this red on the passes. It was run and reverted.
   it("drives every statifier case, and every case it claims passes", () => {
     const report = runSuite(suiteNamed("statifier"), manifest.corpus_hash);
-    expect(report.results).toHaveLength(28);
+    expect(report.results).toHaveLength(31);
     const passed = new Set(
       report.results.filter((result) => result.result === "pass").map((result) => result.case_id),
     );
@@ -281,9 +318,10 @@ describe("the known causes", () => {
 describe("the cases neither registry claims", () => {
   // Sabotage: keeping the claimed cases instead of dropping them turns this
   // red. It was run and reverted.
-  it("are the w3c cases the reference leaves unclaimed, each with the run's reason", () => {
+  it("are the three w3c cases the reference leaves unclaimed, each with the run's reason", () => {
     const neither = unclaimedByEither(loadReferenceRegistry(), loadRegistry(), suites, ["w3c"]);
     expect(neither).toEqual([
+      { case_id: "w3c/test201", suite: "w3c" },
       { case_id: "w3c/test330", suite: "w3c" },
       { case_id: "w3c/test552", suite: "w3c" },
     ]);
