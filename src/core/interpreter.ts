@@ -171,6 +171,8 @@ export interface InitializeOptions {
   readonly maxMacrostepRounds?: RoundBudget;
   /** The send types the host registered a processor for, or null for none. */
   readonly sendTypes?: ReadonlySet<string> | null;
+  /** The `_ioprocessors` entries the registered processors supply, by type; an absent type's entry is empty. */
+  readonly ioprocessors?: ReadonlyMap<string, Value>;
   /** What the host declares it can reach, or null to leave every route to the host. */
   readonly routes?: Routes | null;
   /** Whether the position emits trace effects; false when absent. */
@@ -243,6 +245,7 @@ function newMachineState(machine: Machine, options: InitializeOptions): MachineS
       options.sessionId,
       machine.name ?? undefined,
       options.sendTypes ?? null,
+      options.ioprocessors,
     ),
     internalQueue: [],
     macrostep: 0,

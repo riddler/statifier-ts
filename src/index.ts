@@ -86,6 +86,7 @@ export {
   type MailRecord,
   type MalformedDetail,
   type PendingTimer,
+  type ProcessorContext,
   type QueuedEvent,
   reportSendFailed,
   type SendProcessor,

@@ -66,10 +66,17 @@ export interface HttpFailure {
 export type HttpAnswer = HttpStatus | HttpFailure;
 
 /**
- * Makes one request once and answers what came of it.
- *
- * The promise settles to an answer and never rejects: a failure is a value.
- * A transport makes one attempt, retrying is not its job, and it bounds the
- * request's time itself, answering a failure when the bound passes.
+ * What makes the processor's requests: an object with one method, `post`,
+ * the reference's one callback, so a later member (an abort, a close) is an
+ * addition rather than a change of shape.
  */
-export type HttpTransport = (request: HttpRequest) => Promise<HttpAnswer>;
+export interface HttpTransport {
+  /**
+   * Makes one request once and answers what came of it.
+   *
+   * The promise settles to an answer and never rejects: a failure is a value.
+   * A transport makes one attempt, retrying is not its job, and it bounds the
+   * request's time itself, answering a failure when the bound passes.
+   */
+  readonly post: (request: HttpRequest) => Promise<HttpAnswer>;
+}

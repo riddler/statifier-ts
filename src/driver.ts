@@ -326,21 +326,41 @@ export interface DeliveryFailure {
 }
 
 /**
- * A host's processor for one registered send type. The driver calls it once
- * the call's state is written, in the order the run made the calls; a refused
- * call calls no processor.
+ * What the driver tells a processor about the session it is called for: the
+ * session's id, the one `_sessionid` reads. A processor that serves several
+ * sessions tells their sends apart by it.
+ */
+export interface ProcessorContext {
+  readonly sessionId: string;
+}
+
+/**
+ * A host's processor for one registered send type. The driver calls its
+ * `deliver` and `cancel` once the call's state is written, in the order the
+ * run made the calls; a refused call calls neither.
  */
 export interface SendProcessor {
   /**
-   * Takes a send of its type, and the event a delivery of it would carry.
-   * Answers a `DeliveryFailure` for a send it could not deliver. Any other
-   * answer, nothing included, is a send it took: the answer is typed
-   * `unknown` so that a processor written as an expression, whose value is
-   * whatever that expression answers, stays a processor.
+   * Takes a send of its type, the event a delivery of it would carry, and the
+   * sending session's context. Answers a `DeliveryFailure` for a send it could
+   * not deliver. Any other answer, nothing included, is a send it took: the
+   * answer is typed `unknown` so that a processor written as an expression,
+   * whose value is whatever that expression answers, stays a processor.
    */
-  readonly deliver: (send: Send | SendDelayed, event: Event) => unknown;
-  /** Takes a `<cancel>` naming a delayed send it holds. */
-  readonly cancel?: (cancel: Cancel) => void;
+  readonly deliver: (send: Send | SendDelayed, event: Event, context: ProcessorContext) => unknown;
+  /** Takes a `<cancel>` naming a delayed send it holds, and the session's context. */
+  readonly cancel?: (cancel: Cancel, context: ProcessorContext) => void;
+  /**
+   * The entry the session's `_ioprocessors` holds under a type this processor
+   * is registered for, asked once per registered type as the session starts,
+   * with the type and the session's context. Without it the entry is empty.
+   * Asked while the starting state is built, so a start the driver refuses
+   * may already have asked it.
+   */
+  readonly ioprocessorsEntry?: (
+    type: string,
+    context: ProcessorContext,
+  ) => Readonly<Record<string, Value>>;
 }
 
 /** The processors a host registers, by send type. */
@@ -749,6 +769,7 @@ function launch(spec: Launch, register?: (live: Live) => void): Live {
       ? {}
       : { maxMacrostepRounds: spec.maxMacrostepRounds }),
     sendTypes: registeredSet(spec.processors),
+    ioprocessors: entriesOf(spec.processors, spec.sessionId),
     routes: {
       sessions: new Set([spec.sessionId]),
       parent: spec.invokedAs !== null,
@@ -797,6 +818,19 @@ function stamp(live: Live): void {
 function registeredSet(processors: SendProcessors): ReadonlySet<string> | null {
   const types = Object.keys(processors);
   return types.length === 0 ? null : new Set(types);
+}
+
+// The `_ioprocessors` entries the registered processors supply, asked once
+// per type as the session starts: the reference's `ioprocessors_entry/2`,
+// asked by `SystemVariables.initial/3`. A type whose processor has no
+// `ioprocessorsEntry` supplies none, and its entry stays empty.
+function entriesOf(processors: SendProcessors, sessionId: string): ReadonlyMap<string, Value> {
+  const entries = new Map<string, Value>();
+  for (const type of Object.keys(processors)) {
+    const entry = processorFor(processors, type)?.ioprocessorsEntry;
+    if (entry !== undefined) entries.set(type, entry(type, { sessionId }));
+  }
+  return entries;
 }
 
 // Every session of the tree, the host's first and each child after its
@@ -964,7 +998,9 @@ function handOff(live: Live, send: Send | SendDelayed): readonly InterpreterEffe
     const held = live.heldSends.get(send.sendId) ?? [];
     live.heldSends.set(send.sendId, [...new Set([...held, type])].sort(byCodeUnit));
   }
-  processorFor(live.processors, type)?.deliver(send, deliveredEvent(send, live.sessionId));
+  processorFor(live.processors, type)?.deliver(send, deliveredEvent(send, live.sessionId), {
+    sessionId: live.sessionId,
+  });
   return [];
 }
 
@@ -976,7 +1012,9 @@ function cancelSend(live: Live, cancel: Cancel): void {
   const held = live.heldSends.get(cancel.sendId);
   if (held === undefined) return;
   live.heldSends.delete(cancel.sendId);
-  for (const type of held) processorFor(live.processors, type)?.cancel?.(cancel);
+  for (const type of held) {
+    processorFor(live.processors, type)?.cancel?.(cancel, { sessionId: live.sessionId });
+  }
 }
 
 // The processor registered for a type on this call, read as an own key only.
@@ -1017,8 +1055,10 @@ function failed(answered: unknown): boolean {
 }
 
 // The host's processors with each call held on `calls` rather than made: the
-// same types, so the registered set and `_ioprocessors` read the same, and a
-// `cancel` only where the host gave one. A type the host listed with no
+// same types, so the registered set and `_ioprocessors` read the same, a
+// `cancel` only where the host gave one, and the `ioprocessorsEntry` the host
+// gave passed through unheld, since it is asked while the state is built
+// rather than once it is written. A type the host listed with no
 // processor stays listed and is handed nothing, as it was before. Built as
 // own entries, so a type named `__proto__` stays a type rather than setting
 // the prototype of the object that holds them.
@@ -1034,20 +1074,23 @@ function held(processors: SendProcessors, calls: HostCall[]): SendProcessors {
 function holding(processor: SendProcessor | undefined, calls: HostCall[]): SendProcessor {
   if (processor === undefined || processor === null) return { deliver: () => {} };
   return {
-    deliver: (send, event) => {
-      calls.push(() => (failed(processor.deliver(send, event)) ? send : null));
+    deliver: (send, event, context) => {
+      calls.push(() => (failed(processor.deliver(send, event, context)) ? send : null));
       return undefined;
     },
     ...(processor.cancel === undefined
       ? {}
       : {
-          cancel: (c: Cancel) => {
+          cancel: (c: Cancel, context: ProcessorContext) => {
             calls.push(() => {
-              processor.cancel?.(c);
+              processor.cancel?.(c, context);
               return null;
             });
           },
         }),
+    ...(processor.ioprocessorsEntry === undefined
+      ? {}
+      : { ioprocessorsEntry: processor.ioprocessorsEntry }),
   };
 }
 

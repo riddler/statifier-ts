@@ -431,6 +431,33 @@ reference's, and nothing here claims parity with it: that needs corpus cases
 that assert the exported position after a step, which the reference does not
 emit yet.
 
+## The Basic HTTP processor
+
+The Basic HTTP Event I/O Processor of SCXML appendix C.2 ships on an entry
+point of its own, `@riddler/statifier/basichttp`, so a host that does not
+import it reaches nothing it reads. `basicHttp` takes the base address the
+host's own front answers at, a `report` function, and optionally a transport,
+and answers the processor with the send types to register it under: its URI
+and its short form `basichttp`. A session's `_ioprocessors` then carries the
+same location under both, the base address, `/`, and the session's id.
+
+Each send the processor is handed becomes one POST, made after the call that
+handed it returns: a form body built by hand, or the send's content as text,
+carrying the send's deduplication key in the `scxml-send-key` header. Delivery
+is at least once; a receiver that takes a request only when it has not taken
+one with the same key takes each send once. A send with no target fails within
+the call that handed it, as appendix C.2.2 requires. Any other miss - a status
+outside 2xx, no response, a transport that throws - is handed to `report` with
+the sending session's id, and the host passes it to `reportSendFailed` with the
+state it holds for that session, so the chart takes `error.communication`.
+
+The default transport, `fetchTransport`, looks up the global fetch function
+when a request is made, not when the package loads, and answers the failure
+`fetch_unavailable` when there is none. A host supplies its own HTTP as an
+object with a `post` method of the `HttpTransport` type. On a device the
+processor only sends; `decodeRequest` is for a host that runs a server, and
+turns an inbound POST into the event its front passes to `step`.
+
 ## Conformance
 
 The conformance corpus is the reference's, and it is the spec: a case this
