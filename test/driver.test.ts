@@ -9,12 +9,12 @@
 import { Duration, float, PDate, Undefined, type Value } from "@riddler/predicator";
 import { describe, expect, expectTypeOf, it } from "vitest";
 import { type Chart, compile } from "../src/compiler.js";
-import type { InterpreterEffect } from "../src/core/interpreter.js";
 import type { Cancel, Send, SendDelayed } from "../src/core/send.js";
 import type { Event } from "../src/datamodel.js";
 import {
   advance,
   configuration,
+  type DriveEffect,
   type DriveOptions,
   type DriveResult,
   isDone,
@@ -35,7 +35,7 @@ function chartOf(source: string): Chart {
   return result.chart;
 }
 
-type Moved = { readonly state: State; readonly effects: readonly InterpreterEffect[] };
+type Moved = { readonly state: State; readonly effects: readonly DriveEffect[] };
 
 function ok(result: DriveResult): Moved {
   if (!result.ok) throw new Error(`refused: ${result.reason}`);
@@ -54,11 +54,11 @@ function wait(chart: Chart, state: State, ms: number, options?: DriveOptions): M
   return ok(advance(chart, state, ms, options));
 }
 
-function kinds(effects: readonly InterpreterEffect[]): string[] {
+function kinds(effects: readonly DriveEffect[]): string[] {
   return effects.map((effect) => effect.kind);
 }
 
-function logged(effects: readonly InterpreterEffect[]): Value[] {
+function logged(effects: readonly DriveEffect[]): Value[] {
   return effects.flatMap((effect) => (effect.kind === "log" ? [effect.value] : []));
 }
 

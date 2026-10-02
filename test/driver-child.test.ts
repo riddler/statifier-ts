@@ -12,10 +12,10 @@
 
 import { describe, expect, it } from "vitest";
 import { type Chart, compile } from "../src/compiler.js";
-import type { InterpreterEffect } from "../src/core/interpreter.js";
 import {
   advance,
   configuration,
+  type DriveEffect,
   type DriveResult,
   type State,
   start,
@@ -31,7 +31,7 @@ function chartOf(source: string): Chart {
   return result.chart;
 }
 
-type Moved = { readonly state: State; readonly effects: readonly InterpreterEffect[] };
+type Moved = { readonly state: State; readonly effects: readonly DriveEffect[] };
 
 function ok(result: DriveResult): Moved {
   if (!result.ok) throw new Error(`refused: ${result.reason}`);
@@ -50,7 +50,7 @@ function wait(chart: Chart, state: State, ms: number): Moved {
   return ok(advance(chart, state, ms));
 }
 
-function logged(effects: readonly InterpreterEffect[]): unknown[] {
+function logged(effects: readonly DriveEffect[]): unknown[] {
   return effects.flatMap((effect) => (effect.kind === "log" ? [effect.value] : []));
 }
 

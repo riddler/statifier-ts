@@ -71,10 +71,12 @@ export type { StateKind } from "./document/scxml.js";
 export {
   type ActiveInvocation,
   advance,
+  type ChildEffect,
   configuration,
   type DeliveryFailure,
   type DoneRecord,
   type DoneStatus,
+  type DriveEffect,
   type DriveOptions,
   type DriveRefusal,
   type DriveRefused,

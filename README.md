@@ -260,8 +260,15 @@ parent's `autoforward` reaches the child, the child's completion returns
 `done.invoke.<invokeid>` with its donedata, and leaving the invoking state
 cancels the child. `src` is never fetched, so an `<invoke>` with no content
 raises `error.communication`, and so does content that does not compile; an
-invoke type other than SCXML raises `error.execution`. A child's own effects
-are not among a call's effects.
+invoke type other than SCXML raises `error.execution`. What a child inherits
+is the host's choice, passed with every call and off by default, as the
+reference's session options are. With `opts.inheritSendTypes`, every child
+reaches the processors in `opts.sendTypes`, each send handed with the
+child's own session id, the parent's, a dot and the invoke id. With
+`opts.inheritObservers`, every effect a child's run answers is among the
+call's effects as `{ kind: "child", sessionId, effect }`, and a child starts
+with its parent's `trace` flag. Without them a child registers no send type
+and its own effects are not among a call's effects.
 
 A send whose type the host registers is handed to the host's processor. The
 processors are passed in `opts.sendTypes` on `start` and on every later call,

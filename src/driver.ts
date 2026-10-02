@@ -100,8 +100,19 @@
 // invocation and stops its child, running the child's `<onexit>` handlers,
 // unless the child already said it completed, which leaves the entry for
 // its done event. An `autoforward` delivers the event, unchanged, to a live
-// child. A child is started with no registered send type, and its effects
-// are not among a call's effects: those are the host's session's own.
+// child.
+//
+// What a child inherits is the host's to choose, call by call, as the
+// reference's session options choose it, and each choice is off by default.
+// Off, a child is started with no registered send type, and its effects are
+// not among a call's effects: those are the host's session's own. With
+// `inheritSendTypes`, every session of the tree is started and decoded with
+// the call's processors, so a child's send of a registered type is handed to
+// its processor with the child's own session id, under the same encode-first
+// rule and the same ledger as the host's session's. With `inheritObservers`,
+// every effect a child's run answers is reported among the call's effects, in
+// the order the run made it, wrapped in a `child` effect that names the
+// child's session id, and a child starts with its parent's trace flag.
 //
 // Registered send types. The processors a host registers are passed with
 // every call, as the reference re-stamps its send types before each drive:
@@ -381,6 +392,22 @@ export interface SendProcessor {
 /** The processors a host registers, by send type. */
 export type SendProcessors = Readonly<Record<string, SendProcessor>>;
 
+/**
+ * An effect an invoked child's run answered, reported among a call's effects
+ * when the call passes `inheritObservers`: the child's session id, which is
+ * its parent's, a dot and its invoke id, and the effect as the child's run
+ * answered it. A grandchild's effect is reported the same way, under its own
+ * session id, never nested.
+ */
+export interface ChildEffect {
+  readonly kind: "child";
+  readonly sessionId: string;
+  readonly effect: InterpreterEffect;
+}
+
+/** An effect a driver call answers: the host's session's own, or a child's. */
+export type DriveEffect = InterpreterEffect | ChildEffect;
+
 /** What every call but `start` takes beside its arguments. */
 export interface DriveOptions {
   /**
@@ -396,6 +423,30 @@ export interface DriveOptions {
    * registered type's entry in `_ioprocessors` is written at start and kept.
    */
   readonly sendTypes?: SendProcessors;
+  /**
+   * Whether an invoked child reaches the processors in `sendTypes`, as the
+   * reference's `inherit_send_types` session option decides it. When true,
+   * every session of the tree, a child's children included, is started and
+   * run with the call's processors: its `_ioprocessors` holds their entries,
+   * and a send of a registered type is handed to its processor with the
+   * child's own session id in the context. False when absent: a child
+   * registers no send type, and a send of a type the host registers raises
+   * `error.execution` in it.
+   *
+   * Like `sendTypes`, it must stay the same for a session's whole life: a
+   * child's `_ioprocessors` is written as it starts.
+   */
+  readonly inheritSendTypes?: boolean;
+  /**
+   * Whether an invoked child's effects are among the call's effects, as the
+   * reference's `inherit_observers` session option decides whether a child's
+   * messages reach its parent's observers. When true, every effect a child's
+   * run answers, a child's children included, is reported in the order the
+   * run made it as a `ChildEffect` naming the child's session id, and a child
+   * starts with its parent's `trace` flag. False when absent: a child's
+   * effects are not reported, and a child starts with the flag clear.
+   */
+  readonly inheritObservers?: boolean;
 }
 
 /**
@@ -479,7 +530,7 @@ export type DriveResult =
   | {
       readonly ok: true;
       readonly state: State;
-      readonly effects: readonly InterpreterEffect[];
+      readonly effects: readonly DriveEffect[];
     }
   | DriveRefused;
 
@@ -521,7 +572,7 @@ export type DoneStatus =
  */
 export function start(chart: Chart, options: StartOptions): DriveResult {
   return drive(options.sendTypes ?? {}, (processors) => {
-    const out: InterpreterEffect[] = [];
+    const out: DriveEffect[] = [];
     const live = launch({
       chart,
       sessionId: options.sessionId,
@@ -529,9 +580,11 @@ export function start(chart: Chart, options: StartOptions): DriveResult {
       maxMacrostepRounds: options.maxMacrostepRounds ?? 10_000,
       clock: { nowMs: 0, sequence: 0 },
       processors,
+      inherit: inheritanceOf(options),
       out,
       parent: null,
       invokedAs: null,
+      trace: false,
     });
     return { ok: true, live, out };
   });
@@ -557,7 +610,7 @@ export function step(
   options: DriveOptions = {},
 ): DriveResult {
   return drive(options.sendTypes ?? {}, (sendTypes) => {
-    const out: InterpreterEffect[] = [];
+    const out: DriveEffect[] = [];
     const opened = open(chart, state, { ...options, sendTypes }, out);
     if (!opened.ok) return opened;
     const live = opened.live;
@@ -592,7 +645,7 @@ export function advance(
 ): DriveResult {
   if (!Number.isFinite(ms) || ms < 0) return { ok: false, reason: "invalid_duration" };
   return drive(options.sendTypes ?? {}, (sendTypes) => {
-    const out: InterpreterEffect[] = [];
+    const out: DriveEffect[] = [];
     const opened = open(chart, state, { ...options, sendTypes }, out);
     if (!opened.ok) return opened;
     const live = opened.live;
@@ -642,7 +695,7 @@ export function reportSendFailed(
   const send = failure?.send;
   if (!isSendOrigin(send)) return { ok: false, reason: "not_a_send" };
   return drive(options.sendTypes ?? {}, (sendTypes) => {
-    const out: InterpreterEffect[] = [];
+    const out: DriveEffect[] = [];
     const opened = open(chart, state, { ...options, sendTypes }, out);
     if (!opened.ok) return opened;
     const live = opened.live;
@@ -691,7 +744,7 @@ export function isDone(state: State): DoneStatus {
  * drive leaves.
  */
 export function rewrite(chart: Chart, state: State): DriveResult {
-  const out: InterpreterEffect[] = [];
+  const out: DriveEffect[] = [];
   const opened = open(chart, state, {}, out);
   if (!opened.ok) return opened;
   const codec: Codec = { failed: false };
@@ -734,10 +787,46 @@ interface Live {
    * the parent, which has already retired the invocation.
    */
   cancelled: boolean;
-  /** The processors this session hands registered sends to: the host's, or none for a child. */
+  /**
+   * The processors this session hands registered sends to: the host's, and a
+   * child's too when the call passes `inheritSendTypes`; none otherwise.
+   */
   readonly processors: SendProcessors;
-  /** Where this session's effects are reported: the call's own for the host's session. */
-  readonly out: InterpreterEffect[];
+  /** What the call passes the children of its tree. */
+  readonly inherit: Inheritance;
+  /**
+   * Where this session's effects are reported: the call's own for the host's
+   * session, and for a child when the call passes `inheritObservers`; a list
+   * nothing reads otherwise.
+   */
+  readonly out: DriveEffect[];
+}
+
+// What a call passes the children of its tree, from its options.
+interface Inheritance {
+  readonly sendTypes: boolean;
+  readonly observers: boolean;
+}
+
+function inheritanceOf(options: DriveOptions): Inheritance {
+  return {
+    sendTypes: options.inheritSendTypes === true,
+    observers: options.inheritObservers === true,
+  };
+}
+
+// What a child of `parent` is started or decoded with: the parent's
+// processors and its effect list when the call passes them on, and otherwise
+// no processor and a list nothing reads.
+function inheritedBy(parent: {
+  readonly processors: SendProcessors;
+  readonly inherit: Inheritance;
+  readonly out: DriveEffect[];
+}): { readonly processors: SendProcessors; readonly out: DriveEffect[] } {
+  return {
+    processors: parent.inherit.sendTypes ? parent.processors : {},
+    out: parent.inherit.observers ? parent.out : [],
+  };
 }
 
 // The virtual clock and the sequence timers are scheduled in, one per tree.
@@ -774,9 +863,12 @@ interface Launch {
   readonly maxMacrostepRounds?: RoundBudget;
   readonly clock: Clock;
   readonly processors: SendProcessors;
-  readonly out: InterpreterEffect[];
+  readonly inherit: Inheritance;
+  readonly out: DriveEffect[];
   readonly parent: Live | null;
   readonly invokedAs: string | null;
+  /** Whether the session starts with its trace flag set. */
+  readonly trace: boolean;
 }
 
 // Starts a session and runs it to a stable configuration. A child's
@@ -791,6 +883,7 @@ function launch(spec: Launch, register?: (live: Live) => void): Live {
       : { maxMacrostepRounds: spec.maxMacrostepRounds }),
     sendTypes: registeredSet(spec.processors),
     ioprocessors: entriesOf(spec.processors, spec.sessionId),
+    trace: spec.trace,
     routes: {
       sessions: new Set([spec.sessionId]),
       parent: spec.invokedAs !== null,
@@ -813,6 +906,7 @@ function launch(spec: Launch, register?: (live: Live) => void): Live {
     mailbox: [],
     cancelled: false,
     processors: spec.processors,
+    inherit: spec.inherit,
     out: spec.out,
   };
   register?.(live);
@@ -959,7 +1053,9 @@ function perform(live: Live, effects: readonly InterpreterEffect[]): void {
   while (batch.length > 0) {
     const deferred: InterpreterEffect[] = [];
     for (const effect of batch) {
-      live.out.push(effect);
+      live.out.push(
+        live.invokedAs === null ? effect : { kind: "child", sessionId: live.sessionId, effect },
+      );
       deferred.push(...performOne(live, effect));
     }
     batch = deferred;
@@ -1352,10 +1448,11 @@ function invoke(live: Live, effect: Invoke): readonly InterpreterEffect[] {
       sessionId: `${live.sessionId}.${effect.invokeId}`,
       datamodel: seed(effect.params, chart.machine),
       clock: live.clock,
-      processors: {},
-      out: [],
+      ...inheritedBy(live),
+      inherit: live.inherit,
       parent: live,
       invokedAs: effect.invokeId,
+      trace: live.inherit.observers && live.core.trace,
     },
     (child) => record(child, source),
   );
@@ -1446,9 +1543,7 @@ interface Codec {
 
 // What one run of a driver call leaves: the session and its effects, or the
 // call's refusal.
-type Ran =
-  | { readonly ok: true; readonly live: Live; readonly out: InterpreterEffect[] }
-  | DriveRefused;
+type Ran = { readonly ok: true; readonly live: Live; readonly out: DriveEffect[] } | DriveRefused;
 
 // A driver call: its run, made over the host's processors with their calls
 // held, and its answer. The calls the run held are made only once its state
@@ -1691,7 +1786,7 @@ function sameIdentity(a: ChartIdentity, b: ChartIdentity): boolean {
 
 // The state's shape is checked first, over every field, so nothing below
 // reads a field that is missing or of the wrong type.
-function open(chart: Chart, state: State, options: DriveOptions, out: InterpreterEffect[]): Opened {
+function open(chart: Chart, state: State, options: DriveOptions, out: DriveEffect[]): Opened {
   const badShape = stateShapeFailure(state);
   if (badShape !== null) {
     return { ok: false, reason: "malformed_state", detail: { kind: "bad_shape", field: badShape } };
@@ -1703,6 +1798,7 @@ function open(chart: Chart, state: State, options: DriveOptions, out: Interprete
     at: "",
     clock,
     processors: options.sendTypes ?? {},
+    inherit: inheritanceOf(options),
     out,
     parent: null,
   });
@@ -1792,12 +1888,14 @@ function decodeMail(decoder: Decoder, record: MailRecord, field: string): Mail {
 }
 
 // Where one session of the tree is decoded: its path into the whole state,
-// the tree's clock, its processors and effect sink, and its parent.
+// the tree's clock, its processors, what the call passes the children of its
+// tree, its effect sink, and its parent.
 interface Place {
   readonly at: string;
   readonly clock: Clock;
   readonly processors: SendProcessors;
-  readonly out: InterpreterEffect[];
+  readonly inherit: Inheritance;
+  readonly out: DriveEffect[];
   readonly parent: Live | null;
 }
 
@@ -1836,8 +1934,7 @@ function decodeInvocation(
   const child = decodeState(decoder, chart, record.state, {
     ...place,
     at: `${at}.state.`,
-    processors: {},
-    out: [],
+    ...inheritedBy(parent),
     parent,
   });
   return invocation(child, record.source);
@@ -1920,6 +2017,7 @@ function decodeState(decoder: Decoder, chart: Chart, state: State, place: Place)
     mailbox: state.mailbox.map((mail, i) => decodeMail(decoder, mail, `${at}mailbox[${i}]`)),
     cancelled: false,
     processors: place.processors,
+    inherit: place.inherit,
     out: place.out,
   };
   for (const [i, record] of state.invocations.entries()) {
