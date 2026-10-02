@@ -327,9 +327,42 @@ describe("the README's claims", () => {
     expect(gate).toContain("pnpm run neutrality");
   });
 
-  // Sabotage: the engine sentence saying the proof is run turns this red.
-  it("says the engine proof is not yet run", () => {
-    expect(prose(section("Engines"))).toContain("the engine proof is not yet run");
+  // Sabotage: dropping either limit from the engine paragraph turns this red.
+  it("states the engine proof with the limits of what it ran", () => {
+    const engines = prose(section("Engines"));
+    expect(engines).not.toContain("not yet run");
+    expect(engines).toContain("not a run on the engine build an application ships");
+    expect(engines).toContain("not a network round trip on a device");
+  });
+
+  // Sabotage: a typed row count that no suite holds turns this red.
+  it("states the engine proof's rows as the vendored suites' case counts", () => {
+    const engines = prose(section("Engines"));
+    const rows = /scion (\d+) rows, w3c (\d+) and statifier (\d+)/.exec(engines);
+    expect(rows).not.toBeNull();
+    const counts = new Map(loadSuites().map((suite) => [suite.suite, suite.cases.length]));
+    expect(rows?.slice(1).map(Number)).toEqual([
+      counts.get("scion"),
+      counts.get("w3c"),
+      counts.get("statifier"),
+    ]);
+  });
+});
+
+describe("the README's links", () => {
+  // Sabotage: a relative link to docs/ (not in `files`) turns this red.
+  it("links by relative path only to a file the package ships", () => {
+    const shipped = manifest.files as string[];
+    const relative = [...prose(README).matchAll(/\]\(([^)]+)\)/g)]
+      .map((found) => found[1] ?? "")
+      .filter((target) => !/^(?:[a-z]+:|#)/.test(target));
+    for (const target of relative) {
+      const path = target.split("#")[0] ?? "";
+      expect(
+        shipped.some((entry) => path === entry || path.startsWith(`${entry}/`)),
+        `${target} leaves the package's files`,
+      ).toBe(true);
+    }
   });
 });
 
