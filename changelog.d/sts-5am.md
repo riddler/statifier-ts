@@ -1,3 +1,0 @@
-### Added
-
-- The entry point exports by name every type in this package that a compile error reaches, as types only: `ParseError`, `ParseErrorReason`, `Location`, `LoweringError`, `LoweringErrorOf`, `ValidationError`, `ValidationErrorOf`, `ValidationNoDetail`, `DefaultTransitionOwner`, `StateKind`, `CompilerError` and `ExpressionOwner`, so a host can name the member of `CompileError` it narrows to.

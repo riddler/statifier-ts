@@ -1,4 +1,0 @@
-### Added
-
-- `inheritSendTypes` on `start` and every later call hands an in-process child the processors in `sendTypes`, down the whole invoke tree: a child's send of a registered type reaches its processor with the child's own session id, and its `_ioprocessors` holds the type's entry. Off by default, as the reference's `inherit_send_types` is; pass the same value for a session's whole life, as `sendTypes` is passed.
-- `inheritObservers` on `start` and every later call reports every effect an in-process child's run answers among the call's effects as a `child` effect (the exported `ChildEffect`) carrying the child's session id and the effect, and starts a child with its parent's `trace` flag. Off by default, as the reference's `inherit_observers` is; a call's effects are now typed `DriveEffect`, the core's effects or a `ChildEffect`.
