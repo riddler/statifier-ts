@@ -213,25 +213,61 @@ describe("what the host here cannot do", () => {
         "the case's host checks the chart's declared events (declared_events, expect_accepts), and this package does not port the reference's accepts check",
     });
   });
+});
 
-  // Sabotage: running a diff case as any other host case turns this red. It
-  // was run and reverted.
-  it("fails every diff case before it is driven, naming the keys it carries", () => {
-    const diff = statifier?.cases.filter((testCase) => testCase.spec === "diff") ?? [];
+describe("a diff case", () => {
+  const diff = statifier?.cases.filter((testCase) => testCase.spec === "diff") ?? [];
+
+  // Sabotage: failing a case that carries `to_source` before it is driven, as
+  // this runner did before, turns this red. It was run and reverted.
+  it("is driven as any other host case, and passes on its configurations and sends", () => {
     expect(diff).toHaveLength(10);
     for (const testCase of diff) {
-      const outcome = runStatifierCase(testCase);
-      expect(outcome).toMatchObject({
+      expect(Object.hasOwn(testCase.host ?? {}, "to_source"), testCase.id).toBe(true);
+      expect(runStatifierCase(testCase), testCase.id).toEqual({ result: "pass" });
+    }
+    expect(notPorted({ to_source: "", mapping: {}, expect_diff: {} })).toBeNull();
+    expect(notPorted({ send_types: [], expect_sends: [] })).toBeNull();
+  });
+
+  // Sabotage: answering a pass without comparing the initial configuration
+  // turns this red. It was run and reverted.
+  it("fails a planted wrong configuration, so the pass is not vacuous", () => {
+    for (const testCase of diff) {
+      const planted = { ...testCase, initial_configuration: ["nowhere"] };
+      expect(runStatifierCase(planted), testCase.id).toMatchObject({
         result: "fail",
         reason: expect.stringMatching(
-          /^the case's host diffs the chart to a second chart \(to_source, [a-z_, ]+\), and this package does not port the reference's chart diff or its position predicate$/,
+          /^the initial configuration: expected active leaf states \[nowhere\], got /,
         ),
       });
     }
-    expect(notPorted({ to_source: "", mapping: {}, expect_diff: {} })).toBe(
-      "the case's host diffs the chart to a second chart (to_source, mapping, expect_diff), and this package does not port the reference's chart diff or its position predicate",
-    );
-    expect(notPorted({ send_types: [], expect_sends: [] })).toBeNull();
+  });
+
+  // Sabotage: answering a pass without comparing the handed sends turns this
+  // red. It was run and reverted.
+  it("fails a planted extra expected send, so the pass is not vacuous", () => {
+    for (const testCase of diff) {
+      const planted = withHost(testCase, { expect_sends: [...expectSends(testCase), ROUTED] });
+      expect(runStatifierCase(planted), testCase.id).toMatchObject({
+        result: "fail",
+        reason: expect.stringMatching(/^expected the sends handed to the host /),
+      });
+    }
+  });
+
+  // The four diff keys are compared by the reference's own test suite, never
+  // by its runner, so changing them changes nothing here.
+  it("compares none of the four diff keys, as the reference's runner compares none", () => {
+    for (const testCase of diff) {
+      const planted = withHost(testCase, {
+        to_source: "<scxml/>",
+        mapping: { nowhere: "elsewhere" },
+        expect_diff: { class: "breaking", reasons: [] },
+        expect_compatible_at: !testCase.host?.expect_compatible_at,
+      });
+      expect(runStatifierCase(planted), testCase.id).toEqual({ result: "pass" });
+    }
   });
 });
 

@@ -330,3 +330,30 @@ operator, 2026-10-01; a later claim of them is additive.
 The change that adds this Amendment adds the code: `runHostCase` and
 `runStatifierCase` in `test/conformance/statifier.ts`, and the statifier
 branch of `runCorpusCase` in `test/conformance/runner.ts`.
+
+## Note: the diff cases are driven (2026-10-01)
+
+The diff row of the Amendment above, "the sends a host case expects", says a
+case whose host carries `to_source`, `mapping`, `expect_diff` or
+`expect_compatible_at` fails "before it is driven: this package does not port
+the chart diff or the position predicate". That row read the four keys as a
+feature the harness does not run. The reference's runner does not read them
+that way: its moduledoc says it "compares none of them: it runs such a case
+like any other host case" (`Mix.Statifier.Corpus.HostCase` in
+`lib/mix/statifier/corpus/host_case.ex` at `v2.10.0`), the reference compares
+the four keys only in its own test suite (`test/corpus/diff_cases_test.exs` at
+`v2.10.0`), and its registry, in the vendored copy at `v2.10.0`, claims every
+case under `statifier/diff/`. The Amendment left these cases unclaimed and said
+a later claim of them is additive; claiming them as the reference's runner
+does was ruled by the operator, 2026-10-01.
+
+The change that adds this Note does so. `notPorted` in
+`test/conformance/statifier.ts` no longer names the four keys, so a diff case
+is driven as any other host case and agrees on its configurations, under
+decision 7, and on its sends, under the Amendment above. The ten cases under
+`statifier/diff/` pass that drive and `conformance/registry.json` claims them,
+written by `pnpm ratchet` from the run that observed it. Nothing here compares
+the four keys: this package still does not port the reference's chart diff or
+its position predicate, so the claim says the cases' configurations and sends
+agree with the reference's and says nothing about a diff. The Amendment's
+other two rows stand.

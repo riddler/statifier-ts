@@ -29,7 +29,16 @@
 //   item asks for it (the harness's `cancel_named/2`), so a marked item no
 //   cancel reached disagrees.
 //
-// Three things the reference's harness does this runner cannot, and each
+// A case whose host carries a diff pair - `to_source` and `expect_diff`, with
+// an optional `mapping` and `expect_compatible_at` - is driven here like any
+// other host case, as the reference's runner drives it: its moduledoc says
+// that runner "compares none of them", and the reference compares the four
+// keys only in its own test suite (`test/corpus/diff_cases_test.exs` at
+// v2.10.0), through its chart diff and its position predicate, which this
+// package does not port. So a diff case agrees here on its configurations and
+// its sends, the comparisons the reference's runner makes for it.
+//
+// Two things the reference's harness does this runner cannot, and each
 // fails its case with the reason before or while it is driven, never patched
 // around:
 //
@@ -41,9 +50,6 @@
 // - `declared_events` and `expect_accepts`: the reference checks the chart's
 //   accepted-events declaration before it runs the case
 //   (`Statifier.Chart.check_accepts/2`), which this package does not port.
-// - `to_source`, `expect_diff`, `mapping` and `expect_compatible_at`: the
-//   reference compares them in its own test suite, through its chart diff and
-//   its position predicate, which this package does not port.
 //
 // Like the runner, this reaches nothing outside the language.
 
@@ -69,26 +75,15 @@ export const FAILED_SEND_NOT_REPORTABLE =
 /** The host keys of the reference's accepts check, which this package does not port. */
 export const ACCEPTS_KEYS: readonly string[] = Object.freeze(["declared_events", "expect_accepts"]);
 
-/** The host keys of the reference's chart diff and position predicate, which this package does not port. */
-export const DIFF_KEYS: readonly string[] = Object.freeze([
-  "to_source",
-  "mapping",
-  "expect_diff",
-  "expect_compatible_at",
-]);
-
 /**
  * Why a host case cannot be run here, before it is driven: the accepts check
- * or the diff pair it carries, naming the keys; null when it carries neither.
+ * it carries, naming the keys; null when it carries none. A diff pair is not
+ * a reason: the reference's runner compares none of its keys.
  */
 export function notPorted(host: Readonly<Record<string, unknown>>): string | null {
   const accepts = ACCEPTS_KEYS.filter((key) => Object.hasOwn(host, key));
   if (accepts.length > 0) {
     return `the case's host checks the chart's declared events (${accepts.join(", ")}), and this package does not port the reference's accepts check`;
-  }
-  const diff = DIFF_KEYS.filter((key) => Object.hasOwn(host, key));
-  if (diff.length > 0) {
-    return `the case's host diffs the chart to a second chart (${diff.join(", ")}), and this package does not port the reference's chart diff or its position predicate`;
   }
   return null;
 }
