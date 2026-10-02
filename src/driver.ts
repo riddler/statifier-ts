@@ -133,7 +133,13 @@
 // reference halts its session: further external events are queued and not
 // taken, and pending timers still fire.
 
-import { typeName, Undefined, type Value } from "@riddler/predicator";
+import {
+  PDateTime,
+  evaluate as predicatorEvaluate,
+  typeName,
+  Undefined,
+  type Value,
+} from "@riddler/predicator";
 import { decodeTagged, encodeTagged } from "@riddler/predicator/tagged";
 import { type Chart, type ChartIdentity, compileInvokeContent } from "./compiler.js";
 import {
@@ -158,12 +164,14 @@ import {
 } from "./core/send.js";
 import {
   type Cause,
+  type Draws,
   type Event,
   type EventType,
   type Origin,
   type Owner,
   SCXML_EVENT_PROCESSOR,
   scxmlLocation,
+  withDraws,
 } from "./datamodel.js";
 import { stateShapeFailure } from "./driver-shape.js";
 import { type Machine, stateAt } from "./machine.js";
@@ -1449,20 +1457,68 @@ type Ran =
 // up to the failure answered from the ledger rather than made twice and the
 // failure raised where the send was handed, and the calls it holds past them
 // are made the same way. The run is the same up to the failure each time,
-// since everything it reads but the processors' answers is the call's
-// arguments, so each send is handed to its processor once.
+// since it reads only the call's arguments, the processors' answers and the
+// clock and random draws its expressions make, which every run of the call
+// reads from one record, so each send is handed to its processor once.
 function drive(processors: SendProcessors, run: (processors: SendProcessors) => Ran): DriveResult {
   const answered: boolean[] = [];
   const entries = new Map<string, Readonly<Record<string, Value>>>();
+  const draws = recordedDraws();
   for (;;) {
     const ledger: Ledger = { answered, next: 0, held: [] };
-    const ran = run(held(processors, ledger, entries));
+    draws.rewind();
+    const ran = withDraws(draws, () => run(held(processors, ledger, entries)));
     if (!ran.ok) return ran;
     const codec: Codec = { failed: false };
     const state = encodeState(codec, ran.live);
     if (codec.failed) return { ok: false, reason: "unencodable_value" };
     if (!madeUntilFailure(ledger)) return { ok: true, state, effects: ran.out };
   }
+}
+
+// The clock and random draws one driver call's runs read, recorded as the
+// first run to reach each draw takes it, from predicator's own clock and
+// random source, and answered in the same order to every run made again;
+// `rewind` starts a run at the first draw. Each evaluation reads the clock
+// at most once, as predicator caches its instant for the evaluation.
+function recordedDraws(): Draws & { readonly rewind: () => void } {
+  const instants: PDateTime[] = [];
+  const numbers: number[] = [];
+  let instant = 0;
+  let number = 0;
+  return {
+    rewind: () => {
+      instant = 0;
+      number = 0;
+    },
+    now: () => {
+      if (instant === instants.length) instants.push(systemInstant());
+      const drawn = instants[instant] as PDateTime;
+      instant += 1;
+      return drawn;
+    },
+    random: () => {
+      if (number === numbers.length) numbers.push(systemRandom());
+      const drawn = numbers[number] as number;
+      number += 1;
+      return drawn;
+    },
+  };
+}
+
+// What predicator's own clock reads now, asked of predicator with no clock
+// pinned, so this package reads no clock of its own.
+function systemInstant(): PDateTime {
+  const read = predicatorEvaluate("Date.now()");
+  if (read.ok && read.value instanceof PDateTime) return read.value;
+  throw new Error("predicator answered Date.now() with something other than a date-time");
+}
+
+// A draw from predicator's own random source, asked the same way.
+function systemRandom(): number {
+  const read = predicatorEvaluate("Math.random()");
+  if (read.ok && typeof read.value === "number") return read.value;
+  throw new Error("predicator answered Math.random() with something other than a number");
 }
 
 // Makes the held calls in order, recording each answer, up to and including

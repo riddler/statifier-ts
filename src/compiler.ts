@@ -52,7 +52,7 @@ import {
 } from "@riddler/predicator";
 import type { ContentNode, Invalid } from "./core/content.js";
 import type { ParamNode } from "./core/send.js";
-import { type CompiledProgram, type Expr, ON_UNBOUND } from "./datamodel.js";
+import { type CompiledProgram, drawOptions, type Expr, ON_UNBOUND } from "./datamodel.js";
 import type { Content, Data, Datamodel, Donedata, Param } from "./document/data.js";
 import type { Assign, Cancel, Foreach, If, Log, Script, Send } from "./document/executable.js";
 import type { Invoke } from "./document/invoke.js";
@@ -190,7 +190,14 @@ function inlineValue(text: string): Expr {
   const trimmed = trimBlank(text);
   const compiled = compileExpression(trimmed);
   if (compiled.ok) {
-    const result = evaluateExpression(compiled.instructions, {}, { onUnbound: ON_UNBOUND });
+    const result = evaluateExpression(
+      compiled.instructions,
+      {},
+      {
+        onUnbound: ON_UNBOUND,
+        ...drawOptions(),
+      },
+    );
     if (result.ok) {
       const value = fromHost(result.value);
       if (value.ok) return staticExpr(value.value);

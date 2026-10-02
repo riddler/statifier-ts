@@ -36,6 +36,7 @@ import {
 } from "@riddler/predicator";
 import {
   type Counters,
+  drawOptions,
   type EvaluationContext,
   type ExecutionReason,
   type Expr,
@@ -317,7 +318,14 @@ export function textData(text: string): Value {
   if (trimmed === "") return Undefined;
   const compiled = compile(trimmed);
   if (compiled.ok) {
-    const result = predicatorEvaluate(compiled.instructions, {}, { onUnbound: "error" });
+    const result = predicatorEvaluate(
+      compiled.instructions,
+      {},
+      {
+        onUnbound: "error",
+        ...drawOptions(),
+      },
+    );
     if (result.ok) {
       const normalized = fromHost(result.value);
       if (normalized.ok) return normalized.value;

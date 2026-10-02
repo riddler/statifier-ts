@@ -8,7 +8,7 @@
 // and the branch notices the patron; a notice that fails sends the desk to
 // call the patron instead.
 
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { type Chart, compile } from "../src/compiler.js";
 import type { InterpreterEffect } from "../src/core/interpreter.js";
 import type { Send, SendDelayed } from "../src/core/send.js";
@@ -381,13 +381,104 @@ describe("a failure deliver answers, raised within the run that handed the send"
   // red: the refused start hands the failing notice.
   it("hands nothing when the call is refused, a send that would fail included", () => {
     const host = desk(() => failure);
+    const SENDS_AT_ONCE = chartOf(`<scxml ${SCXML} initial="notifying" name="sends_at_once">
+  <state id="notifying">
+    <onentry><send id="notice" type="library:notice" target="patron:ada" event="hold.ready"/></onentry>
+    <transition event="error.communication" target="notice_failed"/>
+  </state>
+  <state id="notice_failed"/>
+</scxml>`);
+    // The same start without the value the state cannot write hands the
+    // notice, so the refusal below is what hands nothing.
+    ok(start(SENDS_AT_ONCE, { sessionId: "hold-ada", ...host.options }));
+    expect(host.handed.map((send) => send.event)).toEqual(["hold.ready"]);
+    host.handed.length = 0;
     expect(
-      start(RETURNS, {
-        sessionId: "returns-ada",
+      start(SENDS_AT_ONCE, {
+        sessionId: "hold-ada",
         ...host.options,
         datamodel: { shelf: { $type: "date" } },
       }),
     ).toEqual({ ok: false, reason: "unencodable_value" });
     expect(host.handed).toEqual([]);
+  });
+});
+
+describe("a run made again after a failure, reading the clock or a random draw", () => {
+  const failure: DeliveryFailure = { kind: "failure", reason: "patron:ada has no address" };
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  // The branch draws which desk takes the hold, and the notice to the
+  // front desk fails. A run made again must draw what the first run drew.
+  const DRAWN = chartOf(`<scxml ${SCXML} initial="drawing" name="drawn">
+  <datamodel><data id="draw"/></datamodel>
+  <state id="drawing">
+    <onentry>
+      <assign location="draw" expr="Math.random()"/>
+      <if cond="draw &lt; 0.5">
+        <send id="front" type="library:notice" target="desk:front" event="hold.front"/>
+      <else/>
+        <send id="back" type="library:notice" target="desk:back" event="hold.back"/>
+      </if>
+    </onentry>
+    <transition event="error.communication" target="notice_failed">
+      <log label="sendid" expr="_event.sendid"/>
+    </transition>
+  </state>
+  <state id="notice_failed"/>
+</scxml>`);
+
+  // Sabotage: evaluating without the call's pinned random source (each run
+  // drawing afresh) turns this red: the run made again draws the back desk,
+  // raises a failure for a send never handed, and reports a send never made.
+  it("draws the same random value in every run of one call", () => {
+    const draws = [0.1, 0.9, 0.9, 0.9];
+    vi.spyOn(Math, "random").mockImplementation(() => draws.shift() ?? 0.9);
+    const host = desk((send) => (send.event === "hold.front" ? failure : undefined));
+    const started = ok(start(DRAWN, { sessionId: "hold-ada", ...host.options }));
+    expect(host.handed.map((send) => send.event)).toEqual(["hold.front"]);
+    expect(logged(started.effects)).toEqual([["sendid", "front"]]);
+    const reported = started.effects.flatMap((effect) =>
+      effect.kind === "send" ? [effect.event] : [],
+    );
+    expect(reported).toEqual(["hold.front"]);
+    expect(started.state.configuration).toEqual(["notice_failed"]);
+  });
+
+  // The branch stamps the notice with the time it is sent, and the notice
+  // fails. The send the call reports carries the stamp the processor was
+  // handed.
+  const STAMPED = chartOf(`<scxml ${SCXML} initial="notifying" name="stamped">
+  <state id="notifying">
+    <onentry>
+      <send id="notice" type="library:notice" target="patron:ada" event="hold.ready">
+        <param name="at" expr="Date.now()"/>
+      </send>
+    </onentry>
+    <transition event="error.communication" target="notice_failed"/>
+  </state>
+  <state id="notice_failed"/>
+</scxml>`);
+
+  // Sabotage: evaluating without the call's pinned clock turns this red: the
+  // send the call reports carries a later stamp than the one handed.
+  it("reads the same clock in every run of one call", () => {
+    let millis = 1_700_000_000_000;
+    vi.spyOn(Date, "now").mockImplementation(() => {
+      millis += 60_000;
+      return millis;
+    });
+    const host = desk(() => failure);
+    const started = ok(start(STAMPED, { sessionId: "hold-ada", ...host.options }));
+    const handed = host.handed.map((send) => send.data);
+    const reported = started.effects.flatMap((effect) =>
+      effect.kind === "send" ? [effect.data] : [],
+    );
+    expect(handed).toHaveLength(1);
+    expect(reported).toEqual(handed);
+    expect(started.state.configuration).toEqual(["notice_failed"]);
   });
 });

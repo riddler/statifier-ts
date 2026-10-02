@@ -1434,7 +1434,11 @@ them, and the W3C case that asserts the reference's order is not claimable
 through the processor "until the driver raises such a failure within the
 run". This Amendment records that change. The change that adds it changes
 `handOff`, `holding`, `held` and `failSend` in `src/driver.ts`, adds `drive`,
-`madeUntilFailure` and `sendFailure` there in place of `answer`, and adds the
+`madeUntilFailure` and `sendFailure` there in place of `answer`, adds
+`recordedDraws`, `systemInstant` and `systemRandom` there and `Draws`,
+`withDraws` and `drawOptions` in `src/datamodel.ts`, passes the pinned draws
+from `evaluate` and `runProgram` in `src/datamodel.ts`, `textData` in
+`src/core/send.ts` and `inlineValue` in `src/compiler.ts`, and adds the
 tests in `test/driver-failed-send.test.ts` and `test/basichttp.test.ts`.
 
 **When the failure is raised.** A failure `deliver` answers is raised at the
@@ -1468,10 +1472,16 @@ when one answers a failure it makes no later one, since the run that held
 them is not the call's run, and makes the run again from the call's own
 arguments. A call an earlier run already made is answered from what it
 answered then and not made again, the failure is raised at its send, and the
-calls held past it are made the same way. The run reads nothing but the
-call's arguments and the processors' answers, so it is the same up to the
-failure each time, and each send the call's final run hands is handed to its
-processor once; a `cancel` is told once the same way. A processor's
+calls held past it are made the same way. Besides the call's arguments and
+the processors' answers, a run reads the clock and the random source through
+the expressions it evaluates: `Date.now()`, a relative date, and
+`Math.random()`. The driver call pins both for all its runs: the first run to
+reach a draw takes it from predicator's own clock or random source, and every
+run made again reads the same draws in the same order, passed to predicator as
+its `now` and `random` options. So the run is the same up to the failure each
+time, and each send the call's final run hands is handed to its processor
+once, carrying what it was handed with; a `cancel` is told once the same way.
+Two separate driver calls read the clock and draw afresh, as before. A processor's
 `ioprocessorsEntry` is asked once per type and session within a call, however
 often its run is made. A call whose runs meet n failures makes its run n + 1
 times.
