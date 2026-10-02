@@ -1986,3 +1986,101 @@ chart whose `<send>` or `<invoke>` writes an `idlocation`, or whose empty
 `<finalize>` writes a value back, answers one more effect per write than it
 did, and a host that switches on a change's owner meets the new member. The
 changelog fragment names both changes.
+
+## Amendment: a write resolves its location through the expression language (2026-10-02)
+
+Status: proposed
+
+Until this Amendment a write accepted a bare root alone: `writeLocation` in
+`src/datamodel.ts` (at `6249302`) matched the root by pattern, refused a root
+beginning with an underscore, then a root the datamodel did not hold, then
+anything longer than the root as `unsupported_location`, whose own
+documentation said "The reference writes a nested path; this port does not
+yet." `@riddler/predicator` 0.5.0 publishes the location surface
+(`pts-ADR-0005`, `contextLocation` and `contextPut` in `src/location.ts` at
+`v0.5.0`, `bb94ebf`), and this Amendment writes every location as the
+reference's `Statifier.Interpreter.Datamodel.write_location/4` does at
+`v2.10.0` (`000b9d8`). The change that adds this Amendment adds the code:
+`writeLocation` and `ExecutionReason` in `src/datamodel.ts`, the four write
+sites below, and the dependency at `^0.5.0`.
+
+**The reference's function, quoted** (`lib/statifier/interpreter/datamodel.ex`
+at `v2.10.0`):
+
+```elixir
+with {:ok, path} <- resolve_location(path_source, datamodel_context),
+     :ok <- check_system_variable(path),
+     :ok <- check_root(machine_state, path_source, path),
+     prior_value = read_path(machine_state.datamodel, path),
+     {:ok, new_datamodel} <- write(machine_state, path_source, path, value) do
+```
+
+**What a write does, in that order.**
+
+1. The location's source resolves to a path through `contextLocation`. The
+   datamodel's roots are handed over only when the trimmed source carries a
+   bracket, the one place a location reads its context (a bracket key such as
+   `holds[i]`); any other source resolves against the empty context to the
+   same path. A source that does not parse answers predicator's
+   `ParseError`, and one that names no place to write (`[0]`,
+   `renewals + 1`, a bracket key bound to no string or integer) its
+   `LocationError`.
+2. A resolved root beginning with an underscore is refused as
+   `system_variable`.
+3. A resolved root the datamodel does not hold is refused as
+   `unbound_location`. A write never declares a root.
+4. The value at the full path is read from the datamodel as it stands before
+   the write: a string key against a map, an integer index against a list,
+   and the absence on any miss or any step through anything else.
+5. The value is written at the path with `contextPut` over the root alone,
+   and the root is bound. A missing, null or absent slot on the way becomes a
+   list before an index and a map before a key, a list is padded with the
+   absence out to an index past its end, and a write through a scalar, a
+   string key against a list or a negative index answers the
+   `LocationError`.
+
+A refusal at step 1 or step 5 reaches `error.execution` as `evaluator_error`,
+whose `error` widens to `PredicatorError | ParseError | LocationError`, with
+the location's source as `source`; `unsupported_location` leaves
+`ExecutionReason`, since no write answers it.
+
+**The four write sites.** Each answers its `datamodel_change` with the
+resolved path as `locationPath` and the value step 4 read as `priorValue`:
+
+| Write | Site | Reference at `v2.10.0` |
+|---|---|---|
+| an `<assign>` | `executeAssign` (`src/core/content.ts`) | `Statifier.Machine.Content.Assign`'s `execute/2` |
+| a `<send>`'s `idlocation` | `executeSend` (`src/core/send.ts`) | `Statifier.Machine.Content.Send`, from `dispatch_or_reject/8` |
+| an `<invoke>`'s `idlocation` | `invokeOne` (`src/core/invoke.ts`) | `invoke_one/6` in `Statifier.Interpreter` |
+| an empty `<finalize>`'s write of one returned value | `autoAssignFinalize` (`src/core/invoke.ts`) | `write_finalize_target/6` in `Statifier.Interpreter`, from `auto_assign_finalize/5` |
+
+**A root spelled as a reserved word.** Because the location resolves first,
+a bare root spelled as one of the expression language's reserved words
+(`next`, `and`, `if`, `true` and the rest of predicator's reserved list) is
+refused for its spelling, a `ParseError` or a `not_assignable`
+`LocationError`, whether or not the datamodel binds it, and an unbound one
+reports that refusal before `unbound_location`, as the reference does. A name
+the language does not reserve, such as `today`, is written as before. This
+change of answer and the empty `<finalize>`'s nested write were ruled by the
+operator, 2026-10-02.
+
+**Where this package differs, and why.** Two forks the location surface
+already declares (`pts-ADR-0005`) reach a chart unchanged: an integer
+segment against a map writes the key the integer's decimal spelling names,
+where the reference writes an integer key, and a refusal's message is
+predicator's own. Step 4 reads an integer segment against a map as a step
+through something else, as the reference's `read_path/2` does, so the prior
+value there is the absence on both sides even when the decimal key was
+present. A path of the root alone binds the value without passing it through
+`contextPut`, which answers the same root (its leaf is always overwritten)
+and leaves a bare-root write's value as the chart's own.
+
+**What a host sees.** These are changed answers of a published version, and
+the changelog fragment names each: a nested location over a declared root is
+written where it was refused; a location refusal is `evaluator_error` where it
+was `unsupported_location`; a reserved-word root is refused where it was
+written; `ExecutionReason` loses `unsupported_location` and its
+`evaluator_error` may carry a `LocationError`; and a `datamodel_change` names
+the resolved path and the value read there. The vendored corpus's claims are
+unchanged: its cases that write a dotted location over an undeclared root
+still answer `unbound_location`.

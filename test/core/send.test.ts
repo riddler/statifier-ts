@@ -423,6 +423,30 @@ describe("a <send idlocation> write", () => {
     expect(Object.keys(outcome.effects[0] ?? {})).toEqual(CHANGE_FIELDS);
   });
 
+  // statifier-ex v2.10.0, write_location/4 from the send's idlocation write:
+  // a nested idlocation over a declared root is written there, and the change
+  // names the resolved path and the value it held.
+  // Sabotage: answering `priorValue: context.data.get(node.idlocation.trim())`
+  // in executeSend turns this red.
+  it("writes a nested idlocation, naming its path and the value it held", () => {
+    const outcome = run(
+      [sendNode(1, `<send event="loan.due" idlocation="loan.lastSend"/>`)],
+      [["loan", { lastSend: "renewal" }]],
+    );
+    expect(outcome.raised).toEqual([]);
+    expect(outcome.context.data.get("loan")).toEqual({ lastSend: "send_1" });
+    expect(outcome.effects[0]).toEqual({
+      kind: "datamodel_change",
+      locationPath: ["loan", "lastSend"],
+      locationSource: "loan.lastSend",
+      newValue: "send_1",
+      priorValue: "renewal",
+      dIndex: null,
+      cIndex: 1,
+      ...STAMP,
+    });
+  });
+
   // statifier-ex v2.10.0, lib/statifier/machine/content/send.ex
   // `dispatch_or_reject/8`: a refused send answers no effect, its write
   // standing.

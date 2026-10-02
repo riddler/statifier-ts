@@ -486,13 +486,12 @@ export function executeSend(
     const write = writeLocation(context, node.idlocation, sendId);
     if (!write.ok) return write;
     written = write.context;
-    const root = node.idlocation.trim();
     changes.push({
       kind: "datamodel_change",
-      locationPath: [root],
+      locationPath: write.path,
       locationSource: node.idlocation,
       newValue: sendId,
-      priorValue: context.data.get(root) as Value,
+      priorValue: write.priorValue,
       dIndex: null,
       cIndex: node.cIndex,
       owner: stamp.owner,

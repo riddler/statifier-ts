@@ -242,13 +242,12 @@ function invokeOne<S extends InvokeState>(
     if (!write.ok) return abort(current, write.reason);
     written = write.context;
     current = { ...current, datamodel: write.context.data };
-    const root = invoke.idlocation.trim();
     changes.push({
       kind: "datamodel_change",
-      locationPath: [root],
+      locationPath: write.path,
       locationSource: invoke.idlocation,
       newValue: minted.invokeId,
-      priorValue: context.data.get(root) as Value,
+      priorValue: write.priorValue,
       dIndex: null,
       cIndex: null,
       owner: { kind: "invoke", stateIndex: s, invokeIndex: invoke.index },
@@ -449,13 +448,12 @@ function autoAssignFinalize<S extends InvokeState>(
     const source = param.expr.source;
     const write = writeLocation(context, source, value);
     if (write.ok) {
-      const root = source.trim();
       effects.push({
         kind: "datamodel_change",
-        locationPath: [root],
+        locationPath: write.path,
         locationSource: source,
         newValue: value,
-        priorValue: context.data.get(root) as Value,
+        priorValue: write.priorValue,
         dIndex: null,
         cIndex: null,
         owner: { kind: "finalize", stateIndex: s, invokeIndex: invoke.index },

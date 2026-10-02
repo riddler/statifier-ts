@@ -16,12 +16,16 @@
 // either would answer against a position the chart has already left.
 
 import {
+  contextLocation,
+  contextPut,
   type EvaluateOptions,
   execute as executeProgram,
   fromHost,
   type HostFunction,
   type HostValue,
   isFloat,
+  type LocationError,
+  type LocationPath,
   type ParseError,
   type PDateTime,
   type PredicatorError,
@@ -197,8 +201,11 @@ export interface Invalid {
  * Why an evaluation or a write failed. It is the data an `error.execution`
  * event carries.
  *
- * - `evaluator_error`: predicator refused the expression. `error` is its own
- *   error value, unwrapped, and `source` the expression's text.
+ * - `evaluator_error`: predicator refused the expression, or the location a
+ *   write names: a location that does not parse, that names no place to
+ *   write, or whose write passes through something that is not a container.
+ *   `error` is predicator's own error value, unwrapped, and `source` the
+ *   expression's or the location's text.
  * - `non_boolean_cond`: a condition evaluated to something other than true or
  *   false, which the specification treats exactly as an evaluation error.
  * - `system_variable`: a write reached a root beginning with an underscore.
@@ -208,10 +215,8 @@ export interface Invalid {
  * - `compile_error`: the node's expression or program never compiled, so the
  *   failure the compiler deferred is answered when the node runs. `source` is
  *   the text that failed and `message` the compiler's.
- * - `unbound_location`: an `<assign>` named a root the datamodel does not
- *   hold. A write never declares a root.
- * - `unsupported_location`: an `<assign>` named a location that is not a bare
- *   root. The reference writes a nested path; this port does not yet.
+ * - `unbound_location`: a write named a location whose root the datamodel
+ *   does not hold. A write never declares a root.
  * - `not_iterable`: a `<foreach>`'s `array` evaluated to something other than
  *   a list.
  * - `illegal_item_name`, `illegal_index_name`: a `<foreach>`'s `item` or
@@ -248,13 +253,12 @@ export type ExecutionReason =
   | {
       readonly kind: "evaluator_error";
       readonly source: string;
-      readonly error: PredicatorError | ParseError;
+      readonly error: PredicatorError | ParseError | LocationError;
     }
   | { readonly kind: "non_boolean_cond"; readonly value: Value }
   | { readonly kind: "system_variable"; readonly root: string }
   | { readonly kind: "compile_error"; readonly source: string; readonly message: string }
   | { readonly kind: "unbound_location"; readonly location: string }
-  | { readonly kind: "unsupported_location"; readonly location: string }
   | { readonly kind: "not_iterable"; readonly value: Value }
   | { readonly kind: "illegal_item_name"; readonly name: string }
   | { readonly kind: "illegal_index_name"; readonly name: string }
@@ -271,7 +275,10 @@ export type ExecutionReason =
     }
   | { readonly kind: "src"; readonly src: string };
 
-function evaluatorError(source: string, error: PredicatorError | ParseError): ExecutionReason {
+function evaluatorError(
+  source: string,
+  error: PredicatorError | ParseError | LocationError,
+): ExecutionReason {
   return { kind: "evaluator_error", source, error };
 }
 
@@ -547,7 +554,6 @@ export function reasonValue(reason: ExecutionReason): Value {
     case "compile_error":
       return { kind: reason.kind, source: reason.source, message: reason.message };
     case "unbound_location":
-    case "unsupported_location":
       return { kind: reason.kind, location: reason.location };
     case "not_iterable":
       return { kind: reason.kind, value: reason.value };
@@ -637,43 +643,109 @@ export function checkSystemVariable(
   return { ok: true };
 }
 
-/** What a write to a location answered: the context it leaves, or why it was refused. */
+/**
+ * What a write to a location answered: the context it leaves, the path the
+ * location resolved to and the value that path held before the write, or why
+ * the write was refused.
+ */
 export type WriteOutcome =
-  | { readonly ok: true; readonly context: EvaluationContext }
+  | {
+      readonly ok: true;
+      readonly context: EvaluationContext;
+      readonly path: LocationPath;
+      readonly priorValue: Value;
+    }
   | { readonly ok: false; readonly reason: ExecutionReason };
 
-/** The root a location names, and whether the location is that root alone. */
-function locationRoot(location: string): { root: string; bare: boolean } | undefined {
-  const trimmed = location.trim();
-  const match = /^[A-Za-z_][A-Za-z0-9_]*/.exec(trimmed);
-  if (match === null) return undefined;
-  return { root: match[0], bare: match[0].length === trimmed.length };
+/**
+ * The value at a path in the datamodel, read before a write: a string key
+ * against a map, an integer index against a list, and the absence on any
+ * miss or on a step through anything else. The read is at the full path, so
+ * a path that was never written and one that holds the absence read alike.
+ * An integer against a map is a step through something else here, as it is
+ * in the reference's read, even though the write names the key the
+ * integer's decimal spelling names.
+ */
+function readPath(data: Datamodel, path: LocationPath): Value {
+  const [root, ...rest] = path;
+  if (typeof root !== "string" || !data.has(root)) return Undefined;
+  let current = data.get(root) as Value;
+  for (const segment of rest) {
+    if (typeof segment === "string") {
+      if (!isMapValue(current) || !Object.hasOwn(current, segment)) return Undefined;
+      current = current[segment] as Value;
+    } else {
+      if (!Array.isArray(current) || segment < 0 || segment >= current.length) return Undefined;
+      current = current[segment] as Value;
+    }
+  }
+  return current;
+}
+
+/** Whether a datamodel value is a map: a plain object that is not a list. */
+function isMapValue(value: Value): value is { [key: string]: Value } {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    !Array.isArray(value) &&
+    !isFloat(value) &&
+    isPlainMap(value)
+  );
 }
 
 /**
- * Writes a value at a location, as an `<assign>` and a `<send idlocation>`
- * do. The location is checked in order: a root that begins with an
- * underscore is refused, then a root the datamodel does not hold, then
- * anything but a bare root. A write never declares a root.
+ * Resolves a location's source to a path. The context is read only for a
+ * variable inside a bracket key, so it is handed over only when the source
+ * carries a bracket; a location with none resolves against the empty context
+ * to the same path.
+ */
+function resolveLocation(
+  context: EvaluationContext,
+  location: string,
+):
+  | { readonly ok: true; readonly path: LocationPath }
+  | { readonly ok: false; readonly reason: ExecutionReason } {
+  const roots = location.trim().includes("[") ? contextObject(context.data) : {};
+  const resolved = contextLocation(location, roots);
+  if (!resolved.ok) return { ok: false, reason: evaluatorError(location, resolved.error) };
+  return resolved;
+}
+
+/**
+ * Writes a value at a location, as an `<assign>`, a `<send idlocation>`, an
+ * `<invoke idlocation>` and an empty `<finalize>` do, in the reference's
+ * order: the location is resolved to a path, which a source that does not
+ * parse or names no place to write refuses; a root that begins with an
+ * underscore is refused; a root the datamodel does not hold is refused; the
+ * value the path holds is read; then the value is written at the path and its
+ * root bound. A write never declares a root, and creates only what lies
+ * between the root and the leaf: a missing or absent slot on the way becomes
+ * a list before an index and a map before a key, and a list is padded with
+ * the absence out to an index past its end. A write the location surface
+ * refuses - through a scalar, a string key against a list, a negative index -
+ * answers that refusal.
  */
 export function writeLocation(
   context: EvaluationContext,
   location: string,
   value: Value,
 ): WriteOutcome {
-  const unsupported: WriteOutcome = {
-    ok: false,
-    reason: { kind: "unsupported_location", location },
-  };
-  const parsed = locationRoot(location);
-  if (parsed === undefined) return unsupported;
-  const system = checkSystemVariable([parsed.root]);
+  const resolved = resolveLocation(context, location);
+  if (!resolved.ok) return resolved;
+  const { path } = resolved;
+  const system = checkSystemVariable(path);
   if (!system.ok) return system;
-  if (!context.data.has(parsed.root)) {
+  const [root] = path;
+  if (typeof root !== "string" || !context.data.has(root)) {
     return { ok: false, reason: { kind: "unbound_location", location } };
   }
-  if (!parsed.bare) return unsupported;
-  return { ok: true, context: bind(context, parsed.root, value) };
+  const priorValue = readPath(context.data, path);
+  if (path.length === 1) {
+    return { ok: true, context: bind(context, root, value), path, priorValue };
+  }
+  const put = contextPut({ [root]: context.data.get(root) as Value }, path, value);
+  if (!put.ok) return { ok: false, reason: evaluatorError(location, put.error) };
+  return { ok: true, context: bind(context, root, put.context[root] as Value), path, priorValue };
 }
 
 /** A statement program with the source it was compiled from. */

@@ -345,6 +345,34 @@ describe("the invoke id", () => {
     expect(Object.keys(tail[0] ?? {})).toEqual(CHANGE_FIELDS);
   });
 
+  // statifier-ex v2.10.0, write_location/4 from invoke_one/6: a nested
+  // idlocation is written into the list it names, padding it, and the change
+  // names the resolved path and the absence it held; one that passes through
+  // a scalar is refused and its invocation does not start.
+  // Sabotage: answering `locationPath: [invoke.idlocation.trim()]` in
+  // invokeOne turns this red.
+  it("writes a nested idlocation, naming its path, and refuses one through a scalar", () => {
+    const source = `<scxml ${SCXML} initial="loan">
+    <datamodel><data id="notices" expr="{sent: ['n-0']}"/><data id="copy" expr="1"/></datamodel>
+    <state id="loan">
+      <invoke idlocation="notices.sent[1]" type="scxml"/>
+      <invoke idlocation="copy.noticeId" type="scxml"/>
+    </state>
+  </scxml>`;
+    const { state, effects } = start(source);
+    expect(dm(state, "notices")).toEqual({ sent: ["n-0", "loan.inv_1"] });
+    expect(runnerChanges(effects)).toMatchObject([
+      {
+        locationPath: ["notices", "sent", 1],
+        locationSource: "notices.sent[1]",
+        newValue: "loan.inv_1",
+        priorValue: Undefined,
+      },
+    ]);
+    expect(invokes(effects).map((e) => e.invokeId)).toEqual(["loan.inv_1"]);
+    expect(dm(state, "copy")).toBe(1);
+  });
+
   // statifier-ex v2.10.0, invoke_pass_test.exs: "a failing idlocation write
   // emits no :datamodel_change effect".
   // Sabotage: answering the change built ahead of the write in invokeOne
@@ -809,6 +837,52 @@ describe("finalize", () => {
       },
     ]);
     expect(Object.keys(changes[0] ?? {})).toEqual(CHANGE_FIELDS);
+  });
+
+  // statifier-ex v2.10.0, write_finalize_target/6 writes through
+  // write_location/4: a nested location is written, creating the map on the
+  // way, and its change names the resolved path and the value it held; one
+  // that passes through what an earlier write left a scalar raises
+  // error.execution, the other writes standing.
+  // Sabotage: answering `priorValue: context.data.get(source.trim())` in
+  // autoAssignFinalize turns this red.
+  it("writes a nested location back, naming its path and the value it held", () => {
+    const source = `<scxml ${SCXML} initial="loan">
+    <datamodel><data id="terms" expr="{fine: 0}"/></datamodel>
+    <state id="loan">
+      <invoke id="renewal" type="scxml">
+        <param name="charge" location="terms.fine"/>
+        <param name="due" location="terms.dates.due"/>
+        <param name="sealed" location="terms.fine.x"/>
+        <finalize/>
+      </invoke>
+    </state>
+  </scxml>`;
+    const after = handleEvent(
+      { ...start(source).state, maxMacrostepRounds: 0 },
+      external("renewal.done", {
+        invokeid: "renewal",
+        data: { charge: 2, due: "2026-10-15", sealed: 9 },
+      }),
+    );
+    if (!after.ok) throw new Error("refused");
+    expect(dm(after.state, "terms")).toEqual({ fine: 2, dates: { due: "2026-10-15" } });
+    expect(
+      runnerChanges(after.effects).map((e) => [e.locationPath, e.newValue, e.priorValue]),
+    ).toEqual([
+      [["terms", "fine"], 2, 0],
+      [["terms", "dates", "due"], "2026-10-15", Undefined],
+    ]);
+    expect(after.state.internalQueue.map((e) => [e.name, e.reason])).toMatchObject([
+      [
+        "error.execution",
+        {
+          kind: "evaluator_error",
+          source: "terms.fine.x",
+          error: { type: "LocationError", reason: "not_a_container" },
+        },
+      ],
+    ]);
   });
 
   // statifier-ex v2.10.0, finalize_test.exs: "a failed auto-assign write

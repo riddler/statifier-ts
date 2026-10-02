@@ -33,7 +33,7 @@ pnpm add @riddler/statifier@^0.1.0
 
 The package has **one runtime dependency**,
 [`@riddler/predicator`](https://github.com/riddler/predicator-ts), pinned at
-`^0.4.1`, which evaluates the conditions, expressions and script bodies a
+`^0.5.0`, which evaluates the conditions, expressions and script bodies a
 chart carries, as it does for the reference. `dependencies` in
 `package.json` names it and no other package.
 

@@ -354,26 +354,24 @@ function executeLog(run: Run, node: LogNode): Step {
 }
 
 /**
- * The value is evaluated first, then written: a root that begins with an
- * underscore is refused, then a root the datamodel does not hold, then
- * anything but a bare root. A write never declares a root. A write that
- * lands answers a `datamodel_change`; one that is refused answers nothing.
- * The only location a write accepts is a bare root, so the resolved path is
- * that root alone and the prior value is the root's.
+ * The value is evaluated first, then written at the location, in the order
+ * `writeLocation` checks it. A write never declares a root. A write that
+ * lands answers a `datamodel_change` naming the path the location resolved
+ * to and the value that path held before the write; one that is refused
+ * answers nothing.
  */
 function executeAssign(run: Run, node: AssignNode): Step {
   const outcome = evaluateIn(run, node.value);
   if (!outcome.ok) return outcome;
   const write = writeLocation(run.context, node.location, outcome.value);
   if (!write.ok) return write;
-  const root = node.location.trim();
   const { counters, owner } = run.sink;
   run.effects.push({
     kind: "datamodel_change",
-    locationPath: [root],
+    locationPath: write.path,
     locationSource: node.location,
     newValue: outcome.value,
-    priorValue: run.context.data.get(root) as Value,
+    priorValue: write.priorValue,
     dIndex: null,
     cIndex: node.cIndex,
     owner,

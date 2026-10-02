@@ -154,23 +154,93 @@ describe("<assign>", () => {
     expect(unbound.raised).toMatchObject([{ reason: { kind: "system_variable", root: "_x" } }]);
   });
 
-  // Sabotage: treating every location as bare in executeAssign (writing the
-  // whole root) turns the first expectation red.
-  it("refuses a location beyond a bare root, after the root checks", () => {
+  // statifier-ex v2.10.0, write_location/4: a nested location over a declared
+  // root is written, and the change names the resolved path and the value
+  // read there before the write; a root the datamodel does not hold is
+  // refused after the location resolves; a location that names no place to
+  // write is the location surface's refusal.
+  // Sabotage: answering `locationPath: [node.location.trim()]` in
+  // executeAssign turns the first expectation red.
+  it("writes a nested location, naming its path and the value it held", () => {
     const patron = { name: "Ada", holds: ["c-1"] };
     const nested = run([assign(0, "patron.name", '"Grace"')], [["patron", patron]]);
-    expect(nested.context.data.get("patron")).toBe(patron);
-    expect(nested.raised).toMatchObject([
-      { reason: { kind: "unsupported_location", location: "patron.name" } },
+    expect(nested.raised).toEqual([]);
+    expect(nested.effects).toEqual([
+      {
+        kind: "datamodel_change",
+        locationPath: ["patron", "name"],
+        locationSource: "patron.name",
+        newValue: "Grace",
+        priorValue: "Ada",
+        dIndex: null,
+        cIndex: 0,
+        owner: SINK.owner,
+        ...SINK.counters,
+      },
     ]);
+    expect(nested.context.data.get("patron")).toEqual({ name: "Grace", holds: ["c-1"] });
+    expect(patron).toEqual({ name: "Ada", holds: ["c-1"] });
     const unbound = run([assign(0, "branch.name", '"north"')]);
     expect(unbound.raised).toMatchObject([
       { reason: { kind: "unbound_location", location: "branch.name" } },
     ]);
     const malformed = run([assign(0, "[0]", "1")], [["patron", patron]]);
+    expect(malformed.effects).toEqual([]);
     expect(malformed.raised).toMatchObject([
-      { reason: { kind: "unsupported_location", location: "[0]" } },
+      {
+        name: "error.execution",
+        reason: {
+          kind: "evaluator_error",
+          source: "[0]",
+          error: { type: "LocationError", reason: "not_assignable" },
+        },
+        data: { kind: "evaluator_error", type: "LocationError", reason: "not_assignable" },
+      },
     ]);
+  });
+
+  // statifier-ex v2.10.0, write_location/4: an index past a list's end pads
+  // the list with the absence, and the value read there before is the
+  // absence.
+  // Sabotage: answering `priorValue: run.context.data.get(root)` in
+  // executeAssign turns this red.
+  it("pads a list with the absence out to an index past its end", () => {
+    const outcome = run([assign(0, "holds[2]", '"c-3"')], [["holds", ["c-1"]]]);
+    expect(outcome.context.data.get("holds")).toEqual(["c-1", Undefined, "c-3"]);
+    expect(outcome.effects).toMatchObject([
+      { kind: "datamodel_change", locationPath: ["holds", 2], priorValue: Undefined },
+    ]);
+  });
+
+  // statifier-ex v2.10.0, write_location/4 resolves the location before it
+  // checks the root, so a root spelled as a reserved word of the expression
+  // language is refused for its spelling, bound or not; `today` is not
+  // reserved and is written.
+  // Sabotage: writing a bound bare root before resolving it in writeLocation
+  // turns the bound `next` and `true` expectations red.
+  it("refuses a root spelled as a reserved word, as the reference does", () => {
+    const refused = (root: string, bound: boolean) => {
+      const outcome = run([assign(0, root, "2")], bound ? [[root, 1]] : []);
+      expect(outcome.effects).toEqual([]);
+      if (bound) expect(outcome.context.data.get(root)).toBe(1);
+      return outcome.raised.map((event) =>
+        event.reason?.kind === "evaluator_error"
+          ? [event.name, event.reason.kind, event.reason.error.type]
+          : [event.name, event.reason?.kind],
+      );
+    };
+    expect(refused("next", true)).toEqual([["error.execution", "evaluator_error", "ParseError"]]);
+    expect(refused("true", true)).toEqual([
+      ["error.execution", "evaluator_error", "LocationError"],
+    ]);
+    expect(refused("next", false)).toEqual([["error.execution", "evaluator_error", "ParseError"]]);
+    expect(refused("true", false)).toEqual([
+      ["error.execution", "evaluator_error", "LocationError"],
+    ]);
+    expect(refused("today", false)).toEqual([["error.execution", "unbound_location"]]);
+    const today = run([assign(0, "today", "2")], [["today", 1]]);
+    expect(today.raised).toEqual([]);
+    expect(today.context.data.get("today")).toBe(2);
   });
 
   // Sabotage: skipping the value's evaluation failure in executeAssign
