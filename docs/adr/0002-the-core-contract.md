@@ -1901,3 +1901,88 @@ exported from `src/index.ts`; its worked example, run at `8a2e210`, hands
   configuration: the Note of that name; and what `Machine`'s stability
   reaches, the routes, the passes' trace effects, a failed composite and when
   a processor is called: the stability Note.
+
+## Amendment: the idlocation and empty finalize writes answer a datamodel_change (2026-10-02)
+
+Status: proposed
+
+The datamodel and trace effects Amendment left three writes out of
+`datamodel_change`: in its paragraph beginning "Not ported", the reference's
+`datamodel_change` "for a `<send idlocation>` write, an `<invoke idlocation>`
+write and an empty `<finalize>`'s writes is not emitted either". This
+Amendment emits all three, as the reference does at `v2.10.0` (`c8894ae`).
+The change that adds this Amendment adds the code: `executeSend` in
+`src/core/send.ts`, `invokeOne` and `autoAssignFinalize` in
+`src/core/invoke.ts`, and the `owner` field of `DatamodelChange` in
+`src/core/effects.ts`.
+
+**What each write answers.** Each answers one `datamodel_change` with the
+reference's fields, in the order `Statifier.Effect.DatamodelChange` declares
+them (`lib/statifier/effect/datamodel_change.ex` at `v2.10.0`):
+`locationPath`, `locationSource`, `newValue`, `priorValue`, `dIndex`,
+`cIndex`, `owner`, then the counters. `locationSource` is the location as the
+author wrote it, `newValue` the value written, `priorValue` the value that
+stood at the location before the write, and `dIndex` is null:
+
+| Write | `cIndex` | `owner` | Where it comes | Emitted by | Reference at `v2.10.0` |
+|---|---|---|---|---|---|
+| a `<send>`'s `idlocation` | the `<send>`'s | the block the `<send>` ran in | just before the `send` or `send_delayed` | `executeSend` (`src/core/send.ts`) | `datamodel_change_effects/4` in `Statifier.Machine.Content.Send`, from `dispatch_or_reject/8` |
+| an `<invoke>`'s `idlocation` | null | `{ kind: "invoke", stateIndex, invokeIndex }` | just before the `invoke` | `invokeOne` (`src/core/invoke.ts`) | `datamodel_change_effects/5` in `Statifier.Interpreter`, from `invoke_one/6` |
+| an empty `<finalize>`'s write of one returned value | null | `{ kind: "finalize", stateIndex, invokeIndex }` | one per write that lands, in the order written | `autoAssignFinalize` (`src/core/invoke.ts`) | `write_finalize_target/6` in `Statifier.Interpreter`, from `auto_assign_finalize/5` |
+
+Each carries the counters as they stand at the write. A write that is
+refused answers none, as an `<assign>`'s does: an `<invoke>` whose
+`idlocation` cannot be written answers neither the change nor the `invoke`,
+and an empty `<finalize>`'s write that fails raises its `error.execution`
+and answers no change, the other writes standing.
+
+**A refused send answers none.** A `<send>` whose target, type or route is
+refused after its `idlocation` was written keeps the write and the minted id
+and answers no effect at all, the change included, as the reference's
+`dispatch_or_reject/8` answers its error form with no effect. The datamodel
+then holds a value no `datamodel_change` reported.
+
+**The invoke owner.** An `<invoke>`'s `idlocation` write is made by no block,
+so its owner is a new member, `{ kind: "invoke", stateIndex, invokeIndex }`,
+spelled as `Origin` already spells the invocation an event is about. That the
+change names the invocation as its owner was decided under the night rule by
+the conductor, 2026-10-02. The member widens the owner of `DatamodelChange`
+alone; `Owner`, which every block's effects carry, is unchanged. The
+reference widens its owner at the same place: `owner/0` in
+`Statifier.Effect.DatamodelChange` is `Machine.Content.owner/0` with the
+`{:invoke, state_index, invoke_index}` case added, and its typedoc names
+`Trace.ContentExecuted`'s owner as the precedent, which `ContentOwner` in
+`src/core/effects.ts` follows here.
+
+```ts
+export interface DatamodelChange {
+  readonly kind: "datamodel_change";
+  readonly locationPath: readonly (string | number)[];
+  readonly locationSource: string;
+  readonly newValue: Value;
+  readonly priorValue: Value;
+  readonly dIndex: number | null;
+  readonly cIndex: number | null;
+  readonly owner:
+    | Owner
+    | { readonly kind: "invoke"; readonly stateIndex: number; readonly invokeIndex: number }
+    | null;
+  readonly macrostep: number;
+  readonly microstep: number;
+  readonly round: number;
+}
+```
+
+**What this meets.** The datamodel and trace effects Amendment's "Not ported"
+sentence on the three writes holds no longer, and its table's
+`datamodel_change` row gains the three emitting sites above. The invoke
+effects Amendment's words "nor the trace and datamodel effects the passes
+emit" and the stability Note's sentence that the `datamodel_change` for an
+`<invoke idlocation>` write and an empty `<finalize>`'s writes "is still not
+emitted" are met by this Amendment.
+
+**What a host sees.** These are changed answers of a published version: a
+chart whose `<send>` or `<invoke>` writes an `idlocation`, or whose empty
+`<finalize>` writes a value back, answers one more effect per write than it
+did, and a host that switches on a change's owner meets the new member. The
+changelog fragment names both changes.

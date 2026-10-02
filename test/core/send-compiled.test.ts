@@ -141,6 +141,16 @@ describe("a compiled block", () => {
         ordinal: null,
       },
       {
+        kind: "datamodel_change",
+        locationPath: ["reminder"],
+        locationSource: "reminder",
+        newValue: "send_2",
+        priorValue: null,
+        dIndex: null,
+        cIndex: 1,
+        ...stamp,
+      },
+      {
         kind: "send_delayed",
         event: "loan.due",
         target: null,
@@ -455,6 +465,14 @@ describe("the scion suite's delayed sends, compiled", () => {
         sendId: "$scion.sendid0",
         idFromAuthor: true,
         ordinal: 1,
+      },
+      {
+        kind: "datamodel_change",
+        locationPath: ["httpid"],
+        locationSource: "httpid",
+        newValue: "send_1",
+        priorValue: "foo",
+        cIndex: 1,
       },
       {
         kind: "send_delayed",

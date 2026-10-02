@@ -21,14 +21,15 @@
 // moves the session's send state, which the runner takes and answers too.
 //
 // A successful `<assign>` answers a `datamodel_change`, nested in an `<if>`
-// or a `<foreach>` or not. An `<if>` or a `<foreach>` that fails answers no
-// effect at all: what its nodes answered before the failure is dropped, as
-// the reference's composite nodes drop it, though what they wrote to the
-// datamodel and the send state is kept. With tracing on, the block answers
-// one `content_executed` trace after its own effects, naming the block's
-// nodes that ran: every node on success, the nodes up to and including the
-// failing one otherwise, and none for an empty block, which still answers
-// the trace.
+// or a `<foreach>` or not, and so does a `<send>` that writes its
+// `idlocation` and is not refused. An `<if>` or a `<foreach>` that fails
+// answers no effect at all: what its nodes answered before the failure is
+// dropped, as the reference's composite nodes drop it, though what they
+// wrote to the datamodel and the send state is kept. With tracing on, the
+// block answers one `content_executed` trace after its own effects, naming
+// the block's nodes that ran: every node on success, the nodes up to and
+// including the failing one otherwise, and none for an empty block, which
+// still answers the trace.
 
 import { Undefined, type Value } from "@riddler/predicator";
 import {
@@ -395,7 +396,7 @@ function applySend(run: Run, outcome: SendOutcome<Effect>): Step {
   }
   run.context = outcome.context;
   run.sends = outcome.state;
-  run.effects.push(outcome.effect);
+  run.effects.push(...outcome.effects);
   return OK;
 }
 

@@ -25,6 +25,11 @@
 // judges a route against the snapshot its session stamps. With no routes
 // declared the core makes no judgement; a delayed send's route, and
 // re-entering a failed delivery as `error.communication`, stay the host's.
+//
+// A send that is not refused answers a `datamodel_change` for its
+// `idlocation` write just before its own effect, as the reference's send
+// node does; a refused send answers neither, its write standing all the
+// same.
 
 import {
   compile,
@@ -47,6 +52,7 @@ import {
   writeLocation,
 } from "../datamodel.js";
 import { delayToMs } from "../duration.js";
+import type { DatamodelChange } from "./effects.js";
 
 // ---------------------------------------------------------------------------
 // The nodes
@@ -359,16 +365,18 @@ export interface Stamp {
 
 /**
  * What executing a `<send>` or `<cancel>` answered. On success, the context
- * and send state it leaves and its effect. A failure with no `context` is an
- * argument failure and changed nothing; a failure with one is a refused send,
- * whose minted id and `idlocation` write stand.
+ * and send state it leaves and its effects: a send's `datamodel_change` for
+ * its `idlocation` write, when it wrote one, then its own effect. A failure
+ * with no `context` is an argument failure and changed nothing; a failure
+ * with one is a refused send, whose minted id and `idlocation` write stand
+ * and which answers no effect.
  */
 export type SendOutcome<E> =
   | {
       readonly ok: true;
       readonly context: EvaluationContext;
       readonly state: SendState;
-      readonly effect: E;
+      readonly effects: readonly (DatamodelChange | E)[];
     }
   | {
       readonly ok: false;
@@ -473,10 +481,23 @@ export function executeSend(
   }
 
   let written = context;
+  const changes: DatamodelChange[] = [];
   if (node.idlocation !== null) {
     const write = writeLocation(context, node.idlocation, sendId);
     if (!write.ok) return write;
     written = write.context;
+    const root = node.idlocation.trim();
+    changes.push({
+      kind: "datamodel_change",
+      locationPath: [root],
+      locationSource: node.idlocation,
+      newValue: sendId,
+      priorValue: context.data.get(root) as Value,
+      dIndex: null,
+      cIndex: node.cIndex,
+      owner: stamp.owner,
+      ...stamp.counters,
+    });
   }
 
   const invalid = rejectReason(target.value, type.value, next.sendTypes);
@@ -513,7 +534,7 @@ export function executeSend(
     delay.ms === null
       ? { kind: "send", ...fields, ordinal: registered ? next.timerCounter : null }
       : { kind: "send_delayed", ...fields, delayMs: delay.ms, ordinal: next.timerCounter };
-  return { ok: true, context: written, state: next, effect };
+  return { ok: true, context: written, state: next, effects: [...changes, effect] };
 }
 
 /**
@@ -537,5 +558,5 @@ export function executeCancel(
     ...stamp.counters,
     ordinal: next.timerCounter,
   };
-  return { ok: true, context, state: next, effect };
+  return { ok: true, context, state: next, effects: [effect] };
 }

@@ -233,6 +233,14 @@ describe("the scion suite's delayed sends", () => {
         ordinal: 1,
       },
       {
+        kind: "datamodel_change",
+        locationPath: ["httpid"],
+        locationSource: "httpid",
+        newValue: "send_1",
+        priorValue: "foo",
+        cIndex: 1,
+      },
+      {
         kind: "send_delayed",
         type: SCXML_EVENT_PROCESSOR,
         delayMs: 2,
@@ -354,6 +362,85 @@ describe("send ids", () => {
       { sendId: "renewal", idFromAuthor: true },
       { sendId: "send_1", idFromAuthor: false },
     ]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The idlocation write's datamodel_change
+// ---------------------------------------------------------------------------
+
+/** The fields of a datamodel_change, in the order the reference's effect declares them. */
+const CHANGE_FIELDS = [
+  "kind",
+  "locationPath",
+  "locationSource",
+  "newValue",
+  "priorValue",
+  "dIndex",
+  "cIndex",
+  "owner",
+  "macrostep",
+  "microstep",
+  "round",
+];
+
+describe("a <send idlocation> write", () => {
+  // statifier-ex v2.10.0, test/statifier/machine/content/send_test.exs: "the
+  // :datamodel_change effect precedes :send and names the raw idlocation,
+  // c_index, and owner".
+  // Sabotage: answering the send's effect before its change in executeSend
+  // (`[effect, ...changes]`) turns this red.
+  it("answers a datamodel_change just before the send, naming its node and block", () => {
+    const outcome = run(
+      [sendNode(2, `<send event="loan.due" idlocation="lastSend"/>`)],
+      [["lastSend", "renewal"]],
+    );
+    expect(outcome.raised).toEqual([]);
+    expect(outcome.effects).toEqual([
+      {
+        kind: "datamodel_change",
+        locationPath: ["lastSend"],
+        locationSource: "lastSend",
+        newValue: "send_1",
+        priorValue: "renewal",
+        dIndex: null,
+        cIndex: 2,
+        ...STAMP,
+      },
+      {
+        kind: "send",
+        event: "loan.due",
+        target: null,
+        type: null,
+        data: Undefined,
+        sendId: "send_1",
+        idFromAuthor: true,
+        cIndex: 2,
+        ...STAMP,
+        ordinal: null,
+      },
+    ]);
+    expect(Object.keys(outcome.effects[0] ?? {})).toEqual(CHANGE_FIELDS);
+  });
+
+  // statifier-ex v2.10.0, lib/statifier/machine/content/send.ex
+  // `dispatch_or_reject/8`: a refused send answers no effect, its write
+  // standing.
+  // Sabotage: refusing only a send that wrote no idlocation in executeSend
+  // (`rejected !== null && changes.length === 0`) turns this red.
+  it("answers no datamodel_change when the send is refused, though the write stands", () => {
+    const desk: SendState = {
+      ...INITIAL_SEND_STATE,
+      routes: { sessions: new Set(["desk-1"]), parent: false, invokes: new Set() },
+    };
+    const outcome = run(
+      [sendNode(0, `<send event="loan.recall" target="#_scxml_branch-2" idlocation="lastSend"/>`)],
+      [["lastSend", null]],
+      desk,
+    );
+    expect(outcome.effects).toEqual([]);
+    expect(outcome.raised.map((event) => event.name)).toEqual(["error.communication"]);
+    expect(outcome.context.data.get("lastSend")).toBe("send_1");
   });
 });
 

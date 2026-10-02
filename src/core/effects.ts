@@ -8,9 +8,13 @@
 // node.
 //
 // The two datamodel effects are core effects: every successful write an
-// `<assign>` or a `<data>` binding makes answers a `datamodel_change`, and
-// starting a chart answers one `datamodel_init`, whether or not tracing is
-// on. Together they describe the datamodel from its starting values onward.
+// `<assign>`, a `<data>` binding, a `<send idlocation>`, an `<invoke
+// idlocation>` or an empty `<finalize>` makes answers a `datamodel_change`,
+// and starting a chart answers one `datamodel_init`, whether or not tracing
+// is on. Together they describe the datamodel from its starting values
+// onward. The one write that answers none is the `idlocation` write of a
+// `<send>` refused for its target, its type or its route: the write stands
+// and the send answers no effect, as the reference's send does.
 //
 // The trace effects are emitted only when the position's `trace` flag is
 // set, and are then ordinary members of the same effect list, in the order
@@ -21,8 +25,7 @@
 // included, in document order.
 //
 // Not emitted here: the reference's `conds_evaluated` trace, which its
-// transition selection emits, and the `datamodel_change` its `<send
-// idlocation>`, `<invoke idlocation>` and empty `<finalize>` writes answer.
+// transition selection emits.
 
 import type { Value } from "@riddler/predicator";
 import type { Counters, Event, Owner } from "../datamodel.js";
@@ -35,8 +38,14 @@ import type { Counters, Event, Owner } from "../datamodel.js";
  * One successful datamodel write. `locationPath` is the resolved path written
  * and `locationSource` the text the author wrote; `newValue` is what was
  * written and `priorValue` what stood there before, undefined when nothing
- * did. A write an `<assign>` made names its node by `cIndex` and the block it
- * ran in by `owner`; a `<data>` binding names its `dIndex`, and has neither.
+ * did. A write an `<assign>` or a `<send idlocation>` made names its node by
+ * `cIndex` and the block it ran in by `owner`; a `<data>` binding names its
+ * `dIndex`, and has neither. The two writes made outside any block name no
+ * node: an `<invoke idlocation>` write's `owner` is the `invoke` member,
+ * naming the state and the invocation's position in it, and an empty
+ * `<finalize>`'s write's is that invocation's `finalize` owner. The
+ * `invoke` member widens the owner here, on this effect alone, as the
+ * reference widens it; a block's `Owner` is unchanged.
  */
 export interface DatamodelChange {
   readonly kind: "datamodel_change";
@@ -46,7 +55,10 @@ export interface DatamodelChange {
   readonly priorValue: Value;
   readonly dIndex: number | null;
   readonly cIndex: number | null;
-  readonly owner: Owner | null;
+  readonly owner:
+    | Owner
+    | { readonly kind: "invoke"; readonly stateIndex: number; readonly invokeIndex: number }
+    | null;
   readonly macrostep: number;
   readonly microstep: number;
   readonly round: number;
