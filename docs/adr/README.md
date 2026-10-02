@@ -2,9 +2,9 @@
 
 | # | Decision | Status |
 |---|---|---|
-| [0001](0001-a-conformant-sibling.md) | A conformant sibling of the Elixir engine, not a second reference implementation | proposed |
-| [0002](0002-the-core-contract.md) | The core contract | proposed |
-| [0003](0003-the-conformance-apparatus.md) | The conformance apparatus | proposed |
+| [0001](0001-a-conformant-sibling.md) | A conformant sibling of the Elixir engine, not a second reference implementation | accepted |
+| [0002](0002-the-core-contract.md) | The core contract | accepted |
+| [0003](0003-the-conformance-apparatus.md) | The conformance apparatus | accepted |
 
 New ADRs: next number, same three-section format (Context, Decision,
 Consequences). A record that states a public signature adds a Typespecs
