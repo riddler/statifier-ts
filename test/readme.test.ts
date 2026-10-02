@@ -255,16 +255,17 @@ describe("the README's numbers", () => {
     expect(claimCases("w3c-mandatory") + claimCases("w3c-optional")).toBe(caseCount("w3c"));
   });
 
-  // Sabotage: the README's w3c count typed one higher turns this red.
+  // Sabotage: the README's w3c count typed one higher turns this red. The
+  // statifier clause is left out when no statifier case is unclaimed.
   it("states the gap the two registries leave, counted from them", () => {
     const match =
-      /the (\d+) w3c cases? and the (\d+) statifier cases?\s+the reference's own registry lists that this package's does not, nor the (\d+) w3c\s+cases the reference's registry does not list either/.exec(
+      /the (\d+) w3c cases?(?: and the (\d+) statifier cases?)?\s+the reference's own registry lists that this package's does not, nor the (\d+) w3c\s+cases the reference's registry does not list either/.exec(
         text,
       );
     expect(match, "the gap sentence").not.toBeNull();
     const [, w3c, statifier, neither] = match ?? [];
     expect(Number(w3c)).toBe(unclaimed(reference, registry, ["w3c"]).length);
-    expect(Number(statifier)).toBe(unclaimed(reference, registry, ["statifier"]).length);
+    expect(Number(statifier ?? 0)).toBe(unclaimed(reference, registry, ["statifier"]).length);
     expect(Number(neither)).toBe(unclaimedByEither(reference, registry, suites, ["w3c"]).length);
     expect(unclaimed(reference, registry, ["scion"])).toEqual([]);
     expect(unclaimedByEither(reference, registry, suites, ["scion", "statifier"])).toEqual([]);

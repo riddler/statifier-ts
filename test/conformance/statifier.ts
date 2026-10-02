@@ -48,16 +48,19 @@
 // package does not port. So a diff case agrees here on its configurations and
 // its sends, the comparisons the reference's runner makes for it.
 //
-// One thing the reference's harness does this runner cannot, and it fails its
-// case with the reason before it is driven, never patched around:
-// `declared_events` and `expect_accepts`, the reference's check of the
-// chart's accepted-events declaration before it runs the case
-// (`Statifier.Chart.check_accepts/2`), which this package does not port.
+// A case whose host carries `declared_events` and `expect_accepts` has its
+// chart's accepts check compared before it is driven, as the reference's
+// harness compares it (`accepts/2` in `host_case.ex` at v2.10.0): the check's
+// two lists, `unreachable` and `undeclared`, must be exactly the expected
+// ones, order included, and either key without the other is a disagreement.
+// The check is this package's `checkAccepts`, the port of the reference's
+// `Statifier.Chart.check_accepts/2`.
 //
 // Like the runner, this reaches nothing outside the language.
 
 import { fromHost, toHost, typeName, type Value } from "@riddler/predicator";
 import type { CorpusCase, CorpusStep } from "../../scripts/lib/corpus-rules.d.mts";
+import { checkAccepts } from "../../src/accepts.js";
 import type { Chart } from "../../src/compiler.js";
 import type { Cancel, Send, SendDelayed } from "../../src/core/send.js";
 import type { Event } from "../../src/datamodel.js";
@@ -74,20 +77,24 @@ import {
 import type { CaseOutcome } from "./runner.js";
 import { awaitConfiguration, compareLeafSets, compileCase, runScionCase, settle } from "./scion.js";
 
-/** The host keys of the reference's accepts check, which this package does not port. */
-export const ACCEPTS_KEYS: readonly string[] = Object.freeze(["declared_events", "expect_accepts"]);
-
 /**
- * Why a host case cannot be run here, before it is driven: the accepts check
- * it carries, naming the keys; null when it carries none. A diff pair is not
- * a reason: the reference's runner compares none of its keys.
+ * The accepts check's comparison, before the case is driven: null when the
+ * host carries neither key or `checkAccepts` answers exactly the expected
+ * lists, else the reason.
  */
-export function notPorted(host: Readonly<Record<string, unknown>>): string | null {
-  const accepts = ACCEPTS_KEYS.filter((key) => Object.hasOwn(host, key));
-  if (accepts.length > 0) {
-    return `the case's host checks the chart's declared events (${accepts.join(", ")}), and this package does not port the reference's accepts check`;
-  }
-  return null;
+export function compareAccepts(
+  chart: Chart,
+  host: Readonly<Record<string, unknown>>,
+): string | null {
+  const declared = Object.hasOwn(host, "declared_events");
+  const expected = Object.hasOwn(host, "expect_accepts");
+  if (!declared && !expected) return null;
+  if (!expected) return "declared_events is present without expect_accepts";
+  if (!declared) return "expect_accepts is present without declared_events";
+  const check = checkAccepts(chart, host.declared_events as readonly string[] | null);
+  const actual = { unreachable: check.unreachable, undeclared: check.undeclared };
+  if (canonical(actual) === canonical(host.expect_accepts)) return null;
+  return `expected the accepts check ${canonical(host.expect_accepts)}, got ${canonical(actual)}`;
 }
 
 /** One send in the case's item shape. */
@@ -251,11 +258,11 @@ function strings(value: unknown): string[] {
 /** Runs one host case: a pass, or a fail naming what disagreed. */
 export function runHostCase(testCase: CorpusCase): CaseOutcome {
   const spec = testCase.host ?? {};
-  const unported = notPorted(spec);
-  if (unported !== null) return { result: "fail", reason: unported };
   const compiled = compileCase(testCase);
   if ("reason" in compiled) return { result: "fail", reason: compiled.reason };
   const { chart } = compiled;
+  const accepts = compareAccepts(chart, spec);
+  if (accepts !== null) return { result: "fail", reason: accepts };
 
   const expected = (Array.isArray(spec.expect_sends) ? spec.expect_sends : []) as SendItem[];
   const host = hostFor(strings(spec.send_types), expected);

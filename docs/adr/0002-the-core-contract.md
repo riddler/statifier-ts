@@ -1052,3 +1052,119 @@ The chart takes `error.communication` with `_event.sendid` `"notice"` and
 `_event.type` `"platform"`, and a transition that reads
 `_event.sendid == 'notice'` is taken within the call. The README's registered
 send types section runs the same example to its configuration.
+
+## Amendment: the accepts check (2026-10-01)
+
+Status: proposed
+
+A host that declares which events a chart accepts - the events it will send,
+or the names a publish promises a receiver - has no way, from the Decision, to
+learn that the chart can never react to one of them, or that the chart reacts
+to a name the declaration leaves out. The reference answers both with
+`Statifier.Chart.check_accepts/2` (`lib/statifier/chart.ex` at `v2.10.0`),
+over the chart's event vocabulary, `Statifier.Chart.events/1` in the same
+file. Porting it as a public `checkAccepts(chart, declaredEvents)` answering
+`{ unreachable, undeclared }` with the reference's semantics, and claiming the
+statifier corpus case that carries it, were ruled by the operator,
+2026-10-01. The change that adds this Amendment adds the code: `checkAccepts`
+and `vocabulary` in `src/accepts.ts`, exported from `src/index.ts` with its
+answer's type, and `compareAccepts` in `test/conformance/statifier.ts`, with
+the registry entry written by `pnpm ratchet` from the run that observed the
+pass.
+
+**What it answers.** `checkAccepts(chart, declaredEvents)` takes a compiled
+chart and the declared names, and answers two lists:
+
+| List | What it holds | Reference at `v2.10.0` |
+|---|---|---|
+| `unreachable` | each declared name no descriptor in the vocabulary matches, in the declaration's order and without duplicates | the `unreachable:` comprehension of `check_accepts/2` over `Enum.uniq(declared)` |
+| `undeclared` | each descriptor in the vocabulary that matches no declared name, in the vocabulary's order | the `undeclared:` comprehension of `check_accepts/2` |
+
+A descriptor matches a declared name under transition selection's matching,
+on token boundaries: `nameMatch` and `tokenize` in `src/core/selection.ts`,
+the port of `Statifier.Interpreter.NameMatch`. A declared `loan.renew` is
+matched by `loan.renew`, `loan.*`, `loan.`, `loan` and `*`, and not by
+`loan.renewal` or `loan.renew.late`. A declared entry is a name, never a
+pattern: a `*` in it is an ordinary token. An empty list answers no
+unreachable name and the whole vocabulary as undeclared; `null`, no
+declaration, answers two empty lists, as the reference answers `nil`. The
+check reports and refuses nothing: which list a host refuses a publish on, if
+either, is the host's decision, as the `check_accepts/2` documentation says.
+
+**The vocabulary.** The descriptors on the transitions of every state that can
+be active, history pseudo-states left out, each as the document writes it, in
+transition index order (a state's own transitions before its children's, as
+the compiler numbers them), a descriptor equal as a string to one already
+listed dropped: the reference's `events/1`. "Can be active" is the static
+entry rule of `events/1`'s documentation, ported as `enteredStates` in
+`src/accepts.ts` from the reference's private `entered_states/1`: the root
+entered by its default; a state entered by its default enters its `initial`
+states, every region of a parallel state, or a history's default
+transition's targets; a state entered as a target is entered by its default
+with each of its proper ancestors, and a parallel ancestor's regions that hold
+no target are entered by their defaults; every transition of an entered state
+enters its targets. No `cond` and no `event` is read, so the rule over-counts
+and never under-counts.
+
+**The vocabulary is not exported.** The reference's `events/1` is public;
+here the check is the one question asked of the vocabulary, and it already
+answers it: `checkAccepts(chart, []).undeclared` is the whole vocabulary, and
+`checkAccepts(chart, [n]).unreachable` is empty exactly when some reachable
+descriptor matches `n`, the membership answer the reference's documentation
+gives. A second public name answering the same list would add surface the
+first release then keeps.
+
+**Where it differs from the reference, and why.**
+
+| Here | Reference at `v2.10.0` | Why |
+|---|---|---|
+| takes a `Chart` and reads only its `machine` | takes a `%Statifier.Machine{}` | a host here holds a `Chart`, the identity lives on that wrapper (the Decision), and the check reads neither the identity nor the source, as the reference's reads neither |
+| `null` for no declaration | `nil` | an absent value is `null` here where the reference has `nil` (the header of `src/machine.ts`) |
+
+**It is not a driver call.** It takes no state and moves nothing, so "The
+driver has six calls" holds unchanged, as `compile` beside them takes no state
+either.
+
+**The corpus case.** The reference's harness calls `check_accepts/2` on the
+compiled chart with the case's `declared_events` before it starts the case,
+and the case agrees only when both lists are exactly `expect_accepts`', order
+included; either key without the other is a disagreement (`accepts/2` in
+`lib/mix/statifier/corpus/host_case.ex` at `v2.10.0`). `compareAccepts` in
+`test/conformance/statifier.ts` makes the same comparison at the same point,
+and `statifier/accepts/loan_declares_an_unreachable_event` passes for the
+reason the reference's passes: the declared `loan.archived` is on no
+transition of the loan chart, so it is unreachable, and the five descriptors
+the declaration leaves out come back in the vocabulary's order. With the
+expected `undeclared` reversed, or with the declaration widened to every name
+the chart listens for, the case fails on the check, so the pass rests on it.
+
+Typespecs:
+
+```ts
+function checkAccepts(chart: Chart, declaredEvents: readonly string[] | null): AcceptsCheck;
+
+interface AcceptsCheck {
+  readonly unreachable: readonly string[];
+  readonly undeclared: readonly string[];
+}
+```
+
+Worked example. A loan chart whose `active` state listens for `copy.returned`
+and `copy.disputed`, with `on_loan` inside it listening for `loan.renew`,
+`loan.due_soon` and `loan.due`, `overdue` for `loan.lost` and
+`held_for_review` for `dispute.resolved` (the corpus's
+`library/loan_dispute_returns_to_history.scxml`):
+
+```ts
+const declared = ["loan.renew", "copy.returned", "loan.archived"];
+checkAccepts(chart, declared);
+// {
+//   unreachable: ["loan.archived"],
+//   undeclared: ["copy.disputed", "loan.due_soon", "loan.due", "loan.lost", "dispute.resolved"],
+// }
+```
+
+`loan.archived` is on no transition, so a host that sends it reaches nothing;
+`copy.disputed` and the four after it are names the chart reacts to that the
+declaration does not state, `active`'s own descriptor first because a state's
+own transitions are numbered before its children's.

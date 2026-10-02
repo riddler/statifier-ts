@@ -6,7 +6,9 @@
 // its virtual clock, report a send the host could not deliver, and read its
 // configuration and whether it is done; and
 // position export and import, a running chart's state in the string-id
-// vocabulary out and back in; and the HTTP transport types, the seam a host
+// vocabulary out and back in; the accepts check, which compares the event
+// names a host declares a chart accepts with the events the chart reacts
+// to; and the HTTP transport types, the seam a host
 // implements to make the Basic HTTP processor's requests over its own HTTP,
 // exported as types only, so nothing here reaches a host global; and the
 // types a compile error reaches - each stage's error, its reason tokens and
@@ -19,6 +21,7 @@
 
 import { version as packageVersion } from "../package.json";
 
+export { type AcceptsCheck, checkAccepts } from "./accepts.js";
 export {
   type Chart,
   type ChartIdentity,

@@ -84,7 +84,7 @@ describe("this package's registry, as committed", () => {
   const committed = loadRegistry();
   const results = suites.flatMap((suite) => runSuite(suite, manifest.corpus_hash).results);
 
-  it("is pinned, in the ratchet's encoding, and claims no statifier case the host here cannot run, and every diff case", () => {
+  it("is pinned, in the ratchet's encoding, and claims every statifier case, every diff case among them", () => {
     expect(committed.implementation).toBe("statifier-ts");
     expect(committed.corpus_hash).toBe(manifest.corpus_hash);
     expect(committed.claims).toEqual(["scion", "statifier", "w3c-mandatory", "w3c-optional"]);
@@ -93,7 +93,6 @@ describe("this package's registry, as committed", () => {
       .filter((entry) => entry.suite === "statifier")
       .map((entry) => entry.case_id);
     expect(statifier.length).toBeGreaterThan(0);
-    expect(statifier.filter((id) => id.startsWith("statifier/accepts/"))).toEqual([]);
     expect(statifier).toContain("statifier/send/registered_send_failed");
     const statifierCases = suites.find((suite) => suite.suite === "statifier")?.cases ?? [];
     const diffIds = statifierCases
@@ -101,6 +100,7 @@ describe("this package's registry, as committed", () => {
       .map((testCase) => testCase.id);
     expect(diffIds).toHaveLength(10);
     expect(statifier.filter((id) => id.startsWith("statifier/diff/"))).toEqual(diffIds.sort());
+    expect(statifier).toEqual(statifierCases.map((testCase) => testCase.id).sort());
     const scion = suites.find((suite) => suite.suite === "scion")?.cases ?? [];
     expect(
       committed.entries.filter((entry) => entry.suite === "scion").map((entry) => entry.case_id),

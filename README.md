@@ -441,14 +441,14 @@ hand. Its registry, `conformance/registry.json`, lists the cases this package
 claims to pass - written only by a run that observed the pass, and never
 narrowed.
 
-**The claim:** this package makes four claims, with 302 entries in its
+**The claim:** this package makes four claims, with 303 entries in its
 registry: `scion` with 119 entries out of the suite's 119 cases, `statifier`
-with 30 entries out of the suite's 31 cases, `w3c-mandatory` with 151 entries
+with 31 entries out of the suite's 31 cases, `w3c-mandatory` with 151 entries
 out of the w3c suite's 154 mandatory cases, and `w3c-optional` with 2 entries
 out of its 14 optional cases. A claim is exactly its entries: a case with no
 entry is one this package does not claim to pass.
 
-**The gap:** it does not yet claim the 12 w3c cases and the 1 statifier case
+**The gap:** it does not yet claim the 12 w3c cases
 the reference's own registry lists that this package's does not, nor the 3 w3c
 cases the reference's registry does not list either. `pnpm conformance` runs
 the corpus, writes one report per suite under `reports/`, and prints both
@@ -466,8 +466,10 @@ the reference's runner compares none of its diff keys; the reference compares
 them in its own test suite, through a chart diff this package does not port.
 A case that asks the host to report a send failed is driven with that send
 reported through `reportSendFailed`, as the reference's harness reports it.
-The accepts case fails before it is driven, because this package does not
-port the reference's accepts check.
+A case that declares the events its chart accepts has the chart checked
+against that declaration by `checkAccepts` before it is driven, as the
+reference's harness checks it, and agrees only when both lists the check
+answers are the ones it expects.
 
 ```bash
 pnpm conformance      # run the corpus and print the gap list

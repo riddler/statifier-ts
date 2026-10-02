@@ -9,6 +9,7 @@
 
 import { describe, expect, it } from "vitest";
 import type {
+  AcceptsCheck,
   CompileError,
   CompilerError,
   DefaultTransitionOwner,
@@ -34,6 +35,7 @@ import * as entry from "../src/index.js";
 
 const RUNTIME_NAMES = [
   "advance",
+  "checkAccepts",
   "compile",
   "configuration",
   "exportPosition",
@@ -82,6 +84,8 @@ const compileErrorIsTheNamedUnion: CompileErrorIsTheNamedUnion = true;
 // The failed-send types, named the same way.
 type FailedSendTypes = [FailedSend, DeliveryFailure];
 const failedSendTypesNamed: FailedSendTypes | undefined = undefined;
+// The accepts check's answer, named the same way.
+const acceptsCheckNamed: AcceptsCheck | undefined = undefined;
 
 describe("the main entry point", () => {
   // Sabotage: exporting one more function from `src/index.ts`, or dropping
@@ -108,5 +112,12 @@ describe("the main entry point", () => {
     expect(failedSendTypesNamed).toBeUndefined();
     expect(Object.keys(entry)).not.toContain("FailedSend");
     expect(Object.keys(entry)).not.toContain("DeliveryFailure");
+  });
+
+  // Sabotage: dropping `type AcceptsCheck` from `src/index.ts` turns the
+  // typecheck red.
+  it("exports the accepts check's answer, as a type only", () => {
+    expect(acceptsCheckNamed).toBeUndefined();
+    expect(Object.keys(entry)).not.toContain("AcceptsCheck");
   });
 });

@@ -1,8 +1,8 @@
 // The statifier case runner: a plain case driven as a scion case is, a host
 // case's registered send types handed to the driver and its expected sends
 // compared, a planted wrong expected send failing its case, a send the case
-// marks failed reported through the driver, and the case the host here cannot
-// run failing with its reason.
+// marks failed reported through the driver, and the accepts case's check
+// compared before it is driven.
 //
 // The cases are the vendored corpus's own; the one chart written here is the
 // library loan: a returned copy routed to the branch's hold queue.
@@ -10,13 +10,7 @@
 import { describe, expect, it } from "vitest";
 import type { CorpusCase } from "../../scripts/lib/corpus.mjs";
 import { loadSuites } from "../../scripts/lib/corpus.mjs";
-import {
-  compareSends,
-  notPorted,
-  runHostCase,
-  runStatifierCase,
-  type SendItem,
-} from "./statifier.js";
+import { compareSends, runHostCase, runStatifierCase, type SendItem } from "./statifier.js";
 
 const statifier = loadSuites().find((suite) => suite.suite === "statifier");
 
@@ -215,16 +209,75 @@ describe("a send the host reports failed", () => {
   });
 });
 
-describe("what the host here cannot do", () => {
-  // Sabotage: running the accepts case as any other host case turns this red.
-  // It was run and reverted.
-  it("fails the accepts case before it is driven, naming the keys", () => {
-    const testCase = statifierCase("accepts/loan_declares_an_unreachable_event");
-    expect(runStatifierCase(testCase)).toEqual({
+describe("the accepts case", () => {
+  const ID = "accepts/loan_declares_an_unreachable_event";
+
+  function expectAccepts(testCase: CorpusCase): { unreachable: string[]; undeclared: string[] } {
+    return testCase.host?.expect_accepts as { unreachable: string[]; undeclared: string[] };
+  }
+
+  // Sabotage: `checkAccepts` keeping the descriptors that DO match a declared
+  // name in `undeclared` turns this red. It was run and reverted.
+  it("passes: the check answers the expected lists before the case is driven", () => {
+    expect(runStatifierCase(statifierCase(ID))).toEqual({ result: "pass" });
+  });
+
+  // The pass is not vacuous: the runner compares the check's two lists with
+  // the expected ones, order included, before the case is driven, as the
+  // reference's harness does, so an expectation the check does not answer
+  // fails the case naming both.
+  it("fails an expectation the check does not answer, order included", () => {
+    const testCase = statifierCase(ID);
+    const { unreachable, undeclared } = expectAccepts(testCase);
+    const reordered = { unreachable, undeclared: [...undeclared].reverse() };
+    expect(runStatifierCase(withHost(testCase, { expect_accepts: reordered }))).toEqual({
       result: "fail",
       reason:
-        "the case's host checks the chart's declared events (declared_events, expect_accepts), and this package does not port the reference's accepts check",
+        'expected the accepts check {"undeclared":["dispute.resolved","loan.lost","loan.due","loan.due_soon","copy.disputed"],"unreachable":["loan.archived"]}, got {"undeclared":["copy.disputed","loan.due_soon","loan.due","loan.lost","dispute.resolved"],"unreachable":["loan.archived"]}',
     });
+    const reachable = { unreachable: [], undeclared };
+    expect(runStatifierCase(withHost(testCase, { expect_accepts: reachable }))).toMatchObject({
+      result: "fail",
+      reason: expect.stringMatching(/^expected the accepts check /),
+    });
+  });
+
+  // The declaration is what the check reads: declaring every name the chart
+  // listens for leaves nothing undeclared, so the expected lists no longer
+  // agree.
+  it("reads the case's declared events", () => {
+    const testCase = statifierCase(ID);
+    const declared = [
+      "loan.renew",
+      "copy.returned",
+      "loan.archived",
+      "copy.disputed",
+      "loan.due_soon",
+      "loan.due",
+      "loan.lost",
+      "dispute.resolved",
+    ];
+    expect(runStatifierCase(withHost(testCase, { declared_events: declared }))).toEqual({
+      result: "fail",
+      reason:
+        'expected the accepts check {"undeclared":["copy.disputed","loan.due_soon","loan.due","loan.lost","dispute.resolved"],"unreachable":["loan.archived"]}, got {"undeclared":[],"unreachable":["loan.archived"]}',
+    });
+  });
+
+  // Sabotage: comparing the check only when both keys are present, and
+  // otherwise driving the case, turns this red. It was run and reverted.
+  it("fails either key without the other, as the reference's harness does", () => {
+    const testCase = statifierCase(ID);
+    const { declared_events, expect_accepts, ...rest } = testCase.host ?? {};
+    expect(runStatifierCase({ ...testCase, host: { ...rest, declared_events } })).toEqual({
+      result: "fail",
+      reason: "declared_events is present without expect_accepts",
+    });
+    expect(runStatifierCase({ ...testCase, host: { ...rest, expect_accepts } })).toEqual({
+      result: "fail",
+      reason: "expect_accepts is present without declared_events",
+    });
+    expect(runStatifierCase({ ...testCase, host: rest })).toEqual({ result: "pass" });
   });
 });
 
@@ -239,8 +292,6 @@ describe("a diff case", () => {
       expect(Object.hasOwn(testCase.host ?? {}, "to_source"), testCase.id).toBe(true);
       expect(runStatifierCase(testCase), testCase.id).toEqual({ result: "pass" });
     }
-    expect(notPorted({ to_source: "", mapping: {}, expect_diff: {} })).toBeNull();
-    expect(notPorted({ send_types: [], expect_sends: [] })).toBeNull();
   });
 
   // Sabotage: answering a pass without comparing the initial configuration

@@ -141,10 +141,11 @@ reference's runner drives it: that runner compares none of the four keys, and
 the reference compares them only in its own test suite
 (`test/corpus/diff_cases_test.exs` at `v2.10.0`), through its chart diff and
 its position predicate, which this package does not port (ADR-0003's Note of
-2026-10-01). One thing the reference's harness does the runner cannot, and it
-fails its case with the reason: `declared_events` and `expect_accepts`, the
-reference's accepts check, which this package does not port; the case fails
-before it is driven.
+2026-10-01). A case whose host carries `declared_events` and `expect_accepts`
+has its chart's accepts check compared before it is driven, as the
+reference's harness compares it (`accepts/2` in `host_case.ex` at `v2.10.0`):
+the two lists `checkAccepts` answers must be exactly the expected ones, order
+included, and either key without the other fails the case.
 
 **Ratchet.** `pnpm ratchet` reads only the reports the last run wrote. It
 refuses, writing nothing, when a report is of another corpus or is not a run
@@ -236,9 +237,11 @@ w3c suite falls in three groups:
 - `w3c/test330` and `w3c/test552`, which the reference's registry does not
   list, and which fail here on the configuration the chart rests in.
 
-What the run fails in the statifier suite is one case, named under "Run"
-above: `statifier/accepts/loan_declares_an_unreachable_event`, the accepts
-case. `statifier/send/registered_send_failed`, the case that asks the host to
+The run fails no case in the statifier suite.
+`statifier/accepts/loan_declares_an_unreachable_event`, the accepts case, is
+claimed: the run compares the chart's accepts check before it drives the case
+and passes it on that check, its configurations and its sends.
+`statifier/send/registered_send_failed`, the case that asks the host to
 report a send failed, is claimed: the run reports the send through the
 driver's `reportSendFailed` and passes it on its configurations and its sends.
 
