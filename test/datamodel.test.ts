@@ -600,6 +600,42 @@ describe("a program", () => {
     expect(isFloat(toFloat.data.get("fine"))).toBe(true);
   });
 
+  // The sign of zero is this package's rule, not a claim about the
+  // reference's: the reference diffs with `!==` (partition_changed_roots/2
+  // at statifier-ex v2.10.0), and what that answers for 0.0 and -0.0 is not
+  // read here. The tagged encoding carries the sign, so a float root
+  // rewritten to the zero of the other sign is a change and merges.
+  // Sabotage: comparing two floats by `===` in sameValue (so 0.0 and -0.0
+  // are the same value) turns both sign expectations red.
+  it("sees a float root rewritten to the zero of the other sign as changed", () => {
+    const toNegative = runProgram(
+      contextOf(new Map<string, Value>([["fine", float(0)]])),
+      program("fine = -0.0"),
+    );
+    expect(toNegative.ok).toBe(true);
+    const negative = toNegative.data.get("fine");
+    expect(isFloat(negative)).toBe(true);
+    expect(Object.is(negative?.valueOf(), -0)).toBe(true);
+
+    const toPositive = runProgram(
+      contextOf(new Map<string, Value>([["fine", float(-0)]])),
+      program("fine = 0.0"),
+    );
+    expect(toPositive.ok).toBe(true);
+    const positive = toPositive.data.get("fine");
+    expect(isFloat(positive)).toBe(true);
+    expect(Object.is(positive?.valueOf(), 0)).toBe(true);
+
+    // A control, not covered by the sabotage above: a -0.0 root the
+    // program leaves alone is handed back as the value it held.
+    const unchanged = new Map<string, Value>([
+      ["fine", float(-0)],
+      ["loans", 0],
+    ]);
+    const untouched = runProgram(contextOf(unchanged), program("loans = 1"));
+    expect(untouched.data.get("fine")).toBe(unchanged.get("fine"));
+  });
+
   // Sabotage: dropping the failing arm's context (merging nothing when the
   // run failed) in haltOf turns the `fine` expectation red.
   it("that fails merges a float written before the failing statement as a float", () => {
@@ -692,6 +728,42 @@ describe("a program", () => {
     expect(outcome).toEqual({ ok: true, data: new Map([...seeded, ["loans", 1]]) });
     expect(outcome.data.get("_event")).toBe(event);
     expect(isFloat(outcome.data.get("fine"))).toBe(true);
+  });
+
+  // A known limitation, pinned so that lifting it is seen: the plain
+  // fallback reads the halt context through the plain projection, which
+  // drops a float's brand, so a float the program writes there merges as
+  // the integer of the same magnitude; and the fallback runs the program a
+  // second time, so a host function it calls is called twice.
+  // Sabotage: answering a number in the fallback's changed roots as a float
+  // (`float(value)` for a number in domainContext) turns the integer
+  // expectations red; skipping the tagged run when a root holds the
+  // encoding's reserved key (so the program runs once) turns the call
+  // count red.
+  it("merges a float written on the plain fallback as an integer, running the program twice", () => {
+    let calls = 0;
+    const states: ActiveStates = {
+      indexOf: (id) => {
+        calls += 1;
+        return STATE_IDS.indexOf(id);
+      },
+      configuration: new Set([STATE_IDS.indexOf("on_loan")]),
+    };
+    const seeded = new Map<string, Value>([
+      ["slip", { $type: "loan_slip", copy: "c-1" }],
+      ["fine", 0],
+      ["lent", false],
+    ]);
+    const outcome = runProgram(
+      evaluationContext(seeded, states),
+      program('fine = 2.0; lent = In("on_loan")'),
+    );
+    expect(outcome.ok).toBe(true);
+    expect(outcome.data.get("lent")).toBe(true);
+    expect(outcome.data.get("fine")).toBe(2);
+    expect(isInteger(outcome.data.get("fine"))).toBe(true);
+    expect(isFloat(outcome.data.get("fine"))).toBe(false);
+    expect(calls).toBe(2);
   });
 
   // Sabotage: starting the plain fallback's failing arm from {} (dropping
