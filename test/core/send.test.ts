@@ -7,6 +7,7 @@
 // in statifier-ex at v2.9.0), each element under the id of the case it comes
 // from, byte for byte. Everything else uses the library loan.
 
+import { readFileSync } from "node:fs";
 import { compile, parseDuration, Undefined, type Value } from "@riddler/predicator";
 import { describe, expect, it } from "vitest";
 import {
@@ -419,6 +420,7 @@ describe("a statically invalid <send>", () => {
       reason: {
         kind: "send_rejected",
         send_id: "send_1",
+        error_kind: "execution",
         reason: { kind: "invalid_target", target: "nowhere" },
       },
     });
@@ -470,6 +472,39 @@ describe("a target the declared routes do not reach", () => {
     const orphan = run([sendNode(0, `<send event="loan.no" target="#_parent"/>`)], [], DESK);
     expect(orphan.raised.map((event) => event.name)).toEqual(["error.communication"]);
     expect(reachable(routes, parseTarget("front desk"))).toBe(false);
+  });
+
+  // Sabotage: carrying "execution" for every refusal in executeSend turns
+  // this red.
+  it("keeps the communication kind whole when the refused send is nested", () => {
+    const outcome = run(
+      [
+        {
+          kind: "if",
+          cIndex: 0,
+          branches: [
+            {
+              cond: null,
+              content: [sendNode(1, `<send event="loan.recall" target="#_scxml_branch-2"/>`)],
+            },
+          ],
+        },
+      ],
+      [],
+      DESK,
+    );
+    expect(outcome.raised.map((event) => event.name)).toEqual(["error.execution"]);
+    expect(outcome.raised[0]?.sendid).toBeUndefined();
+    expect(outcome.raised[0]?.data).toEqual({
+      kind: "nested_content",
+      c_index: 1,
+      reason: {
+        kind: "send_rejected",
+        send_id: "send_1",
+        error_kind: "communication",
+        reason: { kind: "unreachable_target", target: "#_scxml_branch-2" },
+      },
+    });
   });
 
   // Sabotage: judging a delayed send's route in executeSend turns this red.
@@ -717,5 +752,16 @@ describe("<cancel>", () => {
     expect(outcome.effects).toEqual([]);
     expect(outcome.raised).toMatchObject([{ name: "error.execution" }]);
     expect(outcome.sends).toEqual(INITIAL_SEND_STATE);
+  });
+});
+
+describe("the module graph", () => {
+  // Sabotage: importing the Invalid type from ./content.js in send.ts again
+  // turns this red.
+  it("send.ts imports nothing from content.ts, which imports it", () => {
+    const read = (file: string) =>
+      readFileSync(new URL(`../../src/core/${file}`, import.meta.url), "utf8");
+    expect(read("content.ts")).toMatch(/from "\.\/send\.js"/);
+    expect(read("send.ts")).not.toMatch(/from "\.\/content\.js"/);
   });
 });

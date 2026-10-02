@@ -42,6 +42,7 @@ import {
   type Expr,
   evaluate,
   executionError,
+  type Invalid,
   type Owner,
   runProgram,
   writeLocation,
@@ -64,16 +65,10 @@ import {
 // The nodes a block runs
 // ---------------------------------------------------------------------------
 
-/**
- * An expression or a program the compiler could not compile. The failure is
- * deferred to the node that carries it, which fails when it runs rather than
- * refusing the whole chart when it loads.
- */
-export interface Invalid {
-  readonly kind: "invalid";
-  readonly source: string;
-  readonly message: string;
-}
+// `Invalid` lives with the datamodel's other expression types, where the send
+// node reads it too; it is re-exported here for the compiler and the nodes
+// that took it from this module.
+export type { Invalid } from "../datamodel.js";
 
 /** A `<raise>`: enqueues `event` on the internal queue. */
 export interface RaiseNode {
@@ -243,17 +238,16 @@ export function executeBlock(
 
 /**
  * Raises `error.execution` for a node's failure. A refused `<send>` that
- * stopped this block names its send id on the event, and the event's data is
- * the refusal itself; a send refused because the declared routes do not reach
- * its target raises `error.communication` instead. Refused inside a nested
- * node, it is data like any other nested failure.
+ * stopped this block names its send id on the event, the event's name is the
+ * one its error kind names, and the event's data is the refusal itself.
+ * Refused inside a nested node, it is data like any other nested failure,
+ * the kind included.
  */
 function raiseError(run: Run, cIndex: number, reason: ExecutionReason): void {
   const origin = { kind: "content", cIndex, owner: run.sink.owner } as const;
   if (reason.kind === "send_rejected") {
     const event = executionError(origin, run.sink.counters, reason.reason);
-    const name = reason.reason.kind === "unreachable_target" ? "error.communication" : event.name;
-    run.raised.push({ ...event, name, sendid: reason.sendId });
+    run.raised.push({ ...event, name: `error.${reason.errorKind}`, sendid: reason.sendId });
     return;
   }
   run.raised.push(executionError(origin, run.sink.counters, reason));
