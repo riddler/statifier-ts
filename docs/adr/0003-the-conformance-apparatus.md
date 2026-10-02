@@ -384,7 +384,7 @@ that observed it. The Amendment's accepts row stands.
 The Amendment "the sends a host case expects" says, in its accepts row, that a
 case whose host carries `declared_events` and `expect_accepts` "fails the case
 before it is driven: this package does not port the accepts check", and the
-two Notes above each end "The Amendment's accepts row stands". ADR-0002's
+two Notes above each leave that row standing. ADR-0002's
 Amendment "the accepts check", of 2026-10-01, ports that check as
 `checkAccepts` in `src/accepts.ts`, ruled by the operator, 2026-10-01; the
 change that adds this Note adds that Amendment and its code.
