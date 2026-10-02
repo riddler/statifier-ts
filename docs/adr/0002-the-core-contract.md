@@ -706,3 +706,138 @@ path into the whole state. A position carries none of them: the reference's
 resumed session rebuilds its invocation table empty, so an imported state has
 no child, and a send to an invocation its position names live is refused as
 unreachable.
+
+## Amendment: the HTTP transport a host supplies (2026-10-01)
+
+Status: proposed
+
+This package is to ship the Basic HTTP Event I/O Processor (SCXML appendix
+C.2) as a built-in send processor, with a default transport, and to let a host
+supply its own HTTP in place of that default, ruled by the operator,
+2026-10-01. The transport is the seam between the two: the processor and a
+host both code against it, so this Amendment records it ahead of the
+processor, and the change that adds it adds only the types. The processor, its
+default transport and the entry point they live on are not on `main` yet, and
+nothing here states their code.
+
+The reference's seam is the model: `Statifier.Send.BasicHTTP.Transport` and
+its one callback, `post/3`, in `lib/statifier/send/basic_http/transport.ex`
+at `v2.10.0`, decided by the reference's ADR-0075 decision 6, with the
+request it is handed built by that record's decision 4 and its Amendment of
+2026-09-30, and a miss routed by its decision 8, point d. The reference's
+callback takes the URL, the headers and the body, makes one attempt, and
+answers `{:ok, status}` for any HTTP status or `{:error, reason}` when no
+response came back.
+
+**What a transport receives.** One request, as the processor built it
+(`HttpRequest` in `src/http-transport.ts`):
+
+| Field | What it holds | Reference at `v2.10.0` |
+|---|---|---|
+| `method` | always `"POST"` | ADR-0075 decision 4: "the method is POST" |
+| `url` | the send's target; when the body is the send's content and the send names an event, the target with `_scxmleventname` in its query string | ADR-0075 decision 4; `with_query/2` in `lib/statifier/send/basic_http.ex` |
+| `headers` | name and value pairs in order, every name in lower case, `content-type` and `scxml-send-key` always among them | `post/3`'s documentation ("lower-case names, `content-type` among them"); `post/2` in `lib/statifier/send/basic_http.ex` |
+| `body` | already encoded: an `application/x-www-form-urlencoded` form body, or the send's content as `text/plain` | ADR-0075 decision 4 |
+
+The `scxml-send-key` header carries the send's deduplication key, spelled as
+the reference's ADR-0075 Amendment of 2026-09-30 spells it: eight fields
+joined by `/`, the same value each time the same send is performed. Delivery
+is at least once, and a receiver that takes a request only when it has not
+taken one with the same key takes each send once. The transport sends the
+header as it is handed; it neither reads nor deduplicates on it.
+
+The form body is encoded by the processor, by hand, and never through
+`URLSearchParams`, `TextEncoder` or `Buffer`, ruled by the operator,
+2026-10-01; the transport is handed a string and sends it unchanged.
+
+**What a transport answers.** A promise that settles to one of two values
+(`HttpAnswer` in `src/http-transport.ts`), and never rejects:
+
+| Answer | When | Reference at `v2.10.0` |
+|---|---|---|
+| `{ kind: "status", status }` | a response came back, with any status from 100 to 599; a status outside 2xx is answered here, not as a failure | `{:ok, status}` from `post/3` |
+| `{ kind: "failure", reason }` | no response came back: refused, unreachable or timed out; `reason` is the host's own words | `{:error, reason}` from `post/3` |
+
+A failure is a value, as every failure this package answers is. A transport
+makes one attempt: retrying is not its job, as the reference's
+`Statifier.Send.BasicHTTP.Transport` documentation says. It bounds the
+request's time itself and answers a failure when the bound passes; the
+reference's default adapter does the same (ADR-0075's Consequences: "The
+default adapter bounds each request with a timeout"). A transport that
+rejects or throws anyway has broken this contract; the processor that calls
+it reads either as a failure answer, so a host's mistake does not escape the
+seam as an exception.
+
+**How a failure reaches the chart.** The processor reads a `failure`, and a
+`status` outside 2xx, as a missed delivery. It makes no second attempt and
+reports the miss through the driver's failed-send report, which raises
+`error.communication` (SCXML appendix C.1) for the sending chart. That report
+is the host-reported failed send, which its own Amendment to this record
+states; the reference's counterpart is `Statifier.Session.failed_send/3`,
+reached from `post_now/2` in `lib/statifier/send/basic_http.ex` at `v2.10.0`
+(ADR-0075 decision 8, point d). A status in 2xx is a delivery, and nothing
+reaches the chart.
+
+**The default transport is one implementation of it.** The default transport
+reads the host's global fetch function when a send is made, not when the
+package loads, and refuses by name when there is none; it lives with the
+processor on an entry point of its own, so the main entry point reaches no
+host global, ruled by the operator, 2026-10-01. A host that supplies a
+transport supplies a value of the same `HttpTransport` type, and the processor
+cannot tell the two apart.
+
+**Where the types live.** The main entry point exports `HttpTransport`,
+`HttpRequest`, `HttpAnswer`, `HttpStatus` and `HttpFailure` as types only:
+they compile to nothing, so exporting them from the main entry point reaches
+no host global, and a host can write its transport before the processor's own
+entry point exists. `test/export-surface.test.ts` pins them by name, and
+`test/http-transport.test.ts` is a trivial host transport written against
+them.
+
+Typespecs:
+
+```ts
+export interface HttpRequest {
+  readonly method: "POST";
+  readonly url: string;
+  readonly headers: readonly (readonly [name: string, value: string])[];
+  readonly body: string;
+}
+
+export interface HttpStatus {
+  readonly kind: "status";
+  readonly status: number;
+}
+
+export interface HttpFailure {
+  readonly kind: "failure";
+  readonly reason: string;
+}
+
+export type HttpAnswer = HttpStatus | HttpFailure;
+
+export type HttpTransport = (request: HttpRequest) => Promise<HttpAnswer>;
+```
+
+Worked example. A host transport over a client of its own, here a table that
+answers instead of a network, as a library's loan desk might test with:
+
+```ts
+import type { HttpAnswer, HttpTransport } from "@riddler/statifier";
+
+const statuses: Record<string, number> = { "https://library.example/scxml/desk-1": 204 };
+
+const transport: HttpTransport = (request) => {
+  const status = statuses[request.url];
+  const answer: HttpAnswer =
+    status === undefined
+      ? { kind: "failure", reason: `no route to ${request.url}` }
+      : { kind: "status", status };
+  return Promise.resolve(answer);
+};
+```
+
+Handed a POST to `https://library.example/scxml/desk-1` it answers
+`{ kind: "status", status: 204 }`, and the send is delivered; handed one to
+any other URL it answers a failure, and the sending chart takes
+`error.communication`.

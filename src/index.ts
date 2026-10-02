@@ -5,7 +5,9 @@
 // will run; the driver's calls, which start a chart, send it events, move
 // its virtual clock, and read its configuration and whether it is done; and
 // position export and import, a running chart's state in the string-id
-// vocabulary out and back in.
+// vocabulary out and back in; and the HTTP transport types, the seam a host
+// implements to make the Basic HTTP processor's requests over its own HTTP,
+// exported as types only, so nothing here reaches a host global.
 //
 // The identity lives on the Chart wrapper, not on the Machine, by choice. The
 // Machine type is exported only because a Chart carries one: it is opaque and
@@ -82,6 +84,13 @@ export {
   start,
   step,
 } from "./driver.js";
+export type {
+  HttpAnswer,
+  HttpFailure,
+  HttpRequest,
+  HttpStatus,
+  HttpTransport,
+} from "./http-transport.js";
 export type { Machine } from "./machine.js";
 export {
   type ExportedPosition,
