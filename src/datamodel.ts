@@ -147,6 +147,17 @@ export type Expr =
   | { readonly kind: "compiled"; readonly program: Program; readonly source: string };
 
 /**
+ * An expression or a program the compiler could not compile. The failure is
+ * deferred to the node that carries it, which fails when it runs rather than
+ * refusing the whole chart when it loads.
+ */
+export interface Invalid {
+  readonly kind: "invalid";
+  readonly source: string;
+  readonly message: string;
+}
+
+/**
  * Why an evaluation or a write failed. It is the data an `error.execution`
  * event carries.
  *
@@ -185,9 +196,12 @@ export type Expr =
  *   an invocation the host's declared routes do not reach; the one refusal
  *   raised as `error.communication` rather than `error.execution`.
  * - `send_rejected`: a `<send>` whose arguments all resolved was refused for
- *   its target or its type after its send id was minted. `sendId` is that id
- *   and `reason` the `unsupported_type`, `invalid_target` or
- *   `unreachable_target` refusal.
+ *   its target or its type after its send id was minted. `sendId` is that id,
+ *   `reason` the `unsupported_type`, `invalid_target` or `unreachable_target`
+ *   refusal, and `errorKind` the error event the refusal raises when it stops
+ *   a block: `communication` for `unreachable_target`, `execution` for the
+ *   other two. Inside an `<if>` or a `<foreach>` it is nested content like any
+ *   other failure, so the kind travels in the data rather than in the name.
  *
  * And `<data>`'s:
  *
@@ -213,7 +227,12 @@ export type ExecutionReason =
   | { readonly kind: "unsupported_type"; readonly type: Value }
   | { readonly kind: "invalid_target"; readonly target: Value }
   | { readonly kind: "unreachable_target"; readonly target: Value }
-  | { readonly kind: "send_rejected"; readonly sendId: string; readonly reason: ExecutionReason }
+  | {
+      readonly kind: "send_rejected";
+      readonly sendId: string;
+      readonly errorKind: "execution" | "communication";
+      readonly reason: ExecutionReason;
+    }
   | { readonly kind: "src"; readonly src: string };
 
 function evaluatorError(source: string, error: PredicatorError | ParseError): ExecutionReason {
@@ -500,7 +519,12 @@ export function reasonValue(reason: ExecutionReason): Value {
     case "unreachable_target":
       return { kind: reason.kind, target: reason.target };
     case "send_rejected":
-      return { kind: reason.kind, send_id: reason.sendId, reason: reasonValue(reason.reason) };
+      return {
+        kind: reason.kind,
+        send_id: reason.sendId,
+        error_kind: reason.errorKind,
+        reason: reasonValue(reason.reason),
+      };
     case "src":
       return { kind: reason.kind, src: reason.src };
   }

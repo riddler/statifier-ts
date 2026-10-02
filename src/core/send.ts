@@ -40,12 +40,12 @@ import {
   type ExecutionReason,
   type Expr,
   evaluate,
+  type Invalid,
   type Owner,
   SCXML_EVENT_PROCESSOR,
   writeLocation,
 } from "../datamodel.js";
 import { delayToMs } from "../duration.js";
-import type { Invalid } from "./content.js";
 
 // ---------------------------------------------------------------------------
 // The nodes
@@ -467,13 +467,15 @@ export function executeSend(
     written = write.context;
   }
 
-  const rejected =
-    rejectReason(target.value, type.value, next.sendTypes) ??
-    unreachableReason(target.value, type.value, delay.ms, next);
+  const invalid = rejectReason(target.value, type.value, next.sendTypes);
+  const unreachable =
+    invalid === null ? unreachableReason(target.value, type.value, delay.ms, next) : null;
+  const rejected: ExecutionReason | null = invalid ?? unreachable;
   if (rejected !== null) {
+    const errorKind = invalid === null ? "communication" : "execution";
     return {
       ok: false,
-      reason: { kind: "send_rejected", sendId, reason: rejected },
+      reason: { kind: "send_rejected", sendId, errorKind, reason: rejected },
       context: written,
       state: next,
     };
