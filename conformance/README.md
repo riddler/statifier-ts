@@ -129,16 +129,20 @@ configuration agrees, the items handed over the whole run, in order, must be
 exactly the case's `expect_sends`. A cancel that reaches the processor marks
 `"outcome": "cancelled"` on the delayed sends it names whose item asks for it,
 so an item marked cancelled that no cancel reached disagrees (ADR-0003's
-Amendment of 2026-10-01). Three things the reference's harness does the
-runner cannot, and each fails its case with the reason:
+Amendment of 2026-10-01). A case whose host carries a diff pair - `to_source`
+and `expect_diff`, with an optional `mapping` and `expect_compatible_at` - is
+driven the same way and agrees on its configurations and its sends, as the
+reference's runner drives it: that runner compares none of the four keys, and
+the reference compares them only in its own test suite
+(`test/corpus/diff_cases_test.exs` at `v2.10.0`), through its chart diff and
+its position predicate, which this package does not port (ADR-0003's Note of
+2026-10-01). Two things the reference's harness does the runner cannot, and
+each fails its case with the reason:
 
 - an expected send marked `"outcome": "fail"`, which the reference reports
   failed so the sender takes `error.communication`: the driver offers a host
   no way to report a failed send;
 - `declared_events` and `expect_accepts`, the reference's accepts check, which
-  this package does not port; the case fails before it is driven;
-- `to_source`, `expect_diff`, `mapping` and `expect_compatible_at`, which the
-  reference compares through its chart diff and its position predicate, which
   this package does not port; the case fails before it is driven.
 
 **Ratchet.** `pnpm ratchet` reads only the reports the last run wrote. It
@@ -227,13 +231,13 @@ w3c suite falls in three groups:
 - `w3c/test330` and `w3c/test552`, which the reference's registry does not
   list, and which fail here on the configuration the chart rests in.
 
-What the run fails in the statifier suite falls in three groups, each named
+What the run fails in the statifier suite falls in two groups, each named
 under "Run" above:
 
 - `statifier/accepts/loan_declares_an_unreachable_event`, the accepts case;
-- the ten cases under `statifier/diff/`, the diff cases, three of them
-  (`loan_waiting_across_a_damaged_arm`, `loan_waiting_across_a_mapped_rename`
-  and `loan_waiting_across_a_regrouping`) new in `v2.10.0`: this package does
-  not port the reference's chart diff;
 - `statifier/send/registered_send_failed`, the case that asks the host to
   report a send failed.
+
+The ten cases under `statifier/diff/`, the diff cases, are claimed: the run
+drives each as the reference's runner does and passes it on its
+configurations and its sends.
