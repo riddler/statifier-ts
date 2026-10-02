@@ -119,9 +119,7 @@ describe("the runner over the vendored corpus", () => {
     const claimed = loadRegistry().entries.filter((entry) => entry.suite === "statifier");
     expect(claimed.filter((entry) => !passed.has(entry.case_id))).toEqual([]);
     const fails = report.results.filter((result) => result.result === "fail");
-    expect(fails.map((result) => result.case_id)).toEqual([
-      "statifier/accepts/loan_declares_an_unreachable_event",
-    ]);
+    expect(fails.map((result) => result.case_id)).toEqual([]);
     for (const result of fails) expect(result.reason).not.toBe(suiteNotDriven("statifier"));
   });
 

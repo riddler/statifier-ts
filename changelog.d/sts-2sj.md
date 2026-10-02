@@ -1,0 +1,4 @@
+### Added
+
+- `checkAccepts(chart, declaredEvents)` compares the event names a host declares a chart accepts with the events the chart reacts to, and answers `{ unreachable, undeclared }` (the exported `AcceptsCheck`): each declared name no transition of a state the chart can enter listens for, in the declaration's order, and each event descriptor such a transition listens for that matches no declared name, a state's own transitions before its children's. Matching is transition selection's own, so `loan.*`, `loan.`, `loan` and `*` each match a declared `loan.renew`; a `*` in a declared name is an ordinary token, never a pattern. `null` declares nothing and answers two empty lists, and an empty list declares that the chart accepts nothing.
+- The statifier corpus case `accepts/loan_declares_an_unreachable_event` is claimed: a consumer relying on the `statifier` claim now also has the chart's accepts check answering the reference's two lists, order included.

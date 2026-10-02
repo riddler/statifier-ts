@@ -378,3 +378,24 @@ marks it (`perform_outcome/4` in `lib/mix/statifier/corpus/host_case.ex` at
 `v2.10.0`). `statifier/send/registered_send_failed` passes that drive and
 `conformance/registry.json` claims it, written by `pnpm ratchet` from the run
 that observed it. The Amendment's accepts row stands.
+
+## Note: the accepts case is driven (2026-10-01)
+
+The Amendment "the sends a host case expects" says, in its accepts row, that a
+case whose host carries `declared_events` and `expect_accepts` "fails the case
+before it is driven: this package does not port the accepts check", and the
+two Notes above each end "The Amendment's accepts row stands". ADR-0002's
+Amendment "the accepts check", of 2026-10-01, ports that check as
+`checkAccepts` in `src/accepts.ts`, ruled by the operator, 2026-10-01; the
+change that adds this Note adds that Amendment and its code.
+
+So the row no longer holds. `compareAccepts` in
+`test/conformance/statifier.ts`, called by `runHostCase` before the case is
+driven, compares the two lists `checkAccepts` answers for the case's
+`declared_events` with `expect_accepts`, order included, and fails the case on
+either key without the other, as the reference's harness does (`accepts/2` in
+`lib/mix/statifier/corpus/host_case.ex` at `v2.10.0`).
+`statifier/accepts/loan_declares_an_unreachable_event` passes that comparison
+and that drive, and `conformance/registry.json` claims it, written by
+`pnpm ratchet` from the run that observed it. Every row of the Amendment's
+table is now answered by a later record.
