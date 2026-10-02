@@ -214,7 +214,7 @@ own: the session id, the virtual clock, the pending timers, the event
 queues, the delayed sends a host processor holds, what it keeps of a
 stopped chart, and each live invocation with its child's own state nested
 in it. The exported `State` type names every field.
-[ADR-0002](docs/adr/0002-the-core-contract.md) is the
+[ADR-0002](https://github.com/riddler/statifier-ts/blob/main/docs/adr/0002-the-core-contract.md) is the
 record of the whole contract, with its typespecs.
 
 Nothing in the package reads a clock or a random source: time enters only as
@@ -538,7 +538,22 @@ lint, a gate stage, checks `src/` for those constructs and passes.
 That is a check on the text. A check on a run - the conformance corpus driven
 through this package on the JavaScript engine React Native uses, and diffed
 against a run on the server runtime - is what `scripts/hermes-conformance.mjs`
-is for, and the engine proof is not yet run: no claim here rests on it.
+does. The engine proof was run on 2026-10-01, at commit `15980e9` on `main`,
+on the standalone Hermes VM, release 0.12.0, bytecode version 89: every suite
+agreed row for row with the same run on Node, with zero differences - scion
+119 rows, w3c 168 and statifier 31, every case of the vendored corpus,
+none left out.
+
+What the proof covers is narrower than "React Native". The standalone VM is
+an older release than the engine current React Native ships, so the bundle it
+runs has its classes lowered and targets ES2016, which lowers each `async`
+function to a generator; it is evidence about the engine family and about this
+package's use of the language, not a run on the engine build an application
+ships. The Basic HTTP cases run on the VM through the same in-memory loopback
+front as on Node: they prove the processor's logic on the engine, not a
+network round trip on a device. The script's header and
+[`conformance/README.md`](https://github.com/riddler/statifier-ts/blob/main/conformance/README.md)
+say more.
 
 ## Development
 

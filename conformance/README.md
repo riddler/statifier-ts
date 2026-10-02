@@ -216,6 +216,41 @@ export matches the reference's, and nothing here claims parity with the
 reference's export. That needs corpus cases that assert the exported position
 after a step, which the reference does not emit yet.
 
+## The engine proof
+
+`node scripts/hermes-conformance.mjs --tools <dir>` (or with the tool
+directory in `STATIFIER_HERMES_TOOLS`) bundles the runner with the vendored
+corpus, runs every suite on a standalone Hermes VM and on Node, and compares
+the two reports case by case: the outcome and the reason of every case, and
+any case one side reports and the other does not. It excludes no case, and it
+exits non-zero on any difference. It is not a gate stage; the script's header
+says what fills the tool directory.
+
+**The result, 2026-10-01.** Run at commit `15980e9` on `main`, with the corpus
+at `v2.10.0`, on the VM's release 0.12.0, bytecode version 89:
+
+| Suite | Rows on Node | Rows on the VM | Differences |
+|---|---|---|---|
+| `scion` | 119 | 119 | 0 |
+| `w3c` | 168 | 168 | 0 |
+| `statifier` | 31 | 31 | 0 |
+
+Every suite agreed row for row. The rows agree on fails as well as passes:
+the three w3c cases the run fails on Node (under "What is not yet claimed"
+below) fail on the VM with the same reason.
+
+**What it covers.** The standalone VM is an older release than the engine
+current React Native ships. It refuses the `class` keyword, so its bundle is
+put through a class transform, and it refuses an `async` function, so its
+bundle targets ES2016 and the bundler lowers each `async` function to a
+generator; the Node bundle is built from the same entry and corpus without
+those two passes. So the result is a proof against that VM: evidence about
+the engine family and about this package's use of the language, not a run on
+the engine build an application ships. The Basic HTTP cases are driven on the
+VM through the same in-memory loopback front as on Node (under "Run" above),
+so they prove the processor's and the core's event I/O logic on the engine,
+not a network round trip on a device.
+
 ## What is not yet claimed
 
 The reference's own registry, inside the copy, lists the cases the reference

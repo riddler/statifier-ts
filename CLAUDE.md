@@ -213,8 +213,9 @@ drift fails the gate and nothing is fixed silently, so run
   checks each `bash` command against what it names, and compares the counts
   and pins it states with the registries, the vendored manifest, the
   provenance record and `package.json`.
-- `scripts/hermes-conformance.mjs` is not a gate stage and has not been run
-  against this package. It is copied from the predicator sibling, where it runs
+- `scripts/hermes-conformance.mjs` is not a gate stage; it was run against
+  this package on 2026-10-01, and the README's Engines section carries the
+  result and its scope. It is copied from the predicator sibling, where it runs
   the conformance surfaces on the engine React Native uses; here it drives
   every suite of the vendored corpus through `test/conformance/runner.ts`, and
   running it is a deliberate step, never a gate's. The runner drives the scion,
