@@ -1,6 +1,6 @@
 {
   "name": "@riddler/statifier",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "A conformant TypeScript sibling of the Statifier statechart engine: the SCXML interpreter core, engine-neutral, driven by the reference's conformance corpus.",
   "license": "MIT",
   "type": "module",

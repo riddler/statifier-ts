@@ -20,6 +20,41 @@ Nothing is written under this heading. Unreleased work is the fragments in
 `changelog.d/`; a release prep assembles them into a version section below this
 one.
 
+## [0.2.0] 2026-10-02
+
+A minor release that writes nested locations. An `<assign>`, a
+`<send idlocation>`, an `<invoke idlocation>` and an empty `<finalize>` naming
+a nested location over a declared root (`patron.name`, `holds[0]`) now write
+it, as the reference does, through the location surface of
+`@riddler/predicator` 0.5.0, which this release requires. What a host now
+meets: `unsupported_location` is no longer a member of `ExecutionReason`; a
+location that does not parse, names no place to write or passes through
+something that is not a container answers `error.execution` with an
+`evaluator_error` reason whose `error` may now be a `LocationError`; a bare
+root spelled as one of the expression language's reserved words is now refused
+the same way where it was written; a `<send idlocation>`, an
+`<invoke idlocation>` and an empty `<finalize>` write each answer a
+`datamodel_change`, whose `owner` may now be the `invoke` member naming an
+invocation; and every `datamodel_change` names the path the location resolved
+to and the value read there before the write.
+
+### Changed
+
+- A `<send>` or an `<invoke>` that writes its `idlocation`, and an empty `<finalize>` that writes a returned value back, now answer a `datamodel_change` for each write, as the reference does: a send's or an invocation's comes just before its own effect, and a `<send>` refused for its target, its type or its route still answers none, though its write stands.
+- A `datamodel_change`'s `owner` may now be `{ kind: "invoke", stateIndex, invokeIndex }`, naming the invocation whose `idlocation` write it reports, and such a change names no `cIndex`; a host that switches on the owner's `kind` adds a case for it. The `Owner` a block's effects carry is unchanged.
+- Requires `@riddler/predicator` `^0.5.0`, whose location surface resolves and writes the locations a chart writes to.
+- An `<assign>`, a `<send idlocation>` and an `<invoke idlocation>` naming a nested location over a declared root (`patron.name`, `holds[0]`, `holds[i]`) now write it, as the reference does, where they were refused with `unsupported_location`; intermediate maps and lists are created on the way, never a root.
+- An empty `<finalize>` writing a returned value back to a nested location over a declared root now writes it, as the reference does, where it was refused with `unsupported_location`.
+- A location that does not parse or names no place to write (`[0]`, `renewals + 1`), or whose write passes through something that is not a container, now answers `error.execution` with an `evaluator_error` reason carrying predicator's `ParseError` or `LocationError`, where it answered `unsupported_location`; the location resolves before the root is checked, so such a location reports that refusal before `system_variable` or `unbound_location`.
+- A bare root spelled as one of the expression language's reserved words (`next`, `true`, `if`) now answers `error.execution` with an `evaluator_error` reason, as the reference does, where it was written; an unbound one reports that refusal before `unbound_location`. A host that names a `<data>` that way renames it.
+- The `evaluator_error` member of `ExecutionReason` may now carry a `LocationError` as its `error`; a host that switches on the error's `type` adds a case for it.
+- A `datamodel_change`'s `locationPath` is now the path the location resolved to and its `priorValue` the value read at that path before the write, for an `<assign>`, a `<send idlocation>`, an `<invoke idlocation>` and an empty `<finalize>`.
+- A write at an index past a list's end pads the list with the absence (`holds[2]` on `["c-1"]` leaves `["c-1", Undefined, "c-3"]`), as the reference does.
+
+### Removed
+
+- `unsupported_location` is no longer a member of `ExecutionReason`: no write answers it, since every location over a declared root is either written or refused for a reason the location surface names. A host that switches on it removes that case and reads `evaluator_error` instead.
+
 ## [0.1.0] 2026-10-01
 
 The first release: the SCXML interpreter core and its in-memory driver.
