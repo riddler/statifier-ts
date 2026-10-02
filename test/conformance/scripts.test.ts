@@ -183,6 +183,66 @@ describe("the position round-trip stage", () => {
     expect(result.stdout).toMatch(/position: \d+ points not carried/);
   });
 
+  // One parcel case, written over the copy's scion corpus.
+  function onlyCase(source: string, steps: unknown[] = []) {
+    const path = join(root, "statifier", "corpus", "scion.json");
+    const corpus = JSON.parse(readFileSync(path, "utf8"));
+    const parcel = {
+      id: "scion/parcel/route0",
+      suite: "scion",
+      spec: "parcel",
+      conformance: null,
+      description: "",
+      required_features: ["basic_states"],
+      source,
+      initial_configuration: ["depot"],
+      steps,
+    };
+    writeFileSync(path, JSON.stringify({ ...corpus, cases: [parcel] }));
+  }
+
+  const SCXML = 'xmlns="http://www.w3.org/2005/07/scxml" version="1.0"';
+
+  // The depot sorts a parcel 50 ms after it arrives, so the one point, its
+  // start, is not carried for its pending timer: an expected reason, but
+  // nothing was compared. Sabotage: exiting on disagreements alone, as the
+  // stage did, turns this red. It was run and reverted.
+  it("fails a run where no point agrees, rather than holding over nothing", () => {
+    onlyCase(`<scxml ${SCXML} initial="depot">
+      <state id="depot">
+        <onentry><send event="parcel.sorted" delay="50ms"/></onentry>
+        <transition event="parcel.sorted" target="sorted"/>
+      </state>
+      <state id="sorted"/>
+    </scxml>`);
+    const result = run("scripts/position-check.mjs", true);
+    expect(result.status).toBe(1);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toContain("position: 1 points not carried: pending_timers 1\n");
+    expect(result.stderr).toContain(
+      "position: no round trip agrees over 1 points, so nothing was compared\n",
+    );
+  });
+
+  // The van holds a state with no written id, which the export refuses to
+  // name; the depot's start agrees. Sabotage: as above, run and reverted.
+  it("fails a point not carried for a reason outside the two expected", () => {
+    onlyCase(
+      `<scxml ${SCXML} initial="depot">
+        <state id="depot"><transition event="parcel.loaded" target="van"/></state>
+        <state id="van"><state/></state>
+      </scxml>`,
+      [{ event: { name: "parcel.loaded" }, configuration: ["van"] }],
+    );
+    const result = run("scripts/position-check.mjs", true);
+    expect(result.status).toBe(1);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toContain("position: 1 round trips agree, 0 disagree\n");
+    expect(result.stderr).toContain(
+      "position: 1 points not carried for unnameable_states, outside the expected internal_queue_not_empty and pending_timers\n",
+    );
+  });
+
   // Sabotage: answering success when the suite is empty, as a property over
   // no point vacuously holds, turns this red. It was run and reverted.
   it("fails when the corpus holds no scion case, rather than holding over nothing", () => {

@@ -1,7 +1,9 @@
 // The position round-trip property as a gate stage: runs it over every scion
 // case of the vendored corpus and prints its counts - the points, the round
 // trips that agree, and the points not carried with each reason. Any point
-// that was carried and disagreed fails the stage, each one named.
+// that was carried and disagreed fails the stage, each one named. So does a
+// run where no point agrees, and a point not carried for a reason outside the
+// two the property expects (`stageFailures` names both).
 //
 //   tsx scripts/position-check.mjs [--root <conformance dir>]
 //
@@ -11,7 +13,7 @@
 // It runs under tsx because the property is TypeScript.
 
 import { resolve } from "node:path";
-import { positionLines, runPositionProperty } from "../test/conformance/position.ts";
+import { positionLines, runPositionProperty, stageFailures } from "../test/conformance/position.ts";
 import { CONFORMANCE_ROOT, loadSuites } from "./lib/corpus.mjs";
 
 function readArguments(argv) {
@@ -29,10 +31,11 @@ function main() {
     process.exit(1);
   }
   const report = runPositionProperty(scion.cases);
-  const lines = positionLines(report);
-  const out = report.disagreements.length > 0 ? process.stderr : process.stdout;
-  for (const line of lines) out.write(`${line}\n`);
-  if (report.disagreements.length > 0) process.exit(1);
+  const failures = stageFailures(report);
+  const failed = report.disagreements.length > 0 || failures.length > 0;
+  const out = failed ? process.stderr : process.stdout;
+  for (const line of [...positionLines(report), ...failures]) out.write(`${line}\n`);
+  if (failed) process.exit(1);
 }
 
 main();

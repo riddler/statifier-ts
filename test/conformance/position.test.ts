@@ -18,6 +18,7 @@ import {
   positionLines,
   positionRoundTrip,
   runPositionProperty,
+  stageFailures,
 } from "./position.js";
 
 const SCXML = 'xmlns="http://www.w3.org/2005/07/scxml" version="1.0"';
@@ -71,6 +72,10 @@ describe("the property over the vendored scion suite", () => {
     expect(report.points).toBe(report.cases + report.steps);
     expect(report.agreeing).toBe(313);
     expect(report.notCarried).toEqual({ pending_timers: 5 });
+  });
+
+  it("gives the gate stage nothing else to fail it for", () => {
+    expect(stageFailures(report)).toEqual([]);
   });
 
   it("prints the points, the agreeing round trips and each reason a point was not carried", () => {
@@ -166,6 +171,43 @@ describe("the points of one case", () => {
       outcome: "disagree",
       reason: `at the import: datamodel.scans is {"$type":"undefined"}, the unbroken drive's 1`,
     });
+  });
+});
+
+describe("what else fails the gate stage", () => {
+  // Every point refused as the export refuses a non-empty internal queue: an
+  // expected reason, but no point is compared, so the property held over
+  // nothing. Sabotage: dropping the zero-agreement check from `stageFailures`
+  // turns this red. It was run and reverted.
+  it("fails a run where no point agrees, though every reason is expected", () => {
+    const report = runPositionProperty(scion, () => ({
+      ok: false,
+      reason: "internal_queue_not_empty",
+    }));
+    expect(report.agreeing).toBe(0);
+    expect(report.disagreements).toEqual([]);
+    expect(report.notCarried).toEqual({ internal_queue_not_empty: 318 });
+    expect(stageFailures(report)).toEqual([
+      "position: no round trip agrees over 318 points, so nothing was compared",
+    ]);
+  });
+
+  // The van's point is refused for a state with no written id; the depot's
+  // start is a pending timer and the doorstep agrees, so only the reason
+  // fails it. Sabotage: letting every reason through `stageFailures` turns
+  // this red. It was run and reverted.
+  it("fails a point not carried for a reason outside the two expected", () => {
+    const steps = [on("parcel.loaded", ["van"]), on("parcel.delivered", ["doorstep"])];
+    const report = runPositionProperty([parcelCase(DEPOT, ["depot"], steps)], (state) =>
+      state.configuration.includes("van")
+        ? { ok: false, reason: "unnameable_states", indexes: [] }
+        : exportPosition(state),
+    );
+    expect(report.agreeing).toBe(1);
+    expect(report.notCarried).toEqual({ pending_timers: 1, unnameable_states: 1 });
+    expect(stageFailures(report)).toEqual([
+      "position: 1 points not carried for unnameable_states, outside the expected internal_queue_not_empty and pending_timers",
+    ]);
   });
 });
 
