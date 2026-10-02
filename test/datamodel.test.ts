@@ -49,6 +49,7 @@ import {
   SCXML_EVENT_PROCESSOR,
   scxmlLocation,
   systemVariables,
+  writeLocation,
 } from "../src/datamodel.js";
 
 /** The copy's chart: three states, indexed in document order. */
@@ -853,5 +854,165 @@ describe("the binding's small pieces", () => {
     }
     expect(acceptsDatamodel("javascript")).toBe(false);
     expect(acceptsDatamodel("predicater")).toBe(false);
+  });
+});
+
+describe("a write to a location", () => {
+  // The datamodel every row writes into: a patron with a name and holds, two
+  // lists of copies, an empty list of loans, the bracket keys `i` and `k`, a
+  // float `f`, a hold declared with no value, a copy bound to null, and three
+  // roots spelled like words of the expression language.
+  const DATAMODEL: Datamodel = new Map<string, Value>([
+    ["patron", { name: "Ada", holds: ["c-1"] }],
+    ["holds", ["c-1", "c-2"]],
+    ["one", ["c-1"]],
+    ["loans", []],
+    ["i", 1],
+    ["k", "name"],
+    ["f", float(1)],
+    ["hold", Undefined],
+    ["copy", null],
+    ["renewals", 1],
+    ["next", 1],
+    ["true", 1],
+    ["today", 1],
+    ["_event", Undefined],
+  ]);
+
+  type Landed = { path: (string | number)[]; prior: Value; root: Value };
+  type Refused = { kind: string; type?: string; reason?: string };
+
+  // Each row is the reference's answer to `write_location/4` at statifier-ex
+  // v2.10.0, run over the same datamodel with the value "W": the resolved
+  // path, the value read at it before the write and the root after it, or the
+  // refusal. The reference's integer key against a map writes the integer
+  // there; here it writes the key its decimal spelling names, as predicator
+  // declares, and the value read before the write is the absence on both.
+  const ROWS: [string, Landed | Refused][] = [
+    ["patron", { path: ["patron"], prior: { name: "Ada", holds: ["c-1"] }, root: "W" }],
+    [
+      "patron.name",
+      { path: ["patron", "name"], prior: "Ada", root: { name: "W", holds: ["c-1"] } },
+    ],
+    [
+      "patron.address.city",
+      {
+        path: ["patron", "address", "city"],
+        prior: Undefined,
+        root: { name: "Ada", holds: ["c-1"], address: { city: "W" } },
+      },
+    ],
+    [
+      'patron["name"]',
+      { path: ["patron", "name"], prior: "Ada", root: { name: "W", holds: ["c-1"] } },
+    ],
+    ["patron[k]", { path: ["patron", "name"], prior: "Ada", root: { name: "W", holds: ["c-1"] } }],
+    ["holds[0]", { path: ["holds", 0], prior: "c-1", root: ["W", "c-2"] }],
+    ["one[2]", { path: ["one", 2], prior: Undefined, root: ["c-1", Undefined, "W"] }],
+    ["holds[i]", { path: ["holds", 1], prior: "c-2", root: ["c-1", "W"] }],
+    ["holds[j]", { kind: "evaluator_error", type: "LocationError", reason: "undefined_variable" }],
+    ["holds[-1]", { kind: "evaluator_error", type: "LocationError", reason: "invalid_index" }],
+    ["holds.first", { kind: "evaluator_error", type: "LocationError", reason: "not_a_container" }],
+    [
+      "patron.name.first",
+      { kind: "evaluator_error", type: "LocationError", reason: "not_a_container" },
+    ],
+    ["loans[0].due", { path: ["loans", 0, "due"], prior: Undefined, root: [{ due: "W" }] }],
+    ["hold.branch", { path: ["hold", "branch"], prior: Undefined, root: { branch: "W" } }],
+    ["copy.branch", { path: ["copy", "branch"], prior: Undefined, root: { branch: "W" } }],
+    [
+      "patron[0]",
+      { path: ["patron", 0], prior: Undefined, root: { name: "Ada", holds: ["c-1"], 0: "W" } },
+    ],
+    ["[0]", { kind: "evaluator_error", type: "LocationError", reason: "not_assignable" }],
+    ["patron.", { kind: "evaluator_error", type: "ParseError" }],
+    ["renewals + 1", { kind: "evaluator_error", type: "LocationError", reason: "not_assignable" }],
+    ["_event.name", { kind: "system_variable" }],
+    ["_x.y", { kind: "system_variable" }],
+    ["branch.name", { kind: "unbound_location" }],
+    ["next", { kind: "evaluator_error", type: "ParseError" }],
+    ["true", { kind: "evaluator_error", type: "LocationError", reason: "not_assignable" }],
+    ["today", { path: ["today"], prior: 1, root: "W" }],
+    ["next.x", { kind: "evaluator_error", type: "ParseError" }],
+    ["true.x", { kind: "evaluator_error", type: "LocationError", reason: "not_assignable" }],
+    ["nope", { kind: "unbound_location" }],
+    ["nope.x", { kind: "unbound_location" }],
+    ["if", { kind: "evaluator_error", type: "ParseError" }],
+    ["holds[f]", { kind: "evaluator_error", type: "LocationError", reason: "invalid_key" }],
+    [
+      "  patron.name  ",
+      { path: ["patron", "name"], prior: "Ada", root: { name: "W", holds: ["c-1"] } },
+    ],
+  ];
+
+  // Sabotage: reading the prior value after the write in writeLocation
+  // (`readPath(written.data, path)`) turns the patron.name and holds rows red.
+  it.each(ROWS)("writes %j as the reference does", (source, expected) => {
+    const outcome = writeLocation(evaluationContext(DATAMODEL, activeStates()), source, "W");
+    if ("path" in expected) {
+      expect(outcome).toMatchObject({ ok: true, path: expected.path });
+      if (!outcome.ok) return;
+      expect(outcome.priorValue).toEqual(expected.prior);
+      expect(outcome.context.data.get(expected.path[0] as string)).toEqual(expected.root);
+      return;
+    }
+    expect(outcome.ok).toBe(false);
+    if (outcome.ok) return;
+    expect(outcome.reason.kind).toBe(expected.kind);
+    if (outcome.reason.kind === "evaluator_error") {
+      expect(outcome.reason.source).toBe(source);
+      expect(outcome.reason.error.type).toBe(expected.type);
+      if (expected.reason !== undefined) expect(outcome.reason.error.reason).toBe(expected.reason);
+    }
+  });
+
+  // statifier-ex v2.10.0, write_location/4 resolves before it checks the
+  // root, so a root spelled as a reserved word is refused for its spelling
+  // before it is found unbound; a name the language does not reserve is not.
+  // Sabotage: checking the root before resolving in writeLocation turns the
+  // `next`, `true` and `if` expectations red.
+  it("refuses a reserved-word root for its spelling before it finds the root unbound", () => {
+    const empty = evaluationContext(new Map(), activeStates());
+    const refusal = (source: string) => {
+      const outcome = writeLocation(empty, source, "W");
+      if (outcome.ok) throw new Error(`${source} was written`);
+      return outcome.reason.kind === "evaluator_error"
+        ? [outcome.reason.kind, outcome.reason.error.type]
+        : [outcome.reason.kind];
+    };
+    expect(refusal("next")).toEqual(["evaluator_error", "ParseError"]);
+    expect(refusal("true")).toEqual(["evaluator_error", "LocationError"]);
+    expect(refusal("if")).toEqual(["evaluator_error", "ParseError"]);
+    expect(refusal("today")).toEqual(["unbound_location"]);
+  });
+
+  // Sabotage: writing the root whole for a nested path in writeLocation
+  // (`bind(context, root, value)`) turns this red.
+  it("leaves every other member of the root, and every other root, as it stood", () => {
+    const outcome = writeLocation(
+      evaluationContext(DATAMODEL, activeStates()),
+      "patron.holds[1]",
+      "c-7",
+    );
+    if (!outcome.ok) throw new Error("refused");
+    expect(outcome.context.data.get("patron")).toEqual({ name: "Ada", holds: ["c-1", "c-7"] });
+    expect(DATAMODEL.get("patron")).toEqual({ name: "Ada", holds: ["c-1"] });
+    expect(isFloat(outcome.context.data.get("f") as Value)).toBe(true);
+    expect(outcome.context.data.get("hold")).toBe(Undefined);
+  });
+
+  // A refusal's reason carries predicator's own error, and reads into
+  // `_event.data` with its type and reason.
+  // Sabotage: answering a resolve refusal as `unbound_location` in
+  // writeLocation turns this red.
+  it("reads a location refusal into _event.data with its type and reason", () => {
+    const outcome = writeLocation(evaluationContext(DATAMODEL, activeStates()), "[0]", "W");
+    if (outcome.ok) throw new Error("written");
+    expect(reasonValue(outcome.reason)).toMatchObject({
+      kind: "evaluator_error",
+      source: "[0]",
+      type: "LocationError",
+      reason: "not_assignable",
+    });
   });
 });
