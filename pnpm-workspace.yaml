@@ -18,4 +18,4 @@ allowBuilds:
 # package: a later version of the dependency waits out the age like any other,
 # and once this one is older than the age the entry changes nothing.
 minimumReleaseAgeExclude:
-  - '@riddler/predicator@0.4.0'
+  - '@riddler/predicator@0.4.1'

@@ -222,17 +222,24 @@ describe("the gap list", () => {
     expect(lines[0]).toContain("script_elements");
   });
 
+  // The gap the reference's registry leaves is empty today, so the lines are
+  // read over every w3c case the run fails, which is what a gap line would
+  // carry for each of them.
+  //
   // Sabotage: dropping the run's clause from every line turns this red. It was
   // run and reverted.
   it("ends each line with what a run found: the fail's reason, or a pass not yet recorded", async () => {
+    expect(unclaimed(loadReferenceRegistry(), loadRegistry(), ["w3c"])).toEqual([]);
     const report = await runSuite(suiteNamed("w3c"), manifest.corpus_hash);
-    const gap = unclaimed(loadReferenceRegistry(), loadRegistry(), ["w3c"]);
+    const gap = report.results
+      .filter((result) => result.result === "fail")
+      .map(({ case_id, suite }) => ({ case_id, suite }));
     expect(gap.length).toBeGreaterThan(0);
     const lines = gapLines(gap, suites, report.results);
     for (const [index, entry] of gap.entries()) {
       const result = report.results.find((candidate) => candidate.case_id === entry.case_id);
       if (result === undefined || result.result !== "fail") {
-        throw new Error(`${entry.case_id} is unclaimed but did not fail`);
+        throw new Error(`${entry.case_id} did not fail`);
       }
       expect(lines[index]).toMatch(new RegExp(`^${entry.case_id}: needs `));
       const cause = KNOWN_CAUSES.get(entry.case_id);
@@ -260,21 +267,27 @@ describe("the gap list", () => {
 });
 
 describe("the known causes", () => {
+  // No case carries a known cause today, so this names one of its own and
+  // reads it through the same clause the known causes are printed by.
+  //
   // Sabotage: dropping the cause from the clause turns this red. It was run
   // and reverted.
   it("are printed after the run's reason on a fail, and never on a pass", () => {
-    const entry = { case_id: "w3c/test329", suite: "w3c" } as const;
-    const cause = KNOWN_CAUSES.get(entry.case_id);
-    if (cause === undefined) throw new Error("no known cause for w3c/test329");
+    const entry = { case_id: "w3c/test330", suite: "w3c" } as const;
+    const cause = "a cause found by reading the case";
+    const causes = new Map([[entry.case_id, cause]]);
     const fail = { ...entry, result: "fail", reason: "the comparison" } as const;
     expect(
-      gapLines([entry], suites, [fail])[0]?.endsWith(
+      gapLines([entry], suites, [fail], causes)[0]?.endsWith(
         `; this run failed it: the comparison; the cause: ${cause}`,
       ),
     ).toBe(true);
-    expect(gapLines([entry], suites, [{ ...entry, result: "pass" }])[0]).not.toContain("the cause");
-    expect(unclaimedByEitherLines([entry], [fail])).toEqual([
-      `w3c/test329: the reference's registry does not claim it either; this run failed it: the comparison; the cause: ${cause}`,
+    expect(gapLines([entry], suites, [fail])[0]).not.toContain("the cause");
+    expect(gapLines([entry], suites, [{ ...entry, result: "pass" }], causes)[0]).not.toContain(
+      "the cause",
+    );
+    expect(unclaimedByEitherLines([entry], [fail], causes)).toEqual([
+      `w3c/test330: the reference's registry does not claim it either; this run failed it: the comparison; the cause: ${cause}`,
     ]);
   });
 
@@ -284,36 +297,37 @@ describe("the known causes", () => {
     const results = [];
     for (const suite of suites)
       results.push(...(await runSuite(suite, manifest.corpus_hash)).results);
-    expect(KNOWN_CAUSES.size).toBeGreaterThan(0);
     for (const caseId of KNOWN_CAUSES.keys()) {
       expect(results.find((result) => result.case_id === caseId)?.result).toBe("fail");
     }
   });
+});
 
-  // The cause of w3c/test329 observed again: undefined compared with
-  // undefined answers undefined, not true, so the value of an event that
-  // carries no data compares unequal to itself while an object with no
-  // undefined field compares equal, and the case passes once that one
-  // condition is taken out of its source.
+describe("w3c/test329", () => {
+  // The case passes for the reason the reference passes it: the value of an
+  // event that lacks its optional fields compares equal to itself and to a
+  // copy, as two maps holding the same absent members compare equal in the
+  // reference's expression language, and its condition Var2==_event is what
+  // carries the chart to pass.
   //
-  // Sabotage: writing the absent fields of an event value as empty strings
-  // instead of undefined turns this red, and w3c/test329 then passes. It was
-  // run and reverted.
-  it("hold: w3c/test329 fails at its _event comparison and nowhere else", () => {
-    expect(evaluate("a == b", { a: Undefined, b: Undefined })).toEqual({ ok: true });
+  // Sabotage: pinning @riddler/predicator back to 0.4.0, whose member
+  // equality answers two such maps unequal, turns this red. It was run and
+  // reverted.
+  it("passes at its _event comparison: an event value equals its copy", () => {
     const event = eventValue({ name: "foo", type: "internal", data: Undefined });
-    expect(evaluate("a == b", { a: event, b: event })).toEqual({ ok: true, value: false });
-    expect(evaluate("a == b", { a: { name: "foo" }, b: { name: "foo" } })).toEqual({
-      ok: true,
-      value: true,
-    });
+    expect(evaluate("a == b", { a: event, b: event })).toEqual({ ok: true, value: true });
+    const copy = eventValue({ name: "foo", type: "internal", data: Undefined });
+    expect(copy).not.toBe(event);
+    expect(evaluate("a == b", { a: event, b: copy })).toEqual({ ok: true, value: true });
+    const other = eventValue({ name: "bar", type: "internal", data: Undefined });
+    expect(evaluate("a == b", { a: event, b: other })).toEqual({ ok: true, value: false });
     const testCase = suiteNamed("w3c").cases.find((candidate) => candidate.id === "w3c/test329");
     if (testCase === undefined) throw new Error("no w3c/test329 in the vendored corpus");
-    expect(runScionCase(testCase).result).toBe("fail");
+    expect(runScionCase(testCase)).toEqual({ result: "pass" });
     const condition = 'cond="Var2==_event"';
     expect(testCase.source).toContain(condition);
-    const without = { ...testCase, source: testCase.source.replace(condition, 'cond="true"') };
-    expect(runScionCase(without)).toEqual({ result: "pass" });
+    const refused = { ...testCase, source: testCase.source.replace(condition, 'cond="false"') };
+    expect(runScionCase(refused).result).toBe("fail");
   });
 });
 
