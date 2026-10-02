@@ -87,6 +87,23 @@ const FLOAT_ROWS: readonly (readonly [number, string])[] = [
   [1e9, "1.0e9"],
   [1e10, "1.0e10"],
   [123.456, "123.456"],
+  // Around 2^53, past which the reference writes every float in scientific
+  // notation even where decimal would be shorter, and the small end.
+  [4503599627370496, "4503599627370496.0"],
+  [9007199254740990, "9007199254740990.0"],
+  [9007199254740992, "9.007199254740992e15"],
+  [9007199254740994, "9.007199254740994e15"],
+  [-9007199254740992, "-9.007199254740992e15"],
+  [1.2345678901234568e16, "1.2345678901234568e16"],
+  [2e16, "2.0e16"],
+  [123456789012345680, "1.2345678901234568e17"],
+  [1.2e17, "1.2e17"],
+  [9.87654321e18, "9.87654321e18"],
+  [8e15, "8.0e15"],
+  [8.5e15, "8.5e15"],
+  [0.0001, "0.0001"],
+  [1.25e-5, "1.25e-5"],
+  [0.000123456, "1.23456e-4"],
 ];
 
 // [the text; URI.query_decoder(text, :www_form) as pairs]
@@ -146,7 +163,8 @@ describe("the form body encoder, against the reference's encodings", () => {
   });
 
   // Sabotage: breaking the tie toward scientific notation in `floatText`
-  // turns the 0.0001 and 0.0025 rows red.
+  // turns the 0.0001 and 0.0025 rows red; dropping the 2^53 switch turns the
+  // 9.007199254740992e15 and 1.2345678901234568e17 rows red.
   it.each(FLOAT_ROWS)("writes the float %d as the reference writes it", (n, text) => {
     expect(floatText(n)).toBe(text);
   });
