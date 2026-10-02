@@ -2084,3 +2084,47 @@ written; `ExecutionReason` loses `unsupported_location` and its
 the resolved path and the value read there. The vendored corpus's claims are
 unchanged: its cases that write a dotted location over an undeclared root
 still answer `unbound_location`.
+
+## Note: the nested-locations Amendment's tag commits, its send write and what a host sees (2026-10-02)
+
+This Note decides nothing new. It names three passages of the Amendment "a
+write resolves its location through the expression language" that read
+inexactly against the reference at tag `v2.10.0` and against this package's
+changelog section for 0.2.0, and says what holds. It carries no Status line,
+it removes no line, and that Amendment's Status line does not move.
+
+**The two tags are cited by their tag objects.** The Amendment's opening cites
+`@riddler/predicator`'s `v0.5.0` as `bb94ebf` and the reference's `v2.10.0` as
+`000b9d8`. Both tags are annotated, and those are the hashes of the tag
+objects. The commits the tags name are `36c23a5` (predicator-ts `v0.5.0`) and
+`c8894ae` (statifier-ex `v2.10.0`), the commit this record cites everywhere
+else it names the reference's tag. The Amendment's claims about the two tags
+are read at those commits.
+
+**The send's write happens in its `execute/2`.** The Amendment's table of the
+four write sites names the reference's site for a `<send>`'s `idlocation` as
+`Statifier.Machine.Content.Send`, "from `dispatch_or_reject/8`". At `v2.10.0`
+(`c8894ae`), in `lib/statifier/machine/content/send.ex`, the write happens in
+the `execute/2` of that module's `Statifier.ExecutableContent`
+implementation, through its `maybe_write_idlocation/4`, which calls
+`Statifier.Interpreter.Datamodel.write_location/4`. `dispatch_or_reject/8`
+writes nothing: it receives the write `execute/2` answers and builds the
+send's effects from it. The row's reference site reads as that `execute/2`,
+through `maybe_write_idlocation/4`. The Amendment "the idlocation and empty
+finalize writes answer a datamodel_change" names `datamodel_change_effects/4`,
+from `dispatch_or_reject/8`, as where the send's `datamodel_change` is built;
+that holds at `c8894ae`, and this Note does not reach it.
+
+**What a host sees omits two answers.** The Amendment's closing list of the
+changed answers says the changelog fragment names each, and it leaves out two
+that the 0.2.0 section of `CHANGELOG.md` names under Changed:
+
+- an empty `<finalize>` writing a returned value back to a nested location
+  over a declared root now writes it, as the reference does, where it was
+  refused with `unsupported_location`;
+- a write at an index past a list's end pads the list with the absence
+  (`holds[2]` on `["c-1"]` leaves `["c-1", Undefined, "c-3"]`), as the
+  reference does; step 5 of "What a write does" above describes it.
+
+Both are changed answers of a published version, and the list reads with
+them.
