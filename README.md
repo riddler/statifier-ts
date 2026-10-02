@@ -408,7 +408,7 @@ pnpm registry         # the registry check, a gate stage
 pnpm position         # the position round-trip property, a gate stage
 ```
 
-[`conformance/README.md`](conformance/README.md) says how the copy, the
+[`conformance/README.md`](https://github.com/riddler/statifier-ts/blob/main/conformance/README.md) says how the copy, the
 check, the runner, the ratchet and the position property work.
 
 ## Engines
