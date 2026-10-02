@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<scxml xmlns="http://www.w3.org/2005/07/scxml" version="1.0" datamodel="predicator" initial="awaiting_check_in">
+    <datamodel>
+        <data id="copy_id" expr="'c-1'"/>
+        <data id="damaged" expr="false"/>
+    </datamodel>
+
+    <state id="awaiting_check_in">
+        <onentry>
+            <send type="library:timer" target="loan" event="loan.due" id="due" delay="21d"/>
+        </onentry>
+        <onexit>
+            <cancel sendid="due"/>
+        </onexit>
+        <transition event="copy.returned" target="check_in"/>
+        <transition event="loan.due" target="overdue"/>
+    </state>
+
+    <state id="overdue">
+        <transition event="copy.returned" target="check_in"/>
+    </state>
+
+    <state id="check_in">
+        <transition cond="damaged" target="in_repair"/>
+        <transition target="returned"/>
+    </state>
+
+    <final id="returned">
+        <onentry>
+            <send type="library:route" target="hold_queue" event="copy.available">
+                <param name="copy_id" expr="copy_id"/>
+            </send>
+        </onentry>
+    </final>
+
+    <final id="in_repair"/>
+</scxml>

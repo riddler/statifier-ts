@@ -1,7 +1,8 @@
 // The w3c case runner: a case driven to quiescence and compared, a planted
 // wrong configuration failing, an invoke case driven through its child, and a
 // case that needs a feature named as not run failing before the drive,
-// naming the feature.
+// naming the feature, and a case that names an Event I/O Processor no
+// registration here answers failing before the drive, naming the processor.
 //
 // The cases are the vendored corpus's own; the one chart written here is
 // parcel delivery: a parcel scanned from depot to doorstep.
@@ -9,7 +10,14 @@
 import { describe, expect, it } from "vitest";
 import type { CorpusCase } from "../../scripts/lib/corpus.mjs";
 import { loadSuites } from "../../scripts/lib/corpus.mjs";
-import { FEATURES_NOT_RUN, featuresNotRun, runW3cCase } from "./w3c.js";
+import {
+  FEATURES_NOT_RUN,
+  featuresNotRun,
+  PROCESSOR_NOT_REGISTERED,
+  PROCESSORS_REGISTERED,
+  processorsNotRegistered,
+  runW3cCase,
+} from "./w3c.js";
 
 const w3c = loadSuites().find((suite) => suite.suite === "w3c");
 
@@ -114,5 +122,69 @@ describe("a feature this package does not run", () => {
         reason: "depends on a feature this package does not run: invoke_elements",
       },
     );
+  });
+});
+
+const BASIC_HTTP = "http://www.w3.org/TR/scxml/#BasicHTTPEventProcessor";
+
+describe("an Event I/O Processor this runner does not register", () => {
+  it("is every one: none is registered yet", () => {
+    expect(PROCESSORS_REGISTERED).toEqual([]);
+    expect(PROCESSOR_NOT_REGISTERED).toBe(
+      "names an Event I/O Processor this runner does not register",
+    );
+  });
+
+  it("is read off the case's host.event_io_processors, and a case without the key names none", () => {
+    expect(processorsNotRegistered(w3cCase("w3c/test509"))).toEqual([BASIC_HTTP]);
+    expect(processorsNotRegistered(w3cCase("w3c/test144"))).toEqual([]);
+    expect(processorsNotRegistered({ ...depotCase(["basic_states"]), host: {} })).toEqual([]);
+  });
+
+  // Sabotage: naming every processor a case names, whatever the list holds,
+  // turns this red. It was run and reverted.
+  it("is judged against the list a caller names", () => {
+    expect(processorsNotRegistered(w3cCase("w3c/test509"), [BASIC_HTTP])).toEqual([]);
+    expect(processorsNotRegistered(w3cCase("w3c/test509"), ["basichttp"])).toEqual([BASIC_HTTP]);
+  });
+
+  // Sabotage: answering no processor for a value that is not a list turns this
+  // red: the malformed key reads as naming nothing and the case is driven. It
+  // was run and reverted.
+  it("names a value that is not a list of URIs whole, so its case fails rather than drives", () => {
+    const malformed = { ...depotCase(["basic_states"]), host: { event_io_processors: BASIC_HTTP } };
+    expect(processorsNotRegistered(malformed)).toEqual([JSON.stringify(BASIC_HTTP)]);
+    expect(runW3cCase(malformed)).toEqual({
+      result: "fail",
+      reason: `${PROCESSOR_NOT_REGISTERED}: ${JSON.stringify(BASIC_HTTP)}`,
+    });
+  });
+
+  // Sabotage: driving the case without the processor check turns this red:
+  // the case then fails on the comparison instead. It was run and reverted.
+  it("fails a case that names one before the drive, naming the processor", () => {
+    for (const id of ["w3c/test509", "w3c/test577", "w3c/test201"]) {
+      expect(runW3cCase(w3cCase(id))).toEqual({
+        result: "fail",
+        reason: `${PROCESSOR_NOT_REGISTERED}: ${BASIC_HTTP}`,
+      });
+    }
+  });
+
+  it("is checked before the features, and a case whose processor is registered is driven", () => {
+    const testCase = w3cCase("w3c/test509");
+    const [feature] = testCase.required_features;
+    if (feature === undefined) throw new Error("w3c/test509 names no feature");
+    expect(runW3cCase(testCase, [feature])).toMatchObject({
+      reason: `${PROCESSOR_NOT_REGISTERED}: ${BASIC_HTTP}`,
+    });
+    expect(runW3cCase(testCase, [feature], [BASIC_HTTP])).toEqual({
+      result: "fail",
+      reason: `depends on a feature this package does not run: ${feature}`,
+    });
+    expect(runW3cCase(testCase, [], [BASIC_HTTP])).toMatchObject({
+      result: "fail",
+      reason: expect.stringMatching(/^the initial configuration: expected active leaf states /),
+    });
   });
 });

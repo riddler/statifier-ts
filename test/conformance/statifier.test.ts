@@ -218,7 +218,7 @@ describe("what the host here cannot do", () => {
   // was run and reverted.
   it("fails every diff case before it is driven, naming the keys it carries", () => {
     const diff = statifier?.cases.filter((testCase) => testCase.spec === "diff") ?? [];
-    expect(diff).toHaveLength(7);
+    expect(diff).toHaveLength(10);
     for (const testCase of diff) {
       const outcome = runStatifierCase(testCase);
       expect(outcome).toMatchObject({

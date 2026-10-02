@@ -1,0 +1,51 @@
+{
+  "description": "The same edit with the waiting state's id changed as well: awaiting_return becomes awaiting_check_in, diffed with a mapping from the old id to the new. The mapping resolves the renamed state and its transitions match through it, so the pair is mapped, naming the one mapped state before the three additions the damaged outcome makes. A loan waits in awaiting_return with its due-date timer handed to the host, and at that position the predicate answers false: it takes no mapping, and awaiting_return does not resolve in the new chart.",
+  "initial_configuration": [
+    "awaiting_return"
+  ],
+  "steps": [],
+  "host": {
+    "send_types": [
+      "library:timer",
+      "library:route"
+    ],
+    "expect_sends": [
+      {
+        "type": "library:timer",
+        "target": "loan",
+        "event": {
+          "name": "loan.due"
+        },
+        "delay_ms": 1814400000,
+        "send_id": "due"
+      }
+    ],
+    "mapping": {
+      "awaiting_return": "awaiting_check_in"
+    },
+    "expect_diff": {
+      "class": "mapped",
+      "reasons": [
+        {
+          "reason": "state_mapped",
+          "state": "awaiting_return",
+          "to_state": "awaiting_check_in"
+        },
+        {
+          "reason": "state_added",
+          "state": "in_repair"
+        },
+        {
+          "reason": "transition_added",
+          "state": "check_in",
+          "t_index": 3
+        },
+        {
+          "reason": "data_added",
+          "data_id": "damaged"
+        }
+      ]
+    },
+    "expect_compatible_at": false
+  }
+}

@@ -169,9 +169,30 @@ A case may carry an optional `host` object, reserved by ADR-0070 decision 5
 for what a `statifier` case needs from its host: `send_types`, the send
 types the case registers in
 [ADR-0069](../docs/adr/0069-host-registered-send-types.md)'s sense, and
-`expect_sends`, the sends the case expects handed to the host. Every W3C and
-SCION case omits it, because upstream cases run with no registration, and
-`schema/case.json` refuses a `scion` or `w3c` case that carries it.
+`expect_sends`, the sends the case expects handed to the host. Every SCION
+case omits it, because upstream cases run with no registration, and
+`schema/case.json` refuses a `scion` case that carries it. A W3C case
+carries it only for `event_io_processors`, its one key there, below.
+
+A `host` object may carry `event_io_processors`, the Event I/O Processors
+the host runs, by URI
+([ADR-0075](../docs/adr/0075-basichttp-event-io-processor.md) decision 7).
+It is the one `host` key a W3C case may carry, because the documents that
+need a processor cannot run without one; `schema/case.json` refuses every
+other `host` key on a `w3c` case. The item set is closed, and its one member
+is the Basic HTTP Event I/O Processor's URI,
+`http://www.w3.org/TR/scxml/#BasicHTTPEventProcessor`. A runner honours it
+by registering the processor under that URI and its short form `basichttp`,
+with a location in `_ioprocessors` that reaches the running session, and by
+delivering every send to it, so none is handed to the recording processor
+above. statifier-ex's runner delivers through a loopback HTTP front it
+starts for the case. An implementation that does not run a processor the
+case names leaves the case unclaimed; that is what an optional processor
+means in a registry. A case can be in the corpus and outside every claim:
+`w3c/test201` needs the Basic HTTP processor and is unclaimed, because it
+expects a send delivered from outside the session to arrive ahead of a send
+the same step appends to the session's own external queue, which no
+delivery over HTTP does (ADR-0075 decision 7).
 
 A runner honours the object by registering each of `send_types` with an
 Event I/O Processor of its own, which records every send it is handed and

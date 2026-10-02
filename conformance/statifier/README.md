@@ -128,22 +128,22 @@ with a reference host's cases.
 
 The cases under `conformance/cases/diff/` are in this world too, and they
 prove the two questions a host asks before it moves an execution from one
-chart to an edited one; nothing in them moves anything. Each pairs the
-`hold_queue` chart with an edit of it: the host object carries the edited
-chart as `to_source` and `expect_diff`, the class and reasons
+chart to an edited one; nothing in them moves anything. Each pairs a
+`hold_queue` or a `loan` chart with an edit of it: the host object carries
+the edited chart as `to_source` and `expect_diff`, the class and reasons
 `Statifier.Chart.diff/3` answers (ADR-0072 decisions 1 and 2), with the
 `mapping` it is given where a case gives one. The emitter runs these cases
 as it runs any host case; the class and the reasons, order included, are
 compared by this repository's test suite
 (`test/corpus/diff_cases_test.exs`), because nothing in `lib/` calls either
-function (ADR-0072 decision 6). There is one pair per class: the same bytes
-(identical), an added `<data>` key (compatible), and `awaiting_pickup`
+function (ADR-0072 decision 6). Four `hold_queue` pairs are one per class:
+the same bytes (identical), an added `<data>` key (compatible), and `awaiting_pickup`
 renamed to `ready_for_pickup` with a mapping (mapped) and without one
 (breaking). A case may also carry `expect_compatible_at`, what
 `Statifier.Position.compatible_at?/3` answers (ADR-0072 decision 4) at the
 position its steps leave the chart in: `Statifier.Position.export/1` holds
 atoms, sets and tuples, so the case states no position, and every such
-case's steps put `p-1`'s hold in `awaiting_pickup` with its pickup timer
+hold case's steps put `p-1`'s hold in `awaiting_pickup` with its pickup timer
 handed to the host. The predicate answers true when only `idle` is edited (a
 breaking pair harmless at this position), false when a transition of
 `awaiting_pickup` itself gains content (a compatible pair with no reasons),
@@ -152,6 +152,18 @@ wraps around `idle` and `awaiting_pickup` and so an ancestor of the active
 state, and false for the rename with or without a mapping.
 `schema/case.json` gives each reason as an object: `reason`, then the
 members that reason carries.
+
+Three more pairs take the loan while it waits for its copy to come back: a
+`loan` chart whose execution starts in `awaiting_return` with its due-date
+timer handed to the host, and whose `check_in` state routes the returned
+copy after the wait. Each edit gives `check_in` a damaged outcome (a new
+`damaged` key, a new `in_repair` final state and the transition to it),
+and each is one class: with `awaiting_return` kept by id the pair is
+compatible and the predicate answers true; with it renamed to
+`awaiting_check_in` and a mapping given the pair is mapped and the
+predicate answers false, since it takes no mapping; with it kept by id but
+gathered with `overdue` under a new compound state the pair is breaking
+and the predicate answers false.
 
 The authored cases that came before the library world keep their own
 domain: the four under `cases/send/` and the one under

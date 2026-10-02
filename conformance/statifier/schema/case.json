@@ -103,8 +103,15 @@
     },
     "host": {
       "type": "object",
-      "description": "Optional, and carried by no scion or w3c case: what a statifier case needs from the host running it. The host registers each of send_types with an Event I/O Processor of its own, which records every send it is handed and delivers none of them; a delayed send handed to it is its timer, and it never fires one. An expect_sends item's outcome says what more the host does with that send: reports it failed, or is handed a cancel for it. With no host object a case registers nothing. declared_events and expect_accepts are present together or not at all: the host checks the chart's declaration of the event names it accepts before it runs the case. to_source and expect_diff are present together or not at all, and mapping and expect_compatible_at each need them: the host diffs the case's chart to a second chart before it runs the case, and after the last step asks whether the position the steps left is untouched by the edit.",
+      "description": "Optional, carried by no scion case, and carried by a w3c case only with event_io_processors as its one key: what a case needs from the host running it. The host registers each of send_types with an Event I/O Processor of its own, which records every send it is handed and delivers none of them; a delayed send handed to it is its timer, and it never fires one. An expect_sends item's outcome says what more the host does with that send: reports it failed, or is handed a cancel for it. The host registers each of event_io_processors under its URI and its short form, with a location that reaches the running session, and delivers every send to it. With no host object a case registers nothing. declared_events and expect_accepts are present together or not at all: the host checks the chart's declaration of the event names it accepts before it runs the case. to_source and expect_diff are present together or not at all, and mapping and expect_compatible_at each need them: the host diffs the case's chart to a second chart before it runs the case, and after the last step asks whether the position the steps left is untouched by the edit.",
       "properties": {
+        "event_io_processors": {
+          "type": "array",
+          "description": "The Event I/O Processors the host runs, by URI (ADR-0075 decision 7): each is registered under its URI and its short form, with a location in _ioprocessors that reaches the running session through a loopback front, and every send to it is delivered, none recorded. The item set is closed; its one member is the Basic HTTP Event I/O Processor, whose short form is basichttp. A port that does not run a processor named here leaves the case unclaimed.",
+          "items": { "enum": ["http://www.w3.org/TR/scxml/#BasicHTTPEventProcessor"] },
+          "minItems": 1,
+          "uniqueItems": true
+        },
         "send_types": {
           "type": "array",
           "description": "The send type strings the case registers, in ADR-0069's sense: a send whose type is one of them is handed to the host's processor, and its target is that processor's own route string, which the SCXML processor never parses. None is a built-in spelling: not scxml, and not the SCXML Event I/O Processor URI.",
@@ -504,10 +511,14 @@
         "properties": {
           "id": { "pattern": "^w3c/" },
           "conformance": { "enum": ["mandatory", "optional"] },
-          "upstream": { "properties": { "license": { "const": "BSD-3-Clause-W3C" } } }
+          "upstream": { "properties": { "license": { "const": "BSD-3-Clause-W3C" } } },
+          "host": {
+            "properties": { "event_io_processors": true },
+            "required": ["event_io_processors"],
+            "additionalProperties": false
+          }
         },
-        "required": ["upstream"],
-        "not": { "required": ["host"] }
+        "required": ["upstream"]
       }
     },
     {

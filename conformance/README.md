@@ -101,6 +101,19 @@ The reference's rule for a feature a harness does not run - fail the case
 before it starts, so that the feature never passes as a test it did not run
 (ADR-0003 decision 6) - stays in the runner, and names no feature now.
 
+A w3c case may carry a `host` object whose one key, `event_io_processors`,
+names the Event I/O Processors the host runs, by URI (the copy's
+`RATCHET.md`, "The host object"). The reference's runner registers each under
+its URI and its short form and delivers every send to it through a loopback
+front it starts for the case (`with_event_io_processors/2` in
+`lib/mix/statifier/corpus/host_case.ex` at `v2.10.0`). The runner here
+registers no processor yet (`PROCESSORS_REGISTERED` in
+`test/conformance/w3c.ts`), so such a case fails before it is driven, with the
+reason that it names an Event I/O Processor this runner does not register,
+followed by the processor's URI. The copy's `RATCHET.md` says what that means
+for a registry: an implementation that does not run a processor the case
+names leaves the case unclaimed.
+
 The reference's runner routes a statifier case by whether it carries a `host`
 object (`run_case/1` in `lib/mix/statifier/corpus/runner.ex` at `v2.9.0`).
 A case with none is driven as a scion case is. A case with one is driven as
@@ -193,7 +206,7 @@ This package's registry claims every scion case and the w3c and statifier
 cases a run observed to pass; the claims `w3c-mandatory`, `w3c-optional` and
 `statifier` are exactly those entries, and a w3c or statifier case with no
 entry is one this package does not claim to pass. What the run fails in the
-w3c suite falls in two groups:
+w3c suite falls in three groups:
 
 - `w3c/test329`, which the reference claims and which fails here on the
   configuration the chart rests in, for one cause: its condition
@@ -201,6 +214,16 @@ w3c suite falls in two groups:
   lacks as undefined and `@riddler/predicator` compares undefined with
   undefined as undefined, not true, so two objects that carry an undefined
   field compare unequal, even one object compared with itself;
+- the cases whose `host.event_io_processors` names the Basic HTTP Event I/O
+  Processor, which fail before they are driven because the runner registers
+  no processor yet (under "Run" above): `w3c/test509`, `w3c/test510`,
+  `w3c/test518`, `w3c/test519`, `w3c/test520`, `w3c/test522`, `w3c/test531`,
+  `w3c/test532`, `w3c/test534`, `w3c/test567` and `w3c/test577`, which the
+  reference claims, and `w3c/test201`, which the reference's registry does
+  not list, because it expects a send delivered from outside the session to
+  arrive ahead of a send the same step appends to the session's own external
+  queue, which no delivery over HTTP does (the copy's `RATCHET.md`, "The host
+  object");
 - `w3c/test330` and `w3c/test552`, which the reference's registry does not
   list, and which fail here on the configuration the chart rests in.
 
@@ -208,6 +231,9 @@ What the run fails in the statifier suite falls in three groups, each named
 under "Run" above:
 
 - `statifier/accepts/loan_declares_an_unreachable_event`, the accepts case;
-- the seven cases under `statifier/diff/`, the diff cases;
+- the ten cases under `statifier/diff/`, the diff cases, three of them
+  (`loan_waiting_across_a_damaged_arm`, `loan_waiting_across_a_mapped_rename`
+  and `loan_waiting_across_a_regrouping`) new in `v2.10.0`: this package does
+  not port the reference's chart diff;
 - `statifier/send/registered_send_failed`, the case that asks the host to
   report a send failed.

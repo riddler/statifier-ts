@@ -52,7 +52,7 @@ describe("corpus:check", () => {
       "this package's registry's corpus_hash",
       "the vendored reference registry's corpus_hash",
     ]) {
-      expect(result.stderr).toContain(`${field} is sha256:c79612f0`);
+      expect(result.stderr).toContain(`${field} is sha256:127a498e`);
     }
   });
 
@@ -75,7 +75,7 @@ describe("corpus:check", () => {
       "this package's registry's corpus_hash",
       "the vendored reference registry's corpus_hash",
     ]) {
-      expect(result.stderr).toContain(`${field} is sha256:c79612f0`);
+      expect(result.stderr).toContain(`${field} is sha256:127a498e`);
     }
   });
 
