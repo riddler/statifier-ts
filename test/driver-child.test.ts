@@ -571,6 +571,52 @@ describe("a child inside the JSON state", () => {
     });
   });
 
+  // Sabotage: decoding a child without comparing its invokedAs to its
+  // record's invokeId turns this red: both edited states decode.
+  it("refuses a child whose invokedAs is not its invocation's id", () => {
+    const { state } = begin(DEPOT);
+    const [courier] = state.invocations;
+    if (courier?.state === undefined || courier.state === null) throw new Error("no courier");
+    for (const invokedAs of ["van", null]) {
+      const edited = {
+        ...state,
+        invocations: [{ ...courier, state: { ...courier.state, invokedAs } }],
+      };
+      expect(step(DEPOT, edited, { name: "dispatch" })).toEqual({
+        ok: false,
+        reason: "malformed_state",
+        detail: { kind: "bad_shape", field: "invocations[0].state.invokedAs" },
+      });
+    }
+  });
+
+  // Sabotage: decoding the host's session without checking that its
+  // invokedAs is null turns this red: the edited state decodes.
+  it("refuses a host's state that says it runs as an invocation", () => {
+    const { state } = begin(DEPOT);
+    const edited = { ...state, invokedAs: "courier" };
+    expect(step(DEPOT, edited, { name: "dispatch" })).toEqual({
+      ok: false,
+      reason: "malformed_state",
+      detail: { kind: "bad_shape", field: "invokedAs" },
+    });
+  });
+
+  // Sabotage: setting each decoded invocation by its id without checking
+  // that the id is new turns this red: the second record overwrites the
+  // first and the state decodes.
+  it("refuses two invocation records with one id", () => {
+    const { state } = begin(DEPOT);
+    const [courier] = state.invocations;
+    if (courier === undefined) throw new Error("no courier");
+    const edited = { ...state, invocations: [courier, courier] };
+    expect(step(DEPOT, edited, { name: "dispatch" })).toEqual({
+      ok: false,
+      reason: "malformed_state",
+      detail: { kind: "bad_shape", field: "invocations[1].invokeId" },
+    });
+  });
+
   // Sabotage: writing the invocations into the exported position turns this
   // red.
   it("leaves the child out of a position, so an import starts with none", () => {

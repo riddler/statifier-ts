@@ -1477,7 +1477,9 @@ interface Place {
 // An invocation and its child: the child's chart is compiled from the
 // recorded source, which must be the chart the child's state was made by.
 // A source and a state are both present or both null; a source that does
-// not compile to that chart is a field of the wrong shape.
+// not compile to that chart is a field of the wrong shape. So is a child
+// state whose invokedAs is not the invocation's id: that child could not
+// reach its parent, nor return its done event to it.
 function decodeInvocation(
   decoder: Decoder,
   record: InvocationRecord,
@@ -1501,6 +1503,9 @@ function decodeInvocation(
     fail(decoder, { kind: "bad_shape", field: `${at}.source` });
     return invocation(null, null);
   }
+  if (record.state.invokedAs !== record.invokeId) {
+    fail(decoder, { kind: "bad_shape", field: `${at}.state.invokedAs` });
+  }
   const child = decodeState(decoder, chart, record.state, {
     ...place,
     at: `${at}.state.`,
@@ -1514,6 +1519,11 @@ function decodeInvocation(
 function decodeState(decoder: Decoder, chart: Chart, state: State, place: Place): Live {
   const { machine } = chart;
   const at = place.at;
+  // The host's session runs as no invocation. A child's invokedAs is held to
+  // its record's id where the record is decoded.
+  if (place.parent === null && state.invokedAs !== null) {
+    fail(decoder, { kind: "bad_shape", field: `${at}invokedAs` });
+  }
   // The root is active, and entered, whenever any state is.
   const rooted = (list: readonly string[]): Set<number> =>
     new Set(list.length === 0 ? [] : [0, ...indexes(decoder, machine, list)]);
@@ -1586,6 +1596,10 @@ function decodeState(decoder: Decoder, chart: Chart, state: State, place: Place)
     out: place.out,
   };
   for (const [i, record] of state.invocations.entries()) {
+    // A second record under one id would replace the first unseen.
+    if (live.invocations.has(record.invokeId)) {
+      fail(decoder, { kind: "bad_shape", field: `${at}invocations[${i}].invokeId` });
+    }
     const invocation = decodeInvocation(decoder, record, live, {
       ...place,
       at: `${at}invocations[${i}]`,
