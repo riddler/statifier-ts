@@ -149,6 +149,7 @@
     {"case_id":"statifier/library/patron_reinstated_after_block","suite":"statifier"},
     {"case_id":"statifier/send/registered_delayed_cancel","suite":"statifier"},
     {"case_id":"statifier/send/registered_immediate","suite":"statifier"},
+    {"case_id":"statifier/send/registered_send_failed","suite":"statifier"},
     {"case_id":"statifier/send/unregistered_type","suite":"statifier"},
     {"case_id":"statifier/system_variables/registered_ioprocessors","suite":"statifier"},
     {"case_id":"w3c/test144","suite":"w3c"},

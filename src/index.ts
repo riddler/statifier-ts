@@ -3,7 +3,8 @@
 // The version of the build a host is running; `compile`, which turns SCXML
 // text into a Chart - its identity and the compiled Machine the interpreter
 // will run; the driver's calls, which start a chart, send it events, move
-// its virtual clock, and read its configuration and whether it is done; and
+// its virtual clock, report a send the host could not deliver, and read its
+// configuration and whether it is done; and
 // position export and import, a running chart's state in the string-id
 // vocabulary out and back in; and the HTTP transport types, the seam a host
 // implements to make the Basic HTTP processor's requests over its own HTTP,
@@ -68,12 +69,14 @@ export {
   type ActiveInvocation,
   advance,
   configuration,
+  type DeliveryFailure,
   type DoneRecord,
   type DoneStatus,
   type DriveOptions,
   type DriveRefusal,
   type DriveRefused,
   type DriveResult,
+  type FailedSend,
   type HostEvent,
   type InvocationRecord,
   isDone,
@@ -81,6 +84,7 @@ export {
   type MalformedDetail,
   type PendingTimer,
   type QueuedEvent,
+  reportSendFailed,
   type SendProcessor,
   type SendProcessors,
   type SendRecord,

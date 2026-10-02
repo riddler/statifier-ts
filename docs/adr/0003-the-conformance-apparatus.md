@@ -357,3 +357,24 @@ the four keys: this package still does not port the reference's chart diff or
 its position predicate, so the claim says the cases' configurations and sends
 agree with the reference's and says nothing about a diff. The Amendment's
 other two rows stand.
+
+## Note: the failed-send case is driven (2026-10-01)
+
+The Amendment "the sends a host case expects" says, in its first row, that an
+`expect_sends` item with `"outcome": "fail"` "fails the case:
+`SendProcessor.deliver` in `src/driver.ts` (read at `b4565d8`) answers
+nothing and the driver offers no call that reports a failed send", and that
+"the failed-send row adds no driver surface". ADR-0002's Amendment "a host
+reports a send it could not deliver", of 2026-10-01, adds that surface,
+`reportSendFailed` in `src/driver.ts`, ruled by the operator, 2026-10-01; the
+change that adds this Note adds that Amendment and its code.
+
+So the row no longer holds. `runHostCase` in `test/conformance/statifier.ts`
+reports a handed send whose expected item says `"outcome": "fail"` through
+`reportSendFailed` once the call that handed it returns, before the
+configuration is read, and writes `"outcome": "fail"` on its item, as the
+reference's harness reports it through `Statifier.Session.failed_send/3` and
+marks it (`perform_outcome/4` in `lib/mix/statifier/corpus/host_case.ex` at
+`v2.10.0`). `statifier/send/registered_send_failed` passes that drive and
+`conformance/registry.json` claims it, written by `pnpm ratchet` from the run
+that observed it. The Amendment's accepts row stands.

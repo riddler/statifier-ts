@@ -1,7 +1,8 @@
 // The statifier case runner: a plain case driven as a scion case is, a host
 // case's registered send types handed to the driver and its expected sends
-// compared, a planted wrong expected send failing its case, and the cases the
-// host here cannot run failing with their reasons.
+// compared, a planted wrong expected send failing its case, a send the case
+// marks failed reported through the driver, and the case the host here cannot
+// run failing with its reason.
 //
 // The cases are the vendored corpus's own; the one chart written here is the
 // library loan: a returned copy routed to the branch's hold queue.
@@ -11,7 +12,6 @@ import type { CorpusCase } from "../../scripts/lib/corpus.mjs";
 import { loadSuites } from "../../scripts/lib/corpus.mjs";
 import {
   compareSends,
-  FAILED_SEND_NOT_REPORTABLE,
   notPorted,
   runHostCase,
   runStatifierCase,
@@ -191,18 +191,31 @@ describe("a cancelled send", () => {
   });
 });
 
-describe("what the host here cannot do", () => {
-  // Sabotage: driving the case and comparing the sends, with no reason set
-  // when a failed send is asked for, turns this red. It was run and reverted.
-  it("fails a case that asks the host to report a send failed, saying why", () => {
+describe("a send the host reports failed", () => {
+  // Sabotage: the runner not reporting the marked send (`takeFailed`
+  // answering an empty list), or not marking its item failed, turns this red.
+  it("is reported through the driver, and the sender takes the transition naming its sendid", () => {
     const testCase = statifierCase("send/registered_send_failed");
     expect(expectSends(testCase)[0]?.outcome).toBe("fail");
-    expect(runStatifierCase(testCase)).toEqual({
-      result: "fail",
-      reason: FAILED_SEND_NOT_REPORTABLE,
-    });
+    expect(runStatifierCase(testCase)).toEqual({ result: "pass" });
   });
 
+  // The pass is not vacuous: the same case with its item claiming nothing
+  // about a failure is not reported, and the chart rests where the send left
+  // it, so it is the report that moves the chart to the state the case expects.
+  it("is not reported when its item claims nothing, so the pass rests on the report", () => {
+    const testCase = statifierCase("send/registered_send_failed");
+    const [failing] = expectSends(testCase);
+    const { outcome: _outcome, ...unmarked } = failing as SendItem;
+    expect(runStatifierCase(withHost(testCase, { expect_sends: [unmarked] }))).toEqual({
+      result: "fail",
+      reason:
+        'step 1 (event "copy.available"): expected active leaf states [notice_failed], got [notifying]',
+    });
+  });
+});
+
+describe("what the host here cannot do", () => {
   // Sabotage: running the accepts case as any other host case turns this red.
   // It was run and reverted.
   it("fails the accepts case before it is driven, naming the keys", () => {

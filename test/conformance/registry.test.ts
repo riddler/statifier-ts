@@ -93,12 +93,8 @@ describe("this package's registry, as committed", () => {
       .filter((entry) => entry.suite === "statifier")
       .map((entry) => entry.case_id);
     expect(statifier.length).toBeGreaterThan(0);
-    expect(
-      statifier.filter(
-        (id) =>
-          id.startsWith("statifier/accepts/") || id === "statifier/send/registered_send_failed",
-      ),
-    ).toEqual([]);
+    expect(statifier.filter((id) => id.startsWith("statifier/accepts/"))).toEqual([]);
+    expect(statifier).toContain("statifier/send/registered_send_failed");
     const statifierCases = suites.find((suite) => suite.suite === "statifier")?.cases ?? [];
     const diffIds = statifierCases
       .filter((testCase) => testCase.spec === "diff")

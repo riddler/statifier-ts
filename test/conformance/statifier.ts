@@ -28,6 +28,16 @@
 //   delayed send handed before it under the cancel's send id whose expected
 //   item asks for it (the harness's `cancel_named/2`), so a marked item no
 //   cancel reached disagrees.
+// - A handed send whose expected item, at the same position, carries
+//   `"outcome": "fail"` is reported failed, and its item marked so, as the
+//   harness's `perform_outcome/4` reports it through
+//   `Statifier.Session.failed_send/3` as soon as it reads the processor's
+//   message: here through the driver's `reportSendFailed` once the call that
+//   handed it returns, before the configuration is read, so the step that led
+//   to the send is the one whose configuration shows what the sender made of
+//   the `error.communication` it got. A report the driver refuses because the
+//   chart has stopped is dropped, as the reference's session ignores one; any
+//   other refusal fails the case.
 //
 // A case whose host carries a diff pair - `to_source` and `expect_diff`, with
 // an optional `mapping` and `expect_compatible_at` - is driven here like any
@@ -38,39 +48,31 @@
 // package does not port. So a diff case agrees here on its configurations and
 // its sends, the comparisons the reference's runner makes for it.
 //
-// Two things the reference's harness does this runner cannot, and each
-// fails its case with the reason before or while it is driven, never patched
-// around:
-//
-// - An expected send marked `"outcome": "fail"`: the reference's harness
-//   reports that send failed through `Statifier.Session.failed_send/3`, so the
-//   sender takes `error.communication`. The driver's `SendProcessor.deliver`
-//   answers nothing and the driver offers no call that reports a failed send,
-//   so the host here has no way to say it.
-// - `declared_events` and `expect_accepts`: the reference checks the chart's
-//   accepted-events declaration before it runs the case
-//   (`Statifier.Chart.check_accepts/2`), which this package does not port.
+// One thing the reference's harness does this runner cannot, and it fails its
+// case with the reason before it is driven, never patched around:
+// `declared_events` and `expect_accepts`, the reference's check of the
+// chart's accepted-events declaration before it runs the case
+// (`Statifier.Chart.check_accepts/2`), which this package does not port.
 //
 // Like the runner, this reaches nothing outside the language.
 
 import { fromHost, toHost, typeName, type Value } from "@riddler/predicator";
 import type { CorpusCase, CorpusStep } from "../../scripts/lib/corpus-rules.d.mts";
+import type { Chart } from "../../src/compiler.js";
 import type { Cancel, Send, SendDelayed } from "../../src/core/send.js";
 import type { Event } from "../../src/datamodel.js";
 import {
   type DriveOptions,
   type HostEvent,
+  reportSendFailed,
   type SendProcessor,
   type SendProcessors,
+  type State,
   start,
   step,
 } from "../../src/driver.js";
 import type { CaseOutcome } from "./runner.js";
 import { awaitConfiguration, compareLeafSets, compileCase, runScionCase, settle } from "./scion.js";
-
-/** The reason a case marking a send `"outcome": "fail"` fails with. */
-export const FAILED_SEND_NOT_REPORTABLE =
-  'the case expects the host to report a send failed ("outcome": "fail"), and the driver offers a host no way to: SendProcessor.deliver answers nothing';
 
 /** The host keys of the reference's accepts check, which this package does not port. */
 export const ACCEPTS_KEYS: readonly string[] = Object.freeze(["declared_events", "expect_accepts"]);
@@ -127,19 +129,29 @@ interface Handed {
 export interface Host {
   readonly options: DriveOptions;
   readonly handed: readonly SendItem[];
-  /** Set when the case asks for something the host cannot do here. */
-  readonly problem: string | null;
+  /**
+   * The handed sends whose expected item asks for a failure and that are not
+   * yet reported, in the order they were handed; taking them empties the list.
+   */
+  takeFailed(): (Send | SendDelayed)[];
 }
 
 /** A host for these send types, comparing what it is handed with `expected`. */
 export function hostFor(sendTypes: readonly string[], expected: readonly SendItem[]): Host {
   const handed: Handed[] = [];
-  let problem: string | null = null;
+  let failed: (Send | SendDelayed)[] = [];
   const processor: SendProcessor = {
     deliver(send, event) {
       const item = expected[handed.length];
-      if (item?.outcome === "fail" && problem === null) problem = FAILED_SEND_NOT_REPORTABLE;
-      handed.push({ sendId: send.sendId, expected: item, item: itemOf(send, event) });
+      const fails = item?.outcome === "fail";
+      if (fails) failed.push(send);
+      const written = itemOf(send, event);
+      handed.push({
+        sendId: send.sendId,
+        expected: item,
+        item: fails ? { ...written, outcome: "fail" } : written,
+      });
+      return undefined;
     },
     cancel(cancel: Cancel) {
       for (const entry of handed) {
@@ -159,10 +171,49 @@ export function hostFor(sendTypes: readonly string[], expected: readonly SendIte
     get handed() {
       return handed.map((entry) => entry.item);
     },
-    get problem() {
-      return problem;
+    takeFailed() {
+      const taken = failed;
+      failed = [];
+      return taken;
     },
   };
+}
+
+type Observed = State | { readonly reason: string };
+
+// Reports each send the host marked failed and has not reported, in the
+// order it was handed. A report refused because the chart has stopped is
+// dropped, as the reference's session ignores a report to a finished sender.
+function reportFailed(chart: Chart, state: State, host: Host): Observed {
+  let current = state;
+  for (const send of host.takeFailed()) {
+    const reported = reportSendFailed(chart, current, { send }, host.options);
+    if (reported.ok) current = reported.state;
+    else if (reported.reason !== "not_running") {
+      return { reason: `the driver refused the failed-send report: ${reported.reason}` };
+    }
+  }
+  return current;
+}
+
+// The state a driver call leads to once it is read: every failed send
+// reported first, then the timers due by the deadline fired, and again while
+// a fired timer hands a send to report, as the reference's harness reports a
+// failed send before it reads the configuration again.
+function observe(
+  chart: Chart,
+  state: State,
+  expected: readonly string[],
+  since: number,
+  host: Host,
+): Observed {
+  let current = reportFailed(chart, state, host);
+  for (;;) {
+    if ("reason" in current) return current;
+    const awaited = awaitConfiguration(chart, current, expected, since, host.options);
+    current = reportFailed(chart, awaited, host);
+    if (current === awaited) return current;
+  }
 }
 
 // Canonical text for a comparison: object keys sorted, list order kept.
@@ -212,8 +263,9 @@ export function runHostCase(testCase: CorpusCase): CaseOutcome {
 
   const started = start(chart, { sessionId: testCase.id, ...options });
   if (!started.ok) return { result: "fail", reason: `start was refused: ${started.reason}` };
-  let state = awaitConfiguration(chart, started.state, testCase.initial_configuration, 0, options);
-  if (host.problem !== null) return { result: "fail", reason: host.problem };
+  const observed = observe(chart, started.state, testCase.initial_configuration, 0, host);
+  if ("reason" in observed) return { result: "fail", reason: observed.reason };
+  let state = observed;
   const initial = compareLeafSets(
     chart,
     state,
@@ -234,8 +286,9 @@ export function runHostCase(testCase: CorpusCase): CaseOutcome {
         reason: `${where}: the driver refused the event: ${stepped.reason}`,
       };
     }
-    state = awaitConfiguration(chart, stepped.state, configuration, settled.nowMs, options);
-    if (host.problem !== null) return { result: "fail", reason: host.problem };
+    const after = observe(chart, stepped.state, configuration, settled.nowMs, host);
+    if ("reason" in after) return { result: "fail", reason: `${where}: ${after.reason}` };
+    state = after;
     const found = compareLeafSets(chart, state, configuration, where);
     if (found !== null) return { result: "fail", reason: found };
   }

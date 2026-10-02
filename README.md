@@ -287,6 +287,72 @@ mailed; // => ["welcome.card"]
 welcomed.effects.map((effect) => effect.kind); // => ["send"]
 ```
 
+A send the host's processor could not deliver goes back to the chart as
+`error.communication`, carrying the send's id as `_event.sendid` whether or
+not the author named it. A processor that knows at once answers
+`{ kind: "failure", reason }` from `deliver`, and the send fails within the
+call that handed it. A host that learns later calls
+`reportSendFailed(chart, state, { send, reason? }, opts?)` with the send it
+was handed, or with only its `sendId`, `cIndex` and `owner`, and the chart
+runs to a stable configuration within that call. A report to a stopped chart
+is refused with `not_running`, and a send without those three fields with
+`not_a_send`; a processor that throws throws out of the call that handed the
+send:
+
+```ts
+import {
+  compile,
+  configuration,
+  reportSendFailed,
+  type Send,
+  type SendDelayed,
+  type SendProcessor,
+  start,
+  step,
+} from "@riddler/statifier";
+
+const holdSource = `<scxml xmlns="http://www.w3.org/2005/07/scxml" version="1.0"
+    name="hold" initial="waiting">
+  <state id="waiting">
+    <transition event="copy.available" target="notifying"/>
+  </state>
+  <state id="notifying">
+    <onentry><send id="notice" type="sms" event="hold.ready" target="patron:ada"/></onentry>
+    <transition event="error.communication" cond="_event.sendid == 'notice'" target="calling"/>
+  </state>
+  <state id="calling"/>
+</scxml>`;
+
+const holdChart = compile(holdSource);
+if (!holdChart.ok) throw new Error("the hold chart does not compile");
+
+const queued: (Send | SendDelayed)[] = [];
+const sms: SendProcessor = {
+  deliver: (send) => {
+    queued.push(send);
+  },
+};
+const holdTypes = { sms };
+
+const waiting = start(holdChart.chart, { sessionId: "hold-ada", sendTypes: holdTypes });
+if (!waiting.ok) throw new Error(waiting.reason);
+const notified = step(holdChart.chart, waiting.state, { name: "copy.available" }, { sendTypes: holdTypes });
+if (!notified.ok) throw new Error(notified.reason);
+configuration(notified.state); // => ["notifying"]
+
+// Later, the text-message gateway answers that the number is unreachable.
+const [notice] = queued;
+if (notice === undefined) throw new Error("no notice was handed");
+const failed = reportSendFailed(
+  holdChart.chart,
+  notified.state,
+  { send: notice, reason: "unreachable" },
+  { sendTypes: holdTypes },
+);
+if (!failed.ok) throw new Error(failed.reason);
+configuration(failed.state); // => ["calling"]
+```
+
 ## Position export and import
 
 `exportPosition(state)` writes where a running chart stands in the
@@ -375,14 +441,14 @@ hand. Its registry, `conformance/registry.json`, lists the cases this package
 claims to pass - written only by a run that observed the pass, and never
 narrowed.
 
-**The claim:** this package makes four claims, with 301 entries in its
+**The claim:** this package makes four claims, with 302 entries in its
 registry: `scion` with 119 entries out of the suite's 119 cases, `statifier`
-with 29 entries out of the suite's 31 cases, `w3c-mandatory` with 151 entries
+with 30 entries out of the suite's 31 cases, `w3c-mandatory` with 151 entries
 out of the w3c suite's 154 mandatory cases, and `w3c-optional` with 2 entries
 out of its 14 optional cases. A claim is exactly its entries: a case with no
 entry is one this package does not claim to pass.
 
-**The gap:** it does not yet claim the 12 w3c cases and the 2 statifier cases
+**The gap:** it does not yet claim the 12 w3c cases and the 1 statifier case
 the reference's own registry lists that this package's does not, nor the 3 w3c
 cases the reference's registry does not list either. `pnpm conformance` runs
 the corpus, writes one report per suite under `reports/`, and prints both
@@ -398,9 +464,10 @@ only when the sends handed to them are exactly the ones it expects. A diff
 case is driven the same way, on its configurations and its sends, because
 the reference's runner compares none of its diff keys; the reference compares
 them in its own test suite, through a chart diff this package does not port.
+A case that asks the host to report a send failed is driven with that send
+reported through `reportSendFailed`, as the reference's harness reports it.
 The accepts case fails before it is driven, because this package does not
-port the reference's accepts check, and a case that asks the host to report a
-send failed fails because the driver offers a host no way to.
+port the reference's accepts check.
 
 ```bash
 pnpm conformance      # run the corpus and print the gap list
