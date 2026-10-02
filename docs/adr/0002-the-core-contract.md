@@ -1532,3 +1532,115 @@ over a loopback front). Before this change the chart took `event1` first and
 rested in `fail`. The case is not claimed here: the runner registers no
 processor, and the loopback that drives the Basic HTTP cases, and their
 claims, are a later change's.
+
+## Note: what the Machine's stability reaches, and what else holds on `main` (2026-10-01)
+
+This Note decides nothing new. It names passages above that read inexactly
+against the code on `main` at `251d4c6` and the reference at tag `v2.10.0`
+(`c8894ae`), and says what holds.
+
+**The stability sentence does not reach an exported type.** The
+Machine-stability Amendment's sentence "no version promises any member of
+`Machine` or of the types it holds" reaches, read literally, two types the
+main entry point exports in their own right: `Location` (`src/xml/parser.ts`),
+the span every `CompileError` variant carries as its `location`, and
+`StateKind` (`src/document/scxml.ts`), which `ValidationError` variants carry.
+Both are reached by what `compile` answers, and `compile` is one of the
+driver's calls the Decision's stable surface names;
+`test/export-surface.test.ts` names both among the types a compile error
+reaches. The sentence is read as
+reaching only the types `Machine` holds that `src/index.ts` does not export
+by name - its compiled states, transitions, data, blocks, content nodes and
+expressions, in `src/machine.ts` and the modules it imports. What this
+contract promises of `Location` and `StateKind`, it promises through the
+compile errors, and that Amendment does not withdraw it. `AttributeLocations`,
+which `Machine` also holds, is not exported from the main entry point at
+`251d4c6`, so the sentence reaches it as written.
+
+**Two decisions that Amendment adds stay open for its acceptance.** It
+decides that a release fixes `Machine`'s shape only by an Amendment to this
+record that names the members it promises, and that a change to `Machine` is
+not a breaking change to this contract. Both agree with the Decision's
+paragraph "The `Machine` type is opaque and unstable" and with the
+Consequences' sentence "Declaring `Machine` opaque leaves the compiler free to
+change it", and each says more than "opaque and unstable". This Note does not
+confirm them: they are recorded as decisions to be read when that Amendment
+is accepted.
+
+**A send the declared routes refuse is the core's.** The invoke effects
+Amendment's paragraph "What stays with the driver." says an
+`error.communication` about an invocation is raised by the reference's
+session and its invoke handlers, not its core. That holds other than for a
+send the declared routes refuse: an immediate send of the SCXML type whose
+target is an invocation the declared routes do not name stops its block and
+raises `error.communication` in the core here (`unreachableReason` and
+`executeSend` in `src/core/send.ts`), as the reference's core raises it
+(`reject_reason/4` and `unreachable?/3` in `Statifier.Machine.Content.Send`,
+`lib/statifier/machine/content/send.ex`). The child-session Amendment's
+routes bullet says where the routes are declared.
+
+**The passes' trace effects are emitted.** The invoke effects Amendment's
+words "nor the trace and datamodel effects the passes emit" hold now for the
+datamodel effects only. The datamodel and trace effects Amendment emits
+`invoke_pass` from `runInvokePass` and `finalize_autoforward` from
+`applyInvokePasses` (`src/core/invoke.ts`); the `datamodel_change` the
+reference answers for an `<invoke idlocation>` write and for an empty
+`<finalize>`'s writes is still not emitted, as that Amendment's "Not ported"
+paragraph says.
+
+**A failed `<if>` or `<foreach>` answers none of its nodes' effects.** The
+datamodel and trace effects Amendment's sentence "A write that is refused, a
+binding that fails, and a root `<data>` whose id the host supplied answer no
+`datamodel_change`" leaves out one more: an `<assign>` that lands inside an
+`<if>` partition or a `<foreach>` body that then fails answers no
+`datamodel_change`, though its write is kept. The record does not state the
+rule behind it: a composite that fails drops every effect its nodes answered
+before the failure - a `log`, a `send`, a `send_delayed`, a `cancel` and a
+`datamodel_change` alike - and keeps what they wrote to the datamodel and the
+send state (`discardOnFailure` in `src/core/content.ts`). The reference's
+composites answer the same: a failing partition or body answers its error
+with the context but none of the effects it gathered (`run_partition/2` in
+`Statifier.Machine.Content.If`, `lib/statifier/machine/content/if.ex`, and
+`run_loop/3` and `run_content/2` in `Statifier.Machine.Content.Foreach`,
+`lib/statifier/machine/content/foreach.ex`).
+
+**The id that stays live with no child.** The child-session Amendment's
+invoke-type table, second row, cites `Statifier.Session`'s `{:start_child, _,
+_}` instruction and its `invoke_error/4` for an id recorded live with no
+child. Those raise the `error.communication` and write no table entry, as
+their own comments say. The entry that keeps the id live is written earlier,
+by the `perform_instruction({:notify, {:invoke, _}}, _, _)` clause in
+`lib/statifier/session.ex`, for a type the session's invoke types register;
+that clause is the anchor for the row's "records the id live".
+
+**The routes are also declared when a state is decoded.** The child-session
+Amendment's routes bullet lists where the driver declares a session's routes.
+`decodeState` in `src/driver.ts` also declares them, for the host's session
+and every child, as it decodes the state a call is handed. That declaration
+is the one the session's own state already gives, and a call that drives the
+session declares it again at the points the bullet lists before an input
+from outside is taken (`stamp` in `step`, `advance`, `deliverInternal`,
+`deliverToChild` and `takeMail`), so on a reading of the code it changes no
+behaviour. The change that adds this Note names it in the header comment of
+`src/driver.ts`, and corrects the comment on `SendState`'s `routes` in
+`src/core/send.ts`, which said the routes are stamped before each drive:
+they are declared at the points the header lists, and an event the chart
+queued for itself is taken under the routes already declared.
+
+**When a processor is called.** The failed-send Amendment says the driver
+calls its processors only once the call's state is written "as the Decision
+says", and the in-run-failure Amendment speaks of "The Decision's rule"; the
+Decision's paragraph "The host's send processors are passed on every call,
+never stored" does not say when. What holds, as the in-run-failure Amendment
+states it: a processor's `deliver` and `cancel` are called only once the
+call's run has ended and its state has encoded, in the order the run made the
+calls, so a call its first run leaves refused hands a processor nothing, and
+the one refusal that can follow a processor call is the one that Amendment
+names, a run made again after a failure that leaves a value the state cannot
+write; a failure a `deliver` answers is raised within the run, at the send's
+place, by making the run again from the call's own arguments with the call's
+pinned clock and random draws, and a call made in an earlier run is answered
+from what it answered then, not made again (`drive` and `madeUntilFailure` in
+`src/driver.ts`). A processor's `ioprocessorsEntry` is the one member asked
+before the state is written, as the Basic HTTP processor Amendment's decision
+(d) says.

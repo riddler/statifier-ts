@@ -103,9 +103,13 @@ export interface CancelNode {
  * ordinal sequence stamped on every delayed send, every cancel and every
  * immediate send of a registered type; the first ordinal is 1. Neither is
  * ever reset. `sendTypes` is the set of send types the host registered a
- * processor for, or null when it registered none. `routes` is what the host
- * declared it can reach, or null when it declared nothing; like `sendTypes`
- * it is stamped by the driver before each drive and never travels in a
+ * processor for, or null when it registered none. `routes` is what the
+ * driver last declared the session can reach, or null when nothing was
+ * declared. The driver declares it where its header says - when the session
+ * starts, when an input reaches it from outside, before a delivery onto the
+ * internal queue, and when a call's state is decoded - not before each event
+ * the chart takes, so an event the chart queued for itself is taken under
+ * the routes already declared. Like `sendTypes`, it never travels in a
  * position.
  */
 export interface SendState {
@@ -213,10 +217,10 @@ export function parseTarget(target: Value): Route {
 }
 
 /**
- * What a host declares it can reach, at the moment of one drive: the session
- * ids a `#_scxml_` target may name, whether the session has a parent, and the
- * invocations a `#_` target may name. The session itself and its internal
- * queue need no entry. The reference's `Statifier.Send.Routes`.
+ * What the driver declares a session can reach, as it last declared it: the
+ * session ids a `#_scxml_` target may name, whether the session has a parent,
+ * and the invocations a `#_` target may name. The session itself and its
+ * internal queue need no entry. The reference's `Statifier.Send.Routes`.
  */
 export interface Routes {
   readonly sessions: ReadonlySet<string>;

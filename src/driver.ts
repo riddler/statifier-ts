@@ -58,7 +58,10 @@
 // session stamps its routes: when the session starts, when an input reaches
 // it from outside (the host's event, a child's message taken from the
 // mailbox, an event delivered to a child, a fired timer), and before a
-// delivery onto the internal queue. An event the chart queued for itself is
+// delivery onto the internal queue. Decoding the state a call is handed
+// declares them too, for every session in it; that declaration is the one
+// the session's own state gives, and the call declares it again at those
+// points before an input is taken. An event the chart queued for itself is
 // taken under the routes already declared, as the reference's drain takes
 // it, so a send there judges an invocation started or cancelled since by the
 // earlier declaration. The core refuses an immediate send to anything the
