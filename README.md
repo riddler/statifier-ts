@@ -33,7 +33,7 @@ pnpm add @riddler/statifier@^0.1.0
 
 The package has **one runtime dependency**,
 [`@riddler/predicator`](https://github.com/riddler/predicator-ts), pinned at
-`^0.4.0`, which evaluates the conditions, expressions and script bodies a
+`^0.4.1`, which evaluates the conditions, expressions and script bodies a
 chart carries, as it does for the reference. `dependencies` in
 `package.json` names it and no other package.
 
@@ -484,16 +484,16 @@ hand. Its registry, `conformance/registry.json`, lists the cases this package
 claims to pass - written only by a run that observed the pass, and never
 narrowed.
 
-**The claim:** this package makes four claims, with 314 entries in its
+**The claim:** this package makes four claims, with 315 entries in its
 registry: `scion` with 119 entries out of the suite's 119 cases, `statifier`
-with 31 entries out of the suite's 31 cases, `w3c-mandatory` with 151 entries
+with 31 entries out of the suite's 31 cases, `w3c-mandatory` with 152 entries
 out of the w3c suite's 154 mandatory cases, and `w3c-optional` with 13 entries
 out of its 14 optional cases. A claim is exactly its entries: a case with no
 entry is one this package does not claim to pass.
 
-**The gap:** it does not yet claim the 1 w3c case
-the reference's own registry lists that this package's does not, nor the 3 w3c
-cases the reference's registry does not list either. `pnpm conformance` runs
+**The gap:** it claims every case the reference's own registry lists, and
+does not yet claim the 3 w3c cases the reference's registry does not list
+either. `pnpm conformance` runs
 the corpus, writes one report per suite under `reports/`, and prints both
 lists, every unclaimed case with the reason the run failed it, and each case
 the reference claims with the features it needs in the corpus's own words. The

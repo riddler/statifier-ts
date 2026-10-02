@@ -77,24 +77,22 @@ export function writeReports(reports: readonly SuiteReport[], dir: string = REPO
  * case id. A cause is printed after the run's reason, and only when the run
  * failed the case. Each is held by a test that observes it again ("the known
  * causes" in `test/conformance/runner.test.ts`), so a cause that stops holding
- * turns the gate red rather than staying printed.
+ * turns the gate red rather than staying printed. No case carries one today.
  */
-export const KNOWN_CAUSES: ReadonlyMap<string, string> = new Map([
-  [
-    "w3c/test329",
-    "its condition Var2==_event answers false, because _event carries each field the event lacks as undefined and @riddler/predicator compares undefined with undefined as undefined, not true, so two objects that carry an undefined field compare unequal, even one object compared with itself",
-  ],
-]);
+export const KNOWN_CAUSES: ReadonlyMap<string, string> = new Map<string, string>();
 
 /**
  * What a run found for one case, as a clause a gap line ends with: the reason
  * a fail carries, then its known cause when it has one, or that a pass is not
  * recorded yet. No clause when the run did not hold the case.
  */
-function runClause(result: CaseResult | undefined): string {
+function runClause(
+  result: CaseResult | undefined,
+  causes: ReadonlyMap<string, string> = KNOWN_CAUSES,
+): string {
   if (result === undefined) return "";
   if (result.result === "pass") return "; this run passed it, and the ratchet has not recorded it";
-  const cause = KNOWN_CAUSES.get(result.case_id);
+  const cause = causes.get(result.case_id);
   const known = cause === undefined ? "" : `; the cause: ${cause}`;
   return `; this run failed it: ${result.reason}${known}`;
 }
@@ -109,7 +107,8 @@ function byCaseId(results: readonly CaseResult[]): Map<string, CaseResult> {
  * feature detector's atoms), and, given the results of a run, what that run
  * found: the reason it failed the case, which names a feature this package
  * does not run when the case needs one, and the case's known cause when it
- * has one. A case no suite here holds is named as such.
+ * has one, read from `causes` (the known causes unless a test names others).
+ * A case no suite here holds is named as such.
  *
  * Sabotage: dropping the run's clause from every line turns the runner test
  * that reads a w3c fail's reason off its gap line red. It was run and
@@ -119,6 +118,7 @@ export function gapLines(
   gap: readonly RegistryEntry[],
   suites: readonly CorpusSuite[],
   results: readonly CaseResult[] = [],
+  causes: ReadonlyMap<string, string> = KNOWN_CAUSES,
 ): string[] {
   const cases = indexCases(suites);
   const found = byCaseId(results);
@@ -130,7 +130,7 @@ export function gapLines(
       features.length === 0
         ? `${entry.case_id}: needs no named feature`
         : `${entry.case_id}: needs ${features.join(", ")}`;
-    return `${needs}${runClause(found.get(entry.case_id))}`;
+    return `${needs}${runClause(found.get(entry.case_id), causes)}`;
   });
 }
 
@@ -159,7 +159,7 @@ export function unclaimedByEither(
 /**
  * The lines for the cases neither registry claims: each says the reference
  * does not claim it either and, given the results of a run, what that run
- * found.
+ * found, with a known cause read from `causes` as the gap list reads it.
  *
  * Sabotage: dropping the run's clause from these lines turns the runner test
  * that reads the two reference-unclaimed w3c cases' reasons red. It was run
@@ -168,10 +168,11 @@ export function unclaimedByEither(
 export function unclaimedByEitherLines(
   entries: readonly RegistryEntry[],
   results: readonly CaseResult[] = [],
+  causes: ReadonlyMap<string, string> = KNOWN_CAUSES,
 ): string[] {
   const found = byCaseId(results);
   return entries.map(
     (entry) =>
-      `${entry.case_id}: the reference's registry does not claim it either${runClause(found.get(entry.case_id))}`,
+      `${entry.case_id}: the reference's registry does not claim it either${runClause(found.get(entry.case_id), causes)}`,
   );
 }

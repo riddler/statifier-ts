@@ -229,20 +229,15 @@ gap list is read off the reference's registry, so without this second list
 those cases would go unnamed. Where the run's reason says only where a case
 failed and the cause has been found by reading the case, a line in either list
 ends with that cause (`KNOWN_CAUSES` in `test/conformance/reports.ts`), and a
-test observes each cause again, so one that stops holding fails the gate.
+test observes each cause again, so one that stops holding fails the gate. No
+case carries such a cause today.
 
 This package's registry claims every scion case and the w3c and statifier
 cases a run observed to pass; the claims `w3c-mandatory`, `w3c-optional` and
 `statifier` are exactly those entries, and a w3c or statifier case with no
 entry is one this package does not claim to pass. What the run fails in the
-w3c suite falls in three groups:
+w3c suite falls in two groups, and neither holds a case the reference claims:
 
-- `w3c/test329`, which the reference claims and which fails here on the
-  configuration the chart rests in, for one cause: its condition
-  `Var2==_event` answers false, because `_event` carries each field the event
-  lacks as undefined and `@riddler/predicator` compares undefined with
-  undefined as undefined, not true, so two objects that carry an undefined
-  field compare unequal, even one object compared with itself;
 - `w3c/test201`, which names the Basic HTTP Event I/O Processor and which the
   reference's registry does not list, because it expects a send delivered
   from outside the session to arrive ahead of a send the same step appends to

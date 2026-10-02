@@ -232,6 +232,7 @@
     {"case_id":"w3c/test324","suite":"w3c"},
     {"case_id":"w3c/test325","suite":"w3c"},
     {"case_id":"w3c/test326","suite":"w3c"},
+    {"case_id":"w3c/test329","suite":"w3c"},
     {"case_id":"w3c/test331","suite":"w3c"},
     {"case_id":"w3c/test332","suite":"w3c"},
     {"case_id":"w3c/test333","suite":"w3c"},

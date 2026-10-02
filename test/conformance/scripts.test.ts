@@ -155,12 +155,12 @@ describe("the registry check", () => {
     const path = join(root, "registry.json");
     const registry = JSON.parse(readFileSync(path, "utf8"));
     registry.claims = ["w3c-mandatory"];
-    registry.entries = [{ case_id: "w3c/test329", suite: "w3c" }];
+    registry.entries = [{ case_id: "w3c/test330", suite: "w3c" }];
     writeFileSync(path, `${JSON.stringify(registry, null, 2)}\n`);
     const result = run("scripts/registry-check.mjs", true);
     expect(result.status).toBe(1);
     expect(result.stderr).toContain(
-      "the ratchet: w3c/test329 fails today: the initial configuration: expected active leaf states [pass], got [fail]",
+      "the ratchet: w3c/test330 fails today: the initial configuration: expected active leaf states [pass], got [fail]",
     );
   });
 

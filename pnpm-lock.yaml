@@ -167,8 +167,8 @@ importers:
   .:
     dependencies:
       '@riddler/predicator':
-        specifier: ^0.4.0
-        version: 0.4.0
+        specifier: ^0.4.1
+        version: 0.4.1
     devDependencies:
       '@biomejs/biome':
         specifier: 2.5.13
@@ -607,8 +607,8 @@ packages:
   '@oxc-project/types@0.151.0':
     resolution: {integrity: sha512-J1yXrIlNDZVzE3ada310xeAw7nH8yCAyLPuUIsjKatFPmfn5bS1oW+cM+QsGOtVWd5nhSpbwZWx/rue+r5Z+PA==}
 
-  '@riddler/predicator@0.4.0':
-    resolution: {integrity: sha512-wIgNsLGr8bt1fRHCU+waGVRyWU+XBZ3TK/X8PF1nv0d+SPM4fY19O7pf4AEJIOSfNRiTxIAwdgFzsEijCwNaWQ==}
+  '@riddler/predicator@0.4.1':
+    resolution: {integrity: sha512-Q/9W7hErGN7grpzkEqDV0wBdVQ/FmCTlPP8WtGmzuBEMt+APrZ0MNZr1LiM9VtPyNh2ByH+j5PCFtF/Z8hH30A==}
     engines: {node: '>=20'}
 
   '@rolldown/binding-android-arm-eabi@1.2.11':
@@ -1571,7 +1571,7 @@ snapshots:
 
   '@oxc-project/types@0.151.0': {}
 
-  '@riddler/predicator@0.4.0': {}
+  '@riddler/predicator@0.4.1': {}
 
   '@rolldown/binding-android-arm-eabi@1.2.11':
     optional: true
