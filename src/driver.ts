@@ -112,6 +112,20 @@
 // data or a starting datamodel value among them, calls no processor, so a
 // host that retries it hands nothing twice.
 //
+// A failed send. A host reports a send it was handed and could not deliver
+// through `reportSendFailed`, at any later time, with the send's id, content
+// index and owner as the handed send carries them: the driver keeps no table
+// of handed sends, as the reference's `Statifier.Session.failed_send/3` takes
+// the send itself. The report raises `error.communication` onto the internal
+// queue, its origin the send's content and its `sendid` the send's id, and
+// runs the chart to a stable configuration within that call, as the
+// reference's `Interpreter.deliver_internal/5` does at v2.10.0. A processor's
+// `deliver` that answers a failure takes the same path within the call that
+// handed the send: once the processors have been called, each failed send is
+// raised in the order they were handed, and the chart runs again before the
+// call answers. A `deliver` that throws is the host's own exception and
+// propagates unchanged.
+//
 // A macrostep that spends its round budget halts the driver as the
 // reference halts its session: further external events are queued and not
 // taken, and pending timers still fire.
@@ -137,6 +151,7 @@ import {
   type Routes,
   type Send,
   type SendDelayed,
+  type SendFields,
 } from "./core/send.js";
 import {
   type Cause,
@@ -301,13 +316,29 @@ export interface DoneRecord {
 }
 
 /**
+ * What a processor's `deliver` answers for a send it could not deliver: the
+ * send then fails as `reportSendFailed` fails it, within the call that handed
+ * it. `reason` is the host's own words; the chart is not handed them.
+ */
+export interface DeliveryFailure {
+  readonly kind: "failure";
+  readonly reason: string;
+}
+
+/**
  * A host's processor for one registered send type. The driver calls it once
  * the call's state is written, in the order the run made the calls; a refused
  * call calls no processor.
  */
 export interface SendProcessor {
-  /** Takes a send of its type, and the event a delivery of it would carry. */
-  readonly deliver: (send: Send | SendDelayed, event: Event) => void;
+  /**
+   * Takes a send of its type, and the event a delivery of it would carry.
+   * Answers a `DeliveryFailure` for a send it could not deliver. Any other
+   * answer, nothing included, is a send it took: the answer is typed
+   * `unknown` so that a processor written as an expression, whose value is
+   * whatever that expression answers, stays a processor.
+   */
+  readonly deliver: (send: Send | SendDelayed, event: Event) => unknown;
   /** Takes a `<cancel>` naming a delayed send it holds. */
   readonly cancel?: (cancel: Cancel) => void;
 }
@@ -360,20 +391,34 @@ export interface HostEvent {
 }
 
 /**
+ * A send a host reports it could not deliver: the fields of the send it was
+ * handed that the failure event is built from. A handed `Send` or
+ * `SendDelayed` carries them, so a host may pass it as it was handed.
+ */
+export interface FailedSend {
+  readonly send: Pick<SendFields, "sendId" | "cIndex" | "owner">;
+  /** The host's own words for the miss; the chart is not handed them. */
+  readonly reason?: string;
+}
+
+/**
  * Why a call was refused. `not_running`: the chart has stopped.
  * `chart_mismatch`: the state was not made by this chart. `malformed_state`:
  * the state names a state the chart does not have, carries text that does
  * not decode, or holds a pending timer that is not a delayed send; the
  * refusal's `detail` says which. `unencodable_value`: a value cannot be
  * written as tagged-value text. `invalid_duration`: `advance` was given a
- * negative or non-finite time.
+ * negative or non-finite time. `not_a_send`: `reportSendFailed` was given a
+ * send without a string `sendId`, a whole non-negative `cIndex` and an
+ * `owner` of one of the four kinds.
  */
 export type DriveRefusal =
   | "not_running"
   | "chart_mismatch"
   | "malformed_state"
   | "unencodable_value"
-  | "invalid_duration";
+  | "invalid_duration"
+  | "not_a_send";
 
 /**
  * What failed in a malformed state: a field missing or of the wrong type
@@ -423,7 +468,7 @@ export type DoneStatus =
     };
 
 // ---------------------------------------------------------------------------
-// The six calls (beside `compile`)
+// The driver's calls (beside `compile`)
 // ---------------------------------------------------------------------------
 
 /**
@@ -529,6 +574,43 @@ export function advance(
     for (let at: Live | null = session; at !== null; at = at.parent) drain(at);
   }
   live.clock.nowMs = until;
+  return answer(live, out, calls);
+}
+
+/**
+ * Reports a send the host was handed as failed: `error.communication` joins
+ * the internal queue, its origin the send's content and its `sendid` the
+ * send's id whether or not the author named it, and the chart runs to a
+ * stable configuration, then takes whatever its external queue holds, as
+ * `step` does. A report is refused as the other calls refuse a state, with
+ * `not_running` once the chart has stopped, and with `not_a_send` for a send
+ * without the fields the event is built from. The driver keeps no record of
+ * the sends it handed, so a report is not checked against one.
+ *
+ * `sendTypes` must name the same set of types for a session's whole life.
+ * A send's type is judged against the processors passed with each call, so
+ * a type passed on one call and not the next is handed on the first and
+ * refused with `error.execution` on the second. The reference fixes
+ * `_ioprocessors` when the chart starts, from the registered set
+ * (`SystemVariables.initial/3`), so a set that changed afterwards would also
+ * disagree with what the chart reads there. This package does the same: a
+ * registered type's entry in `_ioprocessors` is written at start and kept.
+ */
+export function reportSendFailed(
+  chart: Chart,
+  state: State,
+  failure: FailedSend,
+  options: DriveOptions = {},
+): DriveResult {
+  const send = failure?.send;
+  if (!isSendOrigin(send)) return { ok: false, reason: "not_a_send" };
+  const calls: HostCall[] = [];
+  const out: InterpreterEffect[] = [];
+  const opened = open(chart, state, heldOptions(options, calls), out);
+  if (!opened.ok) return opened;
+  const live = opened.live;
+  if (!live.core.running) return { ok: false, reason: "not_running" };
+  failSend(live, send);
   return answer(live, out, calls);
 }
 
@@ -902,8 +984,37 @@ function processorFor(processors: SendProcessors, type: string): SendProcessor |
   return Object.hasOwn(processors, type) ? processors[type] : undefined;
 }
 
-// A call to a host's processor, held until the call's state is written.
-type HostCall = () => void;
+// A call to a host's processor, held until the call's state is written. A
+// delivery that failed answers the send, to be raised as failed; every other
+// call answers null.
+type HostCall = () => SendOrigin | null;
+
+// The fields of a send a failure event is built from.
+type SendOrigin = Pick<SendFields, "sendId" | "cIndex" | "owner">;
+
+const OWNER_KINDS: ReadonlySet<unknown> = new Set(["onentry", "onexit", "transition", "finalize"]);
+
+function isSendOrigin(send: unknown): send is SendOrigin {
+  if (typeof send !== "object" || send === null) return false;
+  const { sendId, cIndex, owner } = send as Record<string, unknown>;
+  return (
+    typeof sendId === "string" &&
+    Number.isInteger(cIndex) &&
+    (cIndex as number) >= 0 &&
+    typeof owner === "object" &&
+    owner !== null &&
+    OWNER_KINDS.has((owner as Record<string, unknown>).kind)
+  );
+}
+
+// What a processor's `deliver` answered: a failure only when it is one.
+function failed(answered: unknown): boolean {
+  return (
+    typeof answered === "object" &&
+    answered !== null &&
+    (answered as Record<string, unknown>).kind === "failure"
+  );
+}
 
 // The host's processors with each call held on `calls` rather than made: the
 // same types, so the registered set and `_ioprocessors` read the same, and a
@@ -924,13 +1035,17 @@ function holding(processor: SendProcessor | undefined, calls: HostCall[]): SendP
   if (processor === undefined || processor === null) return { deliver: () => {} };
   return {
     deliver: (send, event) => {
-      calls.push(() => processor.deliver(send, event));
+      calls.push(() => (failed(processor.deliver(send, event)) ? send : null));
+      return undefined;
     },
     ...(processor.cancel === undefined
       ? {}
       : {
           cancel: (c: Cancel) => {
-            calls.push(() => processor.cancel?.(c));
+            calls.push(() => {
+              processor.cancel?.(c);
+              return null;
+            });
           },
         }),
   };
@@ -1000,6 +1115,22 @@ function route(live: Live, send: Send | SendDelayed): readonly InterpreterEffect
 // joins the external queue and is taken by the drain that follows.
 function fire(live: Live, send: SendDelayed): void {
   perform(live, route(live, send));
+}
+
+// A send the host could not deliver, the reference's `failed_send/3`:
+// `error.communication` on the internal queue, its origin the send's content
+// and its `sendid` the send's id unconditionally, then the effects that raise
+// left are acted on and the session takes what is queued.
+function failSend(live: Live, send: SendOrigin): void {
+  const origin: Origin = { kind: "content", cIndex: send.cIndex, owner: send.owner };
+  perform(
+    live,
+    deliverInternal(live, "platform", "error.communication", origin, {
+      data: Undefined,
+      sendid: send.sendId,
+    }),
+  );
+  drain(live);
 }
 
 // A send to something this driver cannot reach: `error.communication` on the
@@ -1201,17 +1332,23 @@ interface Codec {
 
 // The call's answer. The processor calls held during the call run only once
 // its state is written, in the order the call made them: a refused call hands
-// a processor nothing, so a host that retries it hands nothing twice.
-function answer(
-  live: Live,
-  effects: InterpreterEffect[],
-  calls: readonly HostCall[] = [],
-): DriveResult {
-  const codec: Codec = { failed: false };
-  const state = encodeState(codec, live);
-  if (codec.failed) return { ok: false, reason: "unencodable_value" };
-  for (const call of calls) call();
-  return { ok: true, state, effects };
+// a processor nothing, so a host that retries it hands nothing twice. A
+// delivery that answered a failure is raised as a failed send once the
+// calls have run, each in the order it was handed, and the state is written
+// again; the calls that run made are held and run the same way.
+function answer(live: Live, effects: InterpreterEffect[], calls: HostCall[] = []): DriveResult {
+  for (;;) {
+    const codec: Codec = { failed: false };
+    const state = encodeState(codec, live);
+    if (codec.failed) return { ok: false, reason: "unencodable_value" };
+    const missed: SendOrigin[] = [];
+    for (const call of calls.splice(0)) {
+      const send = call();
+      if (send !== null) missed.push(send);
+    }
+    if (missed.length === 0) return { ok: true, state, effects };
+    for (const send of missed) failSend(live, send);
+  }
 }
 
 function text(codec: Codec, v: Value): string {

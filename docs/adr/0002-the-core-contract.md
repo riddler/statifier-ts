@@ -893,3 +893,162 @@ The change that adds this Note says so in the doc comments of `isDone` in
 datetime to the values the header comment of `src/driver.ts` says plain JSON
 loses, as the paragraph on the exported position's shapes above already
 names it.
+
+## Amendment: a host reports a send it could not deliver (2026-10-01)
+
+Status: proposed
+
+The HTTP transport Amendment above says a failed delivery is to reach the
+chart "through a failed-send report on the driver", and that "a later
+Amendment to this record will state it". This is that Amendment. A driver
+call through which a host reports a registered send as failed, raising
+`error.communication` carrying the send's id, a processor's failed delivery
+mapped onto the same path, and the statifier corpus case
+`send/registered_send_failed` claimed, were ruled by the operator,
+2026-10-01. The change that adds this Amendment adds the code:
+`reportSendFailed`, `failSend`, `isSendOrigin`, `holding` and `answer` in
+`src/driver.ts`, the reporting host in `test/conformance/statifier.ts`, and
+the registry entry, written by `pnpm ratchet` from the run that observed the
+pass.
+
+The reference's counterpart is `Statifier.Session.failed_send/3` in
+`lib/statifier/session.ex` at `v2.10.0`, whose documentation shows the write
+a host driving the pure core makes in its place:
+`Statifier.Interpreter.deliver_internal/5` with `:platform`,
+`"error.communication"`, the origin `{:content, send.c_index, send.owner}`
+and `sendid: send.send_id` (`lib/statifier/interpreter.ex` at `v2.10.0`). The
+reference's ADR-0069 decision 5 is the rule both cite.
+
+**The call.** `reportSendFailed(chart, state, failure, opts?)` takes the
+chart, a state, the failed send and the call's options, and answers what
+`step` answers. The failed send is `{ send, reason? }`:
+
+| Field | What the driver reads | Reference at `v2.10.0` |
+|---|---|---|
+| `send.sendId` | the event's `sendid`, whether or not the author named the send | `sendid: send.send_id` in the `{:failed_send, _, _}` clause of `handle_cast/2` in `Statifier.Session` |
+| `send.cIndex`, `send.owner` | the event's origin, `{ kind: "content", cIndex, owner }`: the `<send>` that made it | `{:content, send.c_index, send.owner}` in the same clause |
+| `reason` | nothing: the chart is not handed it | `failed_send/3` takes a `failure` keyword list, and its cast does not pass it on |
+
+A handed `Send` or `SendDelayed` carries all three send fields, so a host may
+pass the send as its processor was handed it; it may as well keep only those
+three, which are plain JSON, and pass them later. The driver keeps no record
+of the sends it handed: the Decision's paragraph on the host's send processors
+already says the state keeps none "beyond the delayed sends a processor holds
+for a later `<cancel>`", and the reference's session keeps none either, taking
+the send itself in `failed_send/3`. So the driver reads what the host passes
+and does not check it against a send it handed.
+
+**When the event is raised.** Within the call that carries the report, as the
+reference raises it within the cast that carries it. `error.communication`
+joins the internal queue, the routes are declared first as before any
+delivery onto the internal queue, and the chart runs to a stable
+configuration; the effects that run leaves are acted on, and the session then
+takes what its external queue and its mailbox hold, as `step` takes them. The
+reference's clause runs `deliver_internal/6`, then `drain_deferred/1`, then
+continues to `:drain`. The event is a `platform` event named
+`error.communication`, with undefined data, as `deliver_internal/5`'s
+`raise_platform/4` writes it.
+
+**The refusals.** Each is a value, never a throw:
+
+| Refusal | When | Reference at `v2.10.0` |
+|---|---|---|
+| `not_running` | the chart has stopped | `deliver_internal/5` answers `{:error, :not_running}` for a stopped machine state; a session halted `:done` or `:cancelled` ignores the cast. The dead letter is the host's, as `failed_send/3`'s documentation says |
+| `not_a_send` | `send` has no string `sendId`, no whole non-negative `cIndex`, or no `owner` of one of the four owner kinds | none: the reference's `failed_send/3` guards on the struct type |
+| `chart_mismatch`, `malformed_state`, `unencodable_value` | as for every call that moves a chart | as the Decision says |
+
+The Note above, on the refusal reasons, lists the five reasons a call that
+moves a chart refuses with; `not_a_send` is a sixth, answered by
+`reportSendFailed` alone, and the `DriveRefused` below names it.
+
+A chart whose macrostep spent its round budget is still running, so a report
+reaches it, as the reference's ordinary clause takes a `:budget_exhausted`
+sender; its external events still wait.
+
+**A processor's failed delivery takes the same path.** A processor's
+`deliver` may answer a `DeliveryFailure`, `{ kind: "failure", reason }`, for
+a send it could not deliver. The driver calls its processors only once the
+call's state is written, as the Decision says; once they have run, each send
+whose `deliver` answered a failure is raised as a failed send, in the order
+the sends were handed, the state is written again, and the processor calls
+that run made are run the same way, before the call answers. Any other answer,
+nothing included, is a send the processor took; `deliver` is typed to answer
+`unknown`, so a processor written as an expression stays one. This path is
+this package's own, ruled by the operator, 2026-10-01: the reference's
+processor never reports a miss from `deliver/3` (the "When the host cannot
+deliver" section of `Statifier.Send.Processor`'s moduledoc at `v2.10.0`). A
+`deliver` that throws throws out of the call that handed the send, unchanged,
+as host code that throws while this package calls it always does; the driver
+does not read a throw as a failure.
+
+One consequence of raising a failure after the state is first written: a
+run that a failure starts may leave a value the state cannot write, and the
+call is then refused with `unencodable_value` after the processors of the
+first pass were called. A host that retries that call hands those sends again.
+
+**The Decision's call list.** "The driver has six calls" now holds with
+`reportSendFailed` beside them: it is a call that moves the chart, and takes
+the chart as `start`, `step` and `advance` do.
+
+**The corpus case.** The reference's harness reports a handed send whose
+expected item says `"outcome": "fail"` through `failed_send/3` as soon as it
+reads the processor's message, before it reads the configuration again
+(`perform_outcome/4` and `pump/3` in `lib/mix/statifier/corpus/host_case.ex`
+at `v2.10.0`), and writes `"outcome": "fail"` on that item. The runner here
+reports it through `reportSendFailed` once the call that handed it returns,
+before the configuration is read, and marks the item the same way; a report
+refused with `not_running` is dropped, as the reference's session ignores
+one. `statifier/send/registered_send_failed` passes for the reason the
+reference's passes: the report raises `error.communication` carrying the
+author's id `notice`, so the transition whose condition reads
+`_event.sendid == 'notice'` is taken. With the item's outcome removed the
+runner reports nothing and the chart rests in `notifying`, so the pass rests
+on the report.
+
+Typespecs:
+
+```ts
+function reportSendFailed(
+  chart: Chart,
+  state: State,
+  failure: FailedSend,
+  opts?: DriveOptions,
+): DriveResult;
+
+interface FailedSend {
+  readonly send: Pick<SendFields, "sendId" | "cIndex" | "owner">;
+  readonly reason?: string;
+}
+
+interface DeliveryFailure {
+  readonly kind: "failure";
+  readonly reason: string;
+}
+
+interface SendProcessor {
+  readonly deliver: (send: Send | SendDelayed, event: Event) => unknown; // a DeliveryFailure fails the send
+  readonly cancel?: (cancel: Cancel) => void;
+}
+
+type DriveRefused =
+  | {
+      ok: false;
+      reason: "not_running" | "chart_mismatch" | "unencodable_value" | "invalid_duration" | "not_a_send";
+    }
+  | { ok: false; reason: "malformed_state"; detail: MalformedDetail };
+```
+
+Worked example. A hold notice to a patron, sent through a text-message type
+the host registers:
+
+```ts
+const queued: (Send | SendDelayed)[] = [];
+const sendTypes = { sms: { deliver: (send: Send | SendDelayed) => { queued.push(send); } } };
+// ... the chart enters `notifying`, whose <onentry> sends id="notice" of type sms
+const failed = reportSendFailed(chart, notified.state, { send: queued[0], reason: "unreachable" }, { sendTypes });
+```
+
+The chart takes `error.communication` with `_event.sendid` `"notice"` and
+`_event.type` `"platform"`, and a transition that reads
+`_event.sendid == 'notice'` is taken within the call. The README's registered
+send types section runs the same example to its configuration.

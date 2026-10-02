@@ -258,7 +258,7 @@ describe("the README's numbers", () => {
   // Sabotage: the README's w3c count typed one higher turns this red.
   it("states the gap the two registries leave, counted from them", () => {
     const match =
-      /the (\d+) w3c cases? and the (\d+) statifier cases\s+the reference's own registry lists that this package's does not, nor the (\d+) w3c\s+cases the reference's registry does not list either/.exec(
+      /the (\d+) w3c cases? and the (\d+) statifier cases?\s+the reference's own registry lists that this package's does not, nor the (\d+) w3c\s+cases the reference's registry does not list either/.exec(
         text,
       );
     expect(match, "the gap sentence").not.toBeNull();

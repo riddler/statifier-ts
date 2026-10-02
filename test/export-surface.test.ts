@@ -12,9 +12,11 @@ import type {
   CompileError,
   CompilerError,
   DefaultTransitionOwner,
+  DeliveryFailure,
   Empty,
   ErrorOf,
   ExpressionOwner,
+  FailedSend,
   HttpAnswer,
   HttpFailure,
   HttpRequest,
@@ -37,6 +39,7 @@ const RUNTIME_NAMES = [
   "exportPosition",
   "importPosition",
   "isDone",
+  "reportSendFailed",
   "start",
   "step",
   "version",
@@ -76,6 +79,9 @@ type CompileErrorIsTheNamedUnion = Equal<
   ParseError | LoweringError | ValidationError | CompilerError
 >;
 const compileErrorIsTheNamedUnion: CompileErrorIsTheNamedUnion = true;
+// The failed-send types, named the same way.
+type FailedSendTypes = [FailedSend, DeliveryFailure];
+const failedSendTypesNamed: FailedSendTypes | undefined = undefined;
 
 describe("the main entry point", () => {
   // Sabotage: exporting one more function from `src/index.ts`, or dropping
@@ -94,5 +100,13 @@ describe("the main entry point", () => {
   it("exports the types a compile error reaches, as types only", () => {
     expect(compileErrorTypesNamed).toBeUndefined();
     expect(compileErrorIsTheNamedUnion).toBe(true);
+  });
+
+  // Sabotage: dropping `type FailedSend` from `src/index.ts` turns the
+  // typecheck red.
+  it("exports the failed-send types, as types only", () => {
+    expect(failedSendTypesNamed).toBeUndefined();
+    expect(Object.keys(entry)).not.toContain("FailedSend");
+    expect(Object.keys(entry)).not.toContain("DeliveryFailure");
   });
 });

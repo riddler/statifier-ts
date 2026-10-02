@@ -121,7 +121,6 @@ describe("the runner over the vendored corpus", () => {
     const fails = report.results.filter((result) => result.result === "fail");
     expect(fails.map((result) => result.case_id)).toEqual([
       "statifier/accepts/loan_declares_an_unreachable_event",
-      "statifier/send/registered_send_failed",
     ]);
     for (const result of fails) expect(result.reason).not.toBe(suiteNotDriven("statifier"));
   });
