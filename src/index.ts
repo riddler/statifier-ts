@@ -118,9 +118,9 @@ export {
 } from "./position.js";
 export type {
   DefaultTransitionOwner,
-  Empty,
-  ErrorOf,
   ValidationError,
+  ValidationErrorOf,
+  ValidationNoDetail,
 } from "./validator.js";
 export type { Location, ParseError, ParseErrorReason } from "./xml/parser.js";
 

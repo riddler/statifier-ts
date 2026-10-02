@@ -1644,3 +1644,42 @@ from what it answered then, not made again (`drive` and `madeUntilFailure` in
 `src/driver.ts`). A processor's `ioprocessorsEntry` is the one member asked
 before the state is written, as the Basic HTTP processor Amendment's decision
 (d) says.
+
+## Note: the validation error type names (2026-10-01)
+
+This Note records a naming decision for two types the main entry point
+exports; it changes no behaviour. Read against `main` at `248c5b6`.
+
+**The validator's two generic type names are renamed before the first
+release fixes them** (ruled by the operator, 2026-10-01). At `248c5b6`,
+`src/validator.ts` declares `ErrorOf`, the type of one validation refusal,
+and `Empty`, the detail of a validation reason that carries none, and
+`src/index.ts` exports both, as types only, among the types a compile error
+reaches. The change that adds this Note renames them:
+
+| Was | Is | What it is |
+|---|---|---|
+| `ErrorOf<R, D>` | `ValidationErrorOf<R, D>` | one validation refusal: reason `R`, message, location and detail `D` |
+| `Empty` | `ValidationNoDetail` | the detail of a validation reason that carries none beyond its location |
+
+The reason: neither old name says which stage it belongs to. The lowering
+stage already names its own refusal `LoweringErrorOf` (`src/lowering.ts`),
+so `ValidationErrorOf` is that name's sibling, and `ValidationNoDetail`
+carries the same stage prefix and says what the type holds. Both are public
+names once a version is published, so a later rename would break a host
+that names them; the package has published no version, so this one breaks
+none. `ValidationError` itself, the union a host narrows, is unchanged.
+
+**The four roots are pinned with the compile error types.**
+`CompileErrorTypes` in `test/export-surface.test.ts` now also names
+`CompileResult`, `CompileOptions`, `Chart` and `ChartIdentity` through the
+entry point, so dropping one of those exports fails the typecheck as
+dropping a compile error type does.
+
+**The two `ParseError` names stay.** This package's `ParseError`
+(`src/xml/parser.ts`) is the XML parser's refusal; `@riddler/predicator`
+exports a `ParseError` of its own, the expression parser's, which a
+`CompilerError` carries as its `error`. Neither is renamed. A host that
+imports both renames one at the import, as `src/compiler.ts` does
+(`ParseError as ExpressionParseError`); the TSDoc on `ParseError` and the
+README say so.

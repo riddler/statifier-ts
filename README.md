@@ -145,6 +145,15 @@ step(otherDesk.chart, opened.state, { name: "close" }); // => { ok: false, reaso
 compile("<scxml>").ok; // => false
 ```
 
+A compile error is one of four stage errors - `ParseError`, the XML parser's
+refusal; `LoweringError`; `ValidationError`; and `CompilerError`, an
+expression that did not compile - and the entry point exports each, with the
+types they reach, so a host can name the one it narrows to. A
+`CompilerError` carries the expression parser's refusal as its `error`, and
+`@riddler/predicator` exports that type as `ParseError` too. A host that
+imports both packages' `ParseError` renames one at the import, for example
+`import type { ParseError as ExpressionParseError } from "@riddler/predicator"`.
+
 Beside the six calls, `version()` answers the version of the build a host is
 running, as `package.json` carries it.
 
