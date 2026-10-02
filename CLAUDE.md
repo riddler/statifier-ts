@@ -209,7 +209,10 @@ drift fails the gate and nothing is fixed silently, so run
   review of the diff alone - the authority table above says the same. The
   exception is any path the manifest lists under `gate.also_gated_paths`:
   `conformance/` is there because the corpus check reads it, and `README.md`
-  because its examples are executed as tests once the reference section lands.
+  because `test/readme.test.ts` runs each of its `ts` examples as a test,
+  checks each `bash` command against what it names, and compares the counts
+  and pins it states with the registries, the vendored manifest, the
+  provenance record and `package.json`.
 - `scripts/hermes-conformance.mjs` is not a gate stage and has not been run
   against this package. It is copied from the predicator sibling, where it runs
   the conformance surfaces on the engine React Native uses; here it drives
