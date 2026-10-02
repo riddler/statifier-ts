@@ -9,6 +9,7 @@
 // v2.9.0 are quoted above it, with the answer the reference asserts.
 
 import { Undefined } from "@riddler/predicator";
+import { decodeTagged, encodeTagged } from "@riddler/predicator/tagged";
 import { describe, expect, it } from "vitest";
 import { compile } from "../../src/compiler.js";
 import type { Trace } from "../../src/core/effects.js";
@@ -389,8 +390,34 @@ describe("a top-level final", () => {
     expect(logs(exited.effects)).toEqual(["desk", "loan"]);
     expect(exited.state.historyValues.size).toBe(0);
     const [done] = doneOf(exited.effects);
-    expect(done?.donedata).toBe(Undefined);
+    expect(done?.donedata).toBeNull();
     expect(done?.donedataError).toBeNull();
+  });
+
+  // statifier-ex v2.10.0 lib/statifier/interpreter.ex, exit_interpreter/1:
+  // the reduce seeds the donedata with nil, and only a top-level final in
+  // the exit set replaces it; ExitEntry.donedata/2 answers :undefined for a
+  // top-level final that declares no donedata. A cancelled chart, which
+  // exits no top-level final, answers null here, apart from a bare final's
+  // undefined, and the null survives the tagged text the driver keeps.
+  // Sabotage: seeding the donedata with Undefined turns this red.
+  it("answers null donedata for a cancelled chart, apart from a bare final's undefined", () => {
+    const { state } = start(LOAN);
+    const cancelled = exitInterpreter({ ...state, running: false });
+    const [done] = doneOf(cancelled.effects);
+    if (done === undefined) throw new Error("no done effect");
+    expect(done.donedata).toBeNull();
+    expect(done.donedata).not.toBe(Undefined);
+    const encoded = encodeTagged(done.donedata);
+    if (!encoded.ok) throw new Error(`unencodable: ${encoded.reason}`);
+    expect(decodeTagged(encoded.text)).toEqual({ ok: true, value: null });
+
+    const bare = start(`<scxml ${SCXML} initial="returned">
+      <final id="returned"/>
+    </scxml>`);
+    const [finished] = doneOf(bare.effects);
+    expect(finished?.donedata).toBe(Undefined);
+    expect(finished?.donedataError).toBeNull();
   });
 });
 
