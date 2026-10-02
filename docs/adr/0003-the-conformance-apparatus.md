@@ -1,6 +1,6 @@
 # ADR-0003: The conformance apparatus
 
-Status: proposed (2026-09-30)
+Status: accepted (2026-10-02; proposed 2026-09-30)
 
 ## Context
 
@@ -279,7 +279,7 @@ corpus asserts positions.
 
 ## Amendment: the sends a host case expects (2026-10-01)
 
-Status: proposed
+Status: accepted (2026-10-02; proposed 2026-10-01)
 
 Decision 7 says a step agrees on the active leaf set "and nothing more". That
 stands for a case with no `host` object. This Amendment adds one comparison
@@ -402,7 +402,7 @@ table is now answered by a later record.
 
 ## Amendment: the Basic HTTP cases are driven through a loopback front (2026-10-01)
 
-Status: proposed
+Status: accepted (2026-10-02; proposed 2026-10-01)
 
 The vendored corpus at `v2.10.0` carries w3c cases whose `host` object names
 an Event I/O Processor in `event_io_processors`, the Basic HTTP processor in
@@ -518,3 +518,58 @@ registration and exchange in `test/conformance/statifier.ts`, and the run of
 every suite settling on the job queue (`runSuite` in
 `test/conformance/runner.ts`). The engine proof,
 `scripts/hermes-conformance.mjs`, drives the same loopback.
+
+## Note: the acceptance of this record and its Amendments (2026-10-02)
+
+This Note records that this record and its two Amendments moved from proposed
+to accepted together. The conductor moved them under the flip standard of the
+campaign consent the operator adopted, 2026-10-01. It decides nothing, so it
+carries no Status line, and it removes no line. With it, no entry in this
+record reads proposed. The dated Notes above carry no Status line and do not
+move.
+
+**They shipped in `@riddler/statifier` 0.1.0.** That version is on npm, the
+package's first, built from the commit tagged `v0.1.0` (`8a2e210`), and the
+apparatus ran in that release's gate. Every claim about this package was
+re-checked at `8a2e210` and re-located by anchor; every claim about the
+reference was read at the statifier-ex tag it names, `v2.9.0` (`f2365bb8`) or
+`v2.10.0` (`c8894ae`).
+
+**The Decision.** The copy under `conformance/statifier/` holds the files
+decision 1 lists, and `conformance/statifier.vendored.json` carries exactly
+`repo`, `tag`, `sha` and `corpus_hash`, at `v2.10.0`.
+`scripts/corpus-check.mjs` recomputes the digest in suite order and finds all
+four fields in agreement at `8a2e210`, naming a field that disagrees.
+`CaseOutcome` in `test/conformance/runner.ts` is `pass` or a `fail` with a
+reason, and `runW3cCase` in `test/conformance/w3c.ts` names a missing feature
+in the reference's feature names. `compareLeafSets` and `activeLeaves` in
+`test/conformance/scion.ts` compare the active leaf set and fail an unnamed
+leaf; `SETTLE_WINDOW_MS` is 100 and `CONFIGURATION_DEADLINE_MS` is 4000, used
+by `settle` and `awaitConfiguration` there. `.gitignore` ignores `reports/`.
+`scripts/ratchet.mjs` reads only the runner's reports, refuses when a recorded
+entry did not pass, and writes the reference's encoding;
+`scripts/registry-check.mjs` runs the five checks; `scripts/position-check.mjs`
+runs the round trip over the scion suite and adds no entry. The CI workflow
+runs the full gate on every pull request to `main`.
+
+**The Amendments.** The sends a host case expects: `runHostCase` and `itemOf`
+in `test/conformance/statifier.ts` record every handed send, write `send_id`
+only from an author's id as the reference's `item/2` writes it from the
+event's `sendid`, leave out an undefined, null or empty payload, and mark a
+cancelled delayed send. The Basic HTTP cases: `runW3cCase` routes a case with
+a `host` object to the host-case drive; `EVENT_IO_PROCESSORS`,
+`wireEventIoProcessors` and `loopbackFront` in `test/conformance/loopback.ts`
+register the one processor and answer by the reference front's status rule;
+`exchange`, `observe` and `settleHost` in `test/conformance/statifier.ts` step
+in what the front took and report each miss; each of the eleven cases its
+table lists is in `conformance/registry.json`, and `w3c/test201` is in neither
+registry.
+
+**Sentences later records name.** The first Amendment's table says three kinds
+of host key fail their case and that the failed-send row adds no driver
+surface. Each row is answered by a Note above: the diff cases are driven, the
+failed-send case is driven (with ADR-0002's Amendment "a host reports a send it
+could not deliver"), and the accepts case is driven (with ADR-0002's
+Amendment "the accepts check"), so all three are claimed, the ten under
+`statifier/diff/` among them. Decision 12's state before a first entry no
+longer applies: the registry has entries and four claims.

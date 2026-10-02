@@ -1,6 +1,6 @@
 # ADR-0001: A conformant sibling of the Elixir engine, not a second reference implementation
 
-Status: proposed (2026-09-30)
+Status: accepted (2026-10-02; proposed 2026-09-30)
 
 ## Context
 
@@ -229,3 +229,56 @@ and a home. The trigger is a consumer that runs this package on a client and
 needs messages routed to more than one execution there. The home is a separate
 package or a subpath of this one, with a record of its own. Until the trigger
 fires, nothing here anticipates it.
+
+## Note: the acceptance of this record (2026-10-02)
+
+This Note records that this record moved from proposed to accepted. The
+conductor moved it under the flip standard of the campaign consent the
+operator adopted, 2026-10-01. It decides nothing, so it carries no Status
+line, and it removes no line. With it, no entry in this record reads proposed.
+
+**It shipped in `@riddler/statifier` 0.1.0.** That version is on npm, the
+package's first, built from the commit tagged `v0.1.0` (`8a2e210`). Every
+claim about this package was re-checked at `8a2e210` and re-located by anchor;
+every claim about the reference was read at statifier-ex `v2.9.0`
+(`f2365bb8`), the tag the record names, and its records cited by number exist
+there.
+
+**What was checked.** `dependencies` in `package.json` names
+`@riddler/predicator` and no other package. `scripts/engine-neutrality.mjs`
+finds every file under `src/` clean of its rules at `8a2e210`. The corpus is
+vendored at statifier-ex `v2.10.0` (`c8894ae`), recorded in
+`conformance/statifier.vendored.json`, and `scripts/corpus-check.mjs` finds
+its four hashes in agreement; `conformance/registry.json` is written by
+`scripts/ratchet.mjs` from the runner's reports. The five parts are `compile`
+in `src/compiler.ts`, `initialize` and `handleEvent` in
+`src/core/interpreter.ts`, the binding in `src/datamodel.ts`, the driver in
+`src/driver.ts` with its virtual clock (`advance`), and `exportPosition` and
+`importPosition` in `src/position.ts`. Nothing under `src/` routes a message to
+an execution or keeps an address table, nothing fetches an invoke's `src` (a
+child is compiled from content markup by `compileInvokeContent` in
+`src/compiler.ts`), and the position claim is the round trip `scripts/position-check.mjs` runs
+over the scion suite. The README's Engines section records the engine run and
+its scope, so the rule that no text claims such a run before its result is
+recorded holds.
+
+**Sentences a later record names.** Three passages read differently on `main`
+at `8a2e210`, and each is named by a later dated record on `main`:
+
+- "the HTTP event I/O processor" in the list under "What is not here": the
+  package now ships the Basic HTTP processor on its own entry point,
+  `@riddler/statifier/basichttp` (`basicHttp` in
+  `src/basichttp/processor.ts`), recorded by ADR-0002's Amendments "the HTTP
+  transport a host supplies" and "the Basic HTTP processor", of 2026-10-01.
+  That entry point holds a delayed send on the host's global timer, which the
+  latter Amendment's table of divergences names; the step function and the
+  main entry point hold none.
+- "the package holds five parts": the accepts check (`checkAccepts` in
+  `src/accepts.ts`) and the Basic HTTP entry point join them, recorded by
+  ADR-0002's Amendments "the accepts check" and "the Basic HTTP processor".
+- "reads no clock" under "The step function is pure": an expression a chart
+  evaluates may read the clock and the random source through predicator, and a
+  driver call pins those draws for all its runs (`recordedDraws` in
+  `src/driver.ts`), recorded by ADR-0002's Amendment "a failure `deliver`
+  answers is raised within the run that handed the send", of 2026-10-01.
+  Nothing under `src/` reads a clock of its own.

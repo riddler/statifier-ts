@@ -1,6 +1,6 @@
 # ADR-0002: The core contract
 
-Status: proposed (2026-10-01)
+Status: accepted (2026-10-02; proposed 2026-10-01)
 
 ## Context
 
@@ -460,7 +460,7 @@ script whose body did not compile.
 
 ## Amendment: the Machine stays opaque until a release fixes it (2026-10-01)
 
-Status: proposed
+Status: accepted (2026-10-02; proposed 2026-10-01)
 
 The Decision's paragraphs "The chart identity lives on the `Chart`, not on the
 `Machine`" and "The `Machine` type is opaque and unstable" stand as written.
@@ -481,7 +481,7 @@ opaque and unstable and exported only because a `Chart` carries one.
 
 ## Amendment: the invoke effects (2026-10-01)
 
-Status: proposed
+Status: accepted (2026-10-02; proposed 2026-10-01)
 
 The Decision's paragraph beginning "Not every reference effect is emitted
 yet" says an Amendment adds each reference effect to the union when the code
@@ -541,7 +541,7 @@ datamodel effects the passes emit. The Typespecs union gains `Invoke` and
 
 ## Amendment: the datamodel effects and the trace effects (2026-10-01)
 
-Status: proposed
+Status: accepted (2026-10-02; proposed 2026-10-01)
 
 The Decision's paragraph beginning "Not every reference effect is emitted
 yet" says an Amendment adds each reference effect to the union when the code
@@ -611,7 +611,7 @@ effects now holds only for the effects this Amendment does not name.
 
 ## Amendment: the driver runs an in-process SCXML child (2026-10-01)
 
-Status: proposed
+Status: accepted (2026-10-02; proposed 2026-10-01)
 
 The invoke effects Amendment above leaves running a child, and turning what it
 answers into events, to the driver. This one decides how the driver does it:
@@ -709,7 +709,7 @@ unreachable.
 
 ## Amendment: the HTTP transport a host supplies (2026-10-01)
 
-Status: proposed
+Status: accepted (2026-10-02; proposed 2026-10-01)
 
 This package is to ship the Basic HTTP Event I/O Processor (SCXML appendix
 C.2) as a built-in send processor, with a default transport, and to let a host
@@ -896,7 +896,7 @@ names it.
 
 ## Amendment: a host reports a send it could not deliver (2026-10-01)
 
-Status: proposed
+Status: accepted (2026-10-02; proposed 2026-10-01)
 
 The HTTP transport Amendment above says a failed delivery is to reach the
 chart "through a failed-send report on the driver", and that "a later
@@ -1055,7 +1055,7 @@ send types section runs the same example to its configuration.
 
 ## Amendment: the accepts check (2026-10-01)
 
-Status: proposed
+Status: accepted (2026-10-02; proposed 2026-10-01)
 
 A host that declares which events a chart accepts - the events it will send,
 or the names a publish promises a receiver - has no way, from the Decision, to
@@ -1171,7 +1171,7 @@ own transitions are numbered before its children's.
 
 ## Amendment: the Basic HTTP processor (2026-10-01)
 
-Status: proposed
+Status: accepted (2026-10-02; proposed 2026-10-01)
 
 The HTTP transport Amendment above records the seam ahead of the processor.
 This Amendment records the processor. A built-in Basic HTTP Event I/O
@@ -1423,7 +1423,7 @@ is handed `{ sessionId: "branch-7", send: { sendId: "notice", ... }, reason:
 
 ## Amendment: a failure `deliver` answers is raised within the run that handed the send (2026-10-01)
 
-Status: proposed
+Status: accepted (2026-10-02; proposed 2026-10-01)
 
 The failed-send Amendment above raises a failure a processor's `deliver`
 answers only once the processors have been called, after the run that handed
@@ -1686,7 +1686,7 @@ README say so.
 
 ## Amendment: a child inherits the host's send types and observers when a call asks (2026-10-01)
 
-Status: proposed
+Status: accepted (2026-10-02; proposed 2026-10-01)
 
 The child-session Amendment above says a child session "runs with no
 registered send type, and its effects are not among a call's effects, which
@@ -1795,3 +1795,109 @@ include `{ kind: "child", sessionId: "depot-1.courier", effect }` for the
 courier's `datamodel_init`, its `log` and its `send`, after the depot's own
 `invoke`. Without the two options the scan raises `error.execution` in the
 courier and none of its effects is among the call's effects.
+
+## Note: the acceptance of this record and its Amendments (2026-10-02)
+
+This Note records that this record and its ten Amendments moved from proposed
+to accepted together. The conductor moved them under the flip standard of the
+campaign consent the operator adopted, 2026-10-01. It decides nothing, so it
+carries no Status line, and it removes no line. With it, no entry in this
+record reads proposed. The dated Notes above carry no Status line and do not
+move.
+
+**They shipped in `@riddler/statifier` 0.1.0.** That version is on npm, the
+package's first, built from the commit tagged `v0.1.0` (`8a2e210`), and every
+Amendment's own change is in the tag. Every claim about this package was
+re-checked at `8a2e210` and re-located by anchor; every claim about the
+reference was read at the statifier-ex tag it names, `v2.9.0` (`f2365bb8`) or
+`v2.10.0` (`c8894ae`). A claim stated "at" an earlier commit of this package
+was read at that commit.
+
+**The Decision.** `compile` and `Chart`, `ChartIdentity` and `CompileOptions`
+in `src/compiler.ts`; `start`, `step`, `advance`, `configuration`, `isDone`,
+`DriveResult`, `DriveRefused`, `MalformedDetail` and `DoneStatus` in
+`src/driver.ts`; and `exportPosition` and `importPosition` with their refusals
+in `src/position.ts` have the shapes the Typespecs give, as the Amendments
+below extend them. `sameIdentity` in `src/driver.ts` judges `chart_mismatch`
+on the content hash, the name and the version. The worked example, compiled
+from its source as printed without a trailing newline, answers the content
+hash and the exported position the record prints, run at `8a2e210`, and each
+call answers the one `send_delayed` it describes. `generateInvokeId` in
+`src/core/invoke.ts` mints `inv_` and the counter plus one after the state's
+id and a dot. `test/position.test.ts` holds the export's required keys, the
+import's two refusals, an extra key ignored and the identity unread.
+
+**The Amendments.** The Machine one: the doc comments of `Chart` in
+`src/compiler.ts` and of `Machine` in `src/machine.ts` say what it says they
+say; with its acceptance, its two decisions that the stability Note of
+2026-10-01 left "to be read when that Amendment is accepted" are accepted with
+it. The invoke effects: `Invoke`, `Autoforward`, `runInvokePass` and
+`applyInvokePasses` in `src/core/invoke.ts`. The datamodel and trace effects:
+`traced` and the types in `src/core/effects.ts`, and each emitting site its
+tables name. The in-process child: `invoke`, `launch`, `cancelInvocation`,
+`deliverToChild`, `takeMail`, `seed`, `nextDue` and `routesOf` in
+`src/driver.ts`, and `compileInvokeContent` in `src/compiler.ts`. The HTTP
+transport: the five types in `src/http-transport.ts`, exported from
+`src/index.ts` as types only and pinned by `test/export-surface.test.ts`. The
+failed send: `reportSendFailed` and `FailedSend` in `src/driver.ts`, the
+refusal `not_a_send` in `DriveRefusal`, the README's example, and
+`statifier/send/registered_send_failed` in `conformance/registry.json`. The
+accepts check: `checkAccepts` and `vocabulary` in `src/accepts.ts`; its worked
+example, run at `8a2e210` over the vendored
+`library/loan_dispute_returns_to_history.scxml`, answers the two lists it
+prints, `null` answers two empty lists, and
+`statifier/accepts/loan_declares_an_unreachable_event` is in the registry. The
+Basic HTTP processor: `basicHttp`, `requestFor` and `sendKey` in
+`src/basichttp/processor.ts`, `fetchTransport` (five seconds when no bound is
+given) in `src/basichttp/fetch-transport.ts`, `decodeRequest` and its three
+refusals in `src/basichttp/decode.ts`, the encoders in
+`src/basichttp/encoding.ts`, and `./basichttp` in `package.json`'s exports and
+in `tsup.config.ts`'s entries; `test/basichttp.test.ts` pins its worked
+example's body, `scxml-send-key` header, location and `http_status 503`
+report. The failure within the run: `drive`, `madeUntilFailure`,
+`recordedDraws`, `systemInstant` and `systemRandom` in `src/driver.ts`, and
+`Draws`, `withDraws` and `drawOptions` in `src/datamodel.ts`; `w3c/test577` is
+in the registry. The inheritance: `inheritSendTypes` and `inheritObservers` on
+`DriveOptions`, `ChildEffect` and `DriveEffect` in `src/driver.ts`, both types
+exported from `src/index.ts`; its worked example, run at `8a2e210`, hands
+`["parcel.loaded", "depot-1.courier"]` and reports the courier's
+`datamodel_init`, `log` and `send` after the depot's `invoke`.
+
+**Sentences later records name.** These read differently on `main` at
+`8a2e210`, and each is named by a later dated entry above:
+
+- The effect table, the sentence "Until then a host reads no effect the table
+  above does not list" and the Typespecs' `InterpreterEffect`: the invoke
+  effects and the datamodel and trace effects Amendments add to the union, and
+  the inheritance Amendment adds `ChildEffect` to what a call answers.
+- "The driver has six calls" and the `DriveRefused` reasons: the failed-send
+  Amendment adds `reportSendFailed` and `not_a_send`, and the Note on the
+  refusal reasons enumerates them.
+- The Determinism bullet "Nothing under `src/` reads a clock, a random source
+  or `Date.now`. Time enters only as the `ms` a host passes to `advance`", and
+  the paragraph's opening sentence for a chart whose expressions read the clock
+  or the random source: the in-run failure Amendment records that a run reads
+  both through the expressions it evaluates, from predicator, pinned for one
+  driver call's runs and drawn afresh by two separate calls; the Basic HTTP
+  processor Amendment records that its entry point holds a delayed send on the
+  host's global timer and bounds a request by one.
+- The HTTP transport Amendment's function type, in its Typespecs and its
+  worked example: the Basic HTTP processor Amendment's decision (a) makes the
+  transport an object with one `post`, which `HttpTransport` in
+  `src/http-transport.ts` is. Its sentences that the processor and the
+  failed-send report are not on `main` yet are met by the Basic HTTP
+  processor and failed-send Amendments.
+- The failed-send Amendment's ordering sentence and the Basic HTTP processor
+  Amendment's loop sentence and corpus paragraph: the in-run failure
+  Amendment reads both as amended, and ADR-0003's Amendment on the Basic HTTP
+  cases claims them.
+- The child-session Amendment's sentence that a child runs with no registered
+  send type and that its effects are not among a call's: the inheritance
+  Amendment keeps it as the default for a call that does not opt in.
+- The Context bullet and Decision paragraph on `SCRIPT_UNSUPPORTED`: the Note
+  "script bodies compile" names them; `compileScript` in `src/compiler.ts`
+  compiles every script body.
+- The sorted sets, the refusal enumeration and a stopped position's
+  configuration: the Note of that name; and what `Machine`'s stability
+  reaches, the routes, the passes' trace effects, a failed composite and when
+  a processor is called: the stability Note.
