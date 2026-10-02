@@ -106,11 +106,17 @@ export function encodeValue(value: Value): string {
   return tagged.ok ? tagged.text : "";
 }
 
+// The magnitude from which the reference writes every float in scientific
+// notation: 2^53, past which not every integer is a float.
+const TWO_TO_53 = 9007199254740992;
+
 /**
- * A float as the reference's runtime writes it: the shortest digits that read
- * back as the same number, in decimal or in scientific notation, whichever is
+ * A float as the reference's runtime writes it (`float_to_binary/2` with the
+ * `short` option, which `to_string/1` uses): the shortest digits that read
+ * back as the same number. A magnitude of 2^53 or more is always written in
+ * scientific notation; below that, decimal or scientific, whichever is
  * shorter, decimal on a tie. Either form keeps one digit after the point at
- * least: `2.0`, `1.0e15`, `1.0e-7`, `0.0001`.
+ * least: `2.0`, `1.0e15`, `1.0e-7`, `0.0001`, `9.007199254740992e15`.
  */
 export function floatText(n: number): string {
   if (n === 0) return Object.is(n, -0) ? "-0.0" : "0.0";
@@ -127,6 +133,7 @@ export function floatText(n: number): string {
   } else {
     decimal = `${digits.slice(0, exponent + 1)}.${digits.slice(exponent + 1)}`;
   }
+  if (Math.abs(n) >= TWO_TO_53) return sign + scientific;
   return sign + (scientific.length < decimal.length ? scientific : decimal);
 }
 
