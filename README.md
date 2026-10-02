@@ -25,7 +25,7 @@ checked against the scripts `package.json` declares rather than run.
 
 ## Install
 
-Nothing is published yet. When the first version is, the install will be:
+Install it from the npm registry:
 
 ```bash
 pnpm add @riddler/statifier@^0.1.0
@@ -148,7 +148,7 @@ compile("<scxml>").ok; // => false
 A compile error is one of four stage errors - `ParseError`, the XML parser's
 refusal; `LoweringError`; `ValidationError`; and `CompilerError`, an
 expression that did not compile - and the entry point exports each, with the
-types they reach, so a host can name the one it narrows to. A
+types they reach in this package, so a host can name the one it narrows to. A
 `CompilerError` carries the expression parser's refusal as its `error`, and
 `@riddler/predicator` exports that type as `ParseError` too. A host that
 imports both packages' `ParseError` renames one at the import, for example
