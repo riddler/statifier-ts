@@ -25,11 +25,15 @@
 // reference judges one in a session that declared none. The effect is
 // answered for any type; only the built-in SCXML type is recorded live.
 //
+// An invocation's `idlocation` write answers a `datamodel_change` just before
+// its `invoke` effect, owned by the invocation, and each write an empty
+// `<finalize>` makes answers one, owned by that `<finalize>`, as the
+// reference answers them. Neither names a content node: neither write is
+// made by one.
+//
 // With tracing on, each pass answers its trace last, every time it runs, the
 // pass that finds nothing to do included: `invoke_pass` and
-// `finalize_autoforward`. The `datamodel_change` the reference answers for an
-// `idlocation` write and for an empty `<finalize>`'s writes is not emitted
-// here.
+// `finalize_autoforward`.
 
 import { typeName, type Value } from "@riddler/predicator";
 import {
@@ -50,7 +54,12 @@ import {
   stateAt,
 } from "../machine.js";
 import type { Invalid } from "./content.js";
-import { type TraceFinalizeAutoforward, type TraceInvokePass, traced } from "./effects.js";
+import {
+  type DatamodelChange,
+  type TraceFinalizeAutoforward,
+  type TraceInvokePass,
+  traced,
+} from "./effects.js";
 import {
   contextOf,
   type ExitEntryEffect,
@@ -200,7 +209,8 @@ type Resolved =
 // values in document order, then `<content>`, each against the threaded
 // context, the first failure aborting this invocation. Then the id is minted
 // or read, `idlocation` written, the invocation recorded live when its type
-// is the built-in one, and the effect answered.
+// is the built-in one, and the effect answered, preceded by the write's
+// `datamodel_change` when there was one.
 function invokeOne<S extends InvokeState>(
   state: S,
   context: EvaluationContext,
@@ -226,11 +236,26 @@ function invokeOne<S extends InvokeState>(
   const minted = generateInvokeId(state, owner, invoke);
   let current = minted.state;
   let written = context;
+  const changes: DatamodelChange[] = [];
   if (invoke.idlocation !== null) {
     const write = writeLocation(context, invoke.idlocation, minted.invokeId);
     if (!write.ok) return abort(current, write.reason);
     written = write.context;
     current = { ...current, datamodel: write.context.data };
+    const root = invoke.idlocation.trim();
+    changes.push({
+      kind: "datamodel_change",
+      locationPath: [root],
+      locationSource: invoke.idlocation,
+      newValue: minted.invokeId,
+      priorValue: context.data.get(root) as Value,
+      dIndex: null,
+      cIndex: null,
+      owner: { kind: "invoke", stateIndex: s, invokeIndex: invoke.index },
+      macrostep: current.macrostep,
+      microstep: current.microstep,
+      round: current.round,
+    });
   }
 
   if (builtInInvokeType(type.value)) {
@@ -253,7 +278,7 @@ function invokeOne<S extends InvokeState>(
     microstep: current.microstep,
     round: current.round,
   };
-  return { state: current, context: written, effects: [effect] };
+  return { state: current, context: written, effects: [...changes, effect] };
 }
 
 // `generate_invoke_id`: the author's literal id, used as written and never
@@ -391,9 +416,7 @@ function applyFinalize<S extends InvokeState>(
   event: Event,
 ): Passed<S> {
   if (invoke.finalize === null) return { state, effects: [] };
-  if (invoke.finalize.content.length === 0) {
-    return { state: autoAssignFinalize(state, s, invoke, event), effects: [] };
-  }
+  if (invoke.finalize.content.length === 0) return autoAssignFinalize(state, s, invoke, event);
   return runBlock(state, invoke.finalize.content, {
     kind: "finalize",
     stateIndex: s,
@@ -403,32 +426,50 @@ function applyFinalize<S extends InvokeState>(
 
 // An empty `<finalize>`: each `namelist` entry and each `<param location>`
 // whose name the event's data carries is written, as by `<assign>`, with that
-// value. Only data that is a map carries named values. A write that fails
-// raises `error.execution` and leaves the other writes standing.
+// value, and each write that lands answers a `datamodel_change` owned by the
+// `<finalize>`, in the order written. Only data that is a map carries named
+// values. A write that fails raises `error.execution`, answers nothing, and
+// leaves the other writes standing.
 function autoAssignFinalize<S extends InvokeState>(
   state: S,
   s: number,
   invoke: CompiledInvoke,
   event: Event,
-): S {
+): Passed<S> {
   const data = event.data;
-  if (!isMap(data)) return state;
+  if (!isMap(data)) return { state, effects: [] };
   let current = state;
   let context = contextOf(state);
   const origin: Origin = { kind: "finalize", stateIndex: s, invokeIndex: invoke.index };
+  const effects: DatamodelChange[] = [];
   for (const param of [...invoke.namelist, ...invoke.params]) {
     if (param.kind !== "location" || param.expr.kind !== "compiled") continue;
     if (!Object.hasOwn(data, param.name)) continue;
     const value = data[param.name] as Value;
-    const write = writeLocation(context, param.expr.source, value);
+    const source = param.expr.source;
+    const write = writeLocation(context, source, value);
     if (write.ok) {
+      const root = source.trim();
+      effects.push({
+        kind: "datamodel_change",
+        locationPath: [root],
+        locationSource: source,
+        newValue: value,
+        priorValue: context.data.get(root) as Value,
+        dIndex: null,
+        cIndex: null,
+        owner: { kind: "finalize", stateIndex: s, invokeIndex: invoke.index },
+        macrostep: current.macrostep,
+        microstep: current.microstep,
+        round: current.round,
+      });
       context = write.context;
       current = { ...current, datamodel: write.context.data };
     } else {
       current = raiseError(current, origin, write.reason);
     }
   }
-  return current;
+  return { state: current, effects };
 }
 
 function isMap(value: Value): value is { readonly [key: string]: Value } {

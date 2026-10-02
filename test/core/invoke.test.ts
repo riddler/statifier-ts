@@ -12,7 +12,11 @@
 import { Undefined, type Value } from "@riddler/predicator";
 import { describe, expect, it } from "vitest";
 import { compile } from "../../src/compiler.js";
-import type { TraceFinalizeAutoforward, TraceInvokePass } from "../../src/core/effects.js";
+import type {
+  DatamodelChange,
+  TraceFinalizeAutoforward,
+  TraceInvokePass,
+} from "../../src/core/effects.js";
 import {
   handleEvent,
   type InterpreterEffect,
@@ -58,6 +62,30 @@ function idx(machine: Machine, id: string): number {
 function invokes(effects: readonly InterpreterEffect[]): Invoke[] {
   return effects.filter((e): e is Invoke => e.kind === "invoke");
 }
+
+// The datamodel changes a write made outside any block: an invocation's
+// idlocation write, or an empty finalize's.
+function runnerChanges(effects: readonly InterpreterEffect[]): DatamodelChange[] {
+  return effects.filter(
+    (e): e is DatamodelChange =>
+      e.kind === "datamodel_change" && (e.owner?.kind === "invoke" || e.owner?.kind === "finalize"),
+  );
+}
+
+/** The fields of a datamodel_change, in the order the reference's effect declares them. */
+const CHANGE_FIELDS = [
+  "kind",
+  "locationPath",
+  "locationSource",
+  "newValue",
+  "priorValue",
+  "dIndex",
+  "cIndex",
+  "owner",
+  "macrostep",
+  "microstep",
+  "round",
+];
 
 function forwards(effects: readonly InterpreterEffect[]): Autoforward[] {
   return effects.filter((e): e is Autoforward => e.kind === "autoforward");
@@ -280,6 +308,55 @@ describe("the invoke id", () => {
     const { state, effects } = start(source);
     expect(invokes(effects).map((e) => [e.invokeIndex, e.invokeId])).toEqual([[1, "loan.inv_2"]]);
     expect(active(state)).toEqual([[`${idx(state.machine, "loan")}:1`, "loan.inv_2"]]);
+  });
+
+  // statifier-ex v2.10.0, invoke_pass_test.exs: "idlocation emits a
+  // :datamodel_change before :invoke, naming the path, values, and owner",
+  // and "idlocation's :datamodel_change effect's round matches the machine
+  // state's round it was stamped from".
+  // Sabotage: answering the invoke effect before its change in invokeOne
+  // (`[effect, ...changes]`) turns this red.
+  it("answers the idlocation write's datamodel_change, owned by the invocation, just before it", () => {
+    const source = `<scxml ${SCXML} initial="loan">
+      <datamodel><data id="noticeId" expr="'none yet'"/></datamodel>
+      <state id="loan">
+        <invoke idlocation="noticeId" type="scxml"/>
+      </state>
+    </scxml>`;
+    const { state, effects } = start(source);
+    const loan = idx(state.machine, "loan");
+    const tail = effects.filter((e) => e.kind === "invoke" || runnerChanges([e]).length > 0);
+    expect(tail).toEqual([
+      {
+        kind: "datamodel_change",
+        locationPath: ["noticeId"],
+        locationSource: "noticeId",
+        newValue: "loan.inv_1",
+        priorValue: "none yet",
+        dIndex: null,
+        cIndex: null,
+        owner: { kind: "invoke", stateIndex: loan, invokeIndex: 0 },
+        macrostep: state.macrostep,
+        microstep: state.microstep,
+        round: state.round,
+      },
+      expect.objectContaining({ kind: "invoke", invokeId: "loan.inv_1" }),
+    ]);
+    expect(Object.keys(tail[0] ?? {})).toEqual(CHANGE_FIELDS);
+  });
+
+  // statifier-ex v2.10.0, invoke_pass_test.exs: "a failing idlocation write
+  // emits no :datamodel_change effect".
+  // Sabotage: answering the change built ahead of the write in invokeOne
+  // when the write fails (`{ ...abort(current, write.reason), effects:
+  // changes }`) turns this red.
+  it("answers no datamodel_change when the idlocation write fails", () => {
+    const source = `<scxml ${SCXML} initial="loan">
+      <state id="loan"><invoke idlocation="_sessionid" type="scxml"/></state>
+    </scxml>`;
+    const { effects } = start(source);
+    expect(invokes(effects)).toEqual([]);
+    expect(runnerChanges(effects)).toEqual([]);
   });
 });
 
@@ -675,6 +752,86 @@ describe("finalize", () => {
     const loan = idx(after.state.machine, "loan");
     expect(after.state.internalQueue.map((e) => [e.name, e.cause?.origin])).toEqual([
       ["error.execution", { kind: "finalize", stateIndex: loan, invokeIndex: 0 }],
+    ]);
+  });
+
+  // statifier-ex v2.10.0, finalize_test.exs: "a successful auto-assign write
+  // emits a :datamodel_change naming the path, both values, and owner", and
+  // "the auto-assign's :datamodel_change effect's round matches the machine
+  // state's round it was stamped from" (round 0: the pass runs before the
+  // macrostep's first round).
+  // Sabotage: answering `effects: []` from autoAssignFinalize turns this red.
+  it("answers a datamodel_change for each write back, owned by the finalize, in the order written", () => {
+    const source = `<scxml ${SCXML} initial="loan">
+      <datamodel>
+        <data id="dueDate" expr="'2026-10-01'"/>
+        <data id="fine"/>
+      </datamodel>
+      <state id="loan">
+        <invoke id="renewal" type="scxml">
+          <param name="due" location="dueDate"/>
+          <param name="charge" location="fine"/>
+          <finalize/>
+        </invoke>
+      </state>
+    </scxml>`;
+    const begun = start(source);
+    const after = deliver(
+      begun,
+      external("renewal.done", { invokeid: "renewal", data: { charge: 2, due: "2026-10-15" } }),
+    );
+    const loan = idx(after.state.machine, "loan");
+    const owner = { kind: "finalize", stateIndex: loan, invokeIndex: 0 };
+    const counters = { macrostep: begun.state.macrostep + 1, microstep: 0, round: 0 };
+    const changes = runnerChanges(after.effects);
+    expect(changes).toEqual([
+      {
+        kind: "datamodel_change",
+        locationPath: ["dueDate"],
+        locationSource: "dueDate",
+        newValue: "2026-10-15",
+        priorValue: "2026-10-01",
+        dIndex: null,
+        cIndex: null,
+        owner,
+        ...counters,
+      },
+      {
+        kind: "datamodel_change",
+        locationPath: ["fine"],
+        locationSource: "fine",
+        newValue: 2,
+        priorValue: null,
+        dIndex: null,
+        cIndex: null,
+        owner,
+        ...counters,
+      },
+    ]);
+    expect(Object.keys(changes[0] ?? {})).toEqual(CHANGE_FIELDS);
+  });
+
+  // statifier-ex v2.10.0, finalize_test.exs: "a failed auto-assign write
+  // emits no :datamodel_change effect".
+  // Sabotage: pushing the change ahead of the write's check in
+  // autoAssignFinalize, for every write, turns this red.
+  it("answers no datamodel_change for a write back that fails, and one for each that lands", () => {
+    const source = `<scxml ${SCXML} initial="loan">
+      <datamodel><data id="fine"/></datamodel>
+      <state id="loan">
+        <invoke id="renewal" type="scxml">
+          <param name="sealed" location="_sessionid"/>
+          <param name="charge" location="fine"/>
+          <finalize/>
+        </invoke>
+      </state>
+    </scxml>`;
+    const after = deliver(
+      start(source),
+      external("renewal.done", { invokeid: "renewal", data: { sealed: "x", charge: 3 } }),
+    );
+    expect(runnerChanges(after.effects).map((e) => [e.locationSource, e.newValue])).toEqual([
+      ["fine", 3],
     ]);
   });
 });

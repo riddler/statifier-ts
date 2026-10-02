@@ -238,7 +238,7 @@ these:
 | `cancel_invoke` | learns the live invocation its `invokeId` names stopped: the driver stops the child itself |
 | `log` | records the label and the evaluated value |
 | `datamodel_init` | learns the datamodel as the chart starts, before any `<data>` value binds |
-| `datamodel_change` | learns one datamodel write: the path, the new and the prior value, and the `<assign>` or `<data>` that made it |
+| `datamodel_change` | learns one datamodel write: the path, the new and the prior value, and what made it - an `<assign>`, a `<data>`, a `<send>` or an `<invoke>` writing its `idlocation`, or an empty `<finalize>` writing a returned value back |
 | `budget_exhausted` | learns a macrostep spent its round budget; the chart still runs |
 | `done` | learns the chart stopped, with the top-level final's donedata |
 | `trace` | follows the interpreter step by step; emitted only while the state's `trace` flag is set, which `start` leaves false |
@@ -246,10 +246,13 @@ these:
 A trace effect's `trace` field says which one it is: `event_dequeued`,
 `transitions_selected`, `exit_set`, `content_executed`, `entry_set`,
 `macrostep_stable`, `done`, `invoke_pass` or `finalize_autoforward`. The
-reference's `conds_evaluated` trace is not emitted yet, nor the
-`datamodel_change` it answers for an `idlocation` write or an empty
-`<finalize>`'s writes; a host that ignores a `kind` it does not know keeps
-working as they arrive.
+reference's `conds_evaluated` trace is not emitted yet; a host that ignores a
+trace it does not know keeps working when it arrives.
+
+A `datamodel_change` for an `idlocation` write comes just before the `send`,
+`send_delayed` or `invoke` effect it belongs to. A `<send>` refused for its
+target, its type or its route answers no effect at all, though its
+`idlocation` write stands, as the reference's does.
 
 An `<invoke>` of the SCXML type runs in process: the driver compiles its
 `<content>` markup (an in-line `<scxml>` that declares no namespace is read
