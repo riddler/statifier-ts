@@ -28,6 +28,7 @@ reports/
 # this file, so without the rule the gate lints the files its own run wrote.
 /.claude/wurk-runs/
 
-# A packed tarball, written to the checkout root by `npm pack` or `pnpm pack`.
-# It is a build artefact and must never be committed.
-*.tgz
+# A packed tarball of this package, written to the checkout root by `npm pack`
+# or `pnpm pack`. It is a build artefact and must never be committed. The rule
+# names this package's tarball only, so no other archive is hidden.
+/riddler-statifier-*.tgz
