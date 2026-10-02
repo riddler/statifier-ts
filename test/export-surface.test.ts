@@ -22,12 +22,14 @@ import type {
 import * as basicHttpEntry from "../src/basichttp/index.js";
 import type {
   AcceptsCheck,
+  Chart,
+  ChartIdentity,
   CompileError,
+  CompileOptions,
+  CompileResult,
   CompilerError,
   DefaultTransitionOwner,
   DeliveryFailure,
-  Empty,
-  ErrorOf,
   ExpressionOwner,
   FailedSend,
   HttpAnswer,
@@ -43,6 +45,8 @@ import type {
   ProcessorContext,
   StateKind,
   ValidationError,
+  ValidationErrorOf,
+  ValidationNoDetail,
 } from "../src/index.js";
 import * as entry from "../src/index.js";
 
@@ -66,18 +70,24 @@ type TransportTypes = [HttpTransport, HttpRequest, HttpAnswer, HttpStatus, HttpF
 const transportTypesNamed: TransportTypes | undefined = undefined;
 
 // The types a compile error reaches, each named through the entry point:
-// every type the declarations of `CompileResult`, `CompileError` and
+// the four roots `compile` answers and takes - `CompileResult`,
+// `CompileOptions`, the `Chart` a success carries and its `ChartIdentity` -
+// and every type the declarations of `CompileResult`, `CompileError` and
 // `CompileOptions` reach, except the opaque `Machine` a `Chart` carries and
 // the expression language's own refusal, which its package exports. Removing
 // one of them from `src/index.ts` makes this declaration fail to typecheck.
 type CompileErrorTypes = [
+  CompileResult,
+  CompileOptions,
+  Chart,
+  ChartIdentity,
   ParseError,
   ParseErrorReason,
   Location,
   LoweringError,
   LoweringErrorOf<"stray_text", { readonly text: string }>,
   ValidationError,
-  ErrorOf<"empty_id", Empty>,
+  ValidationErrorOf<"empty_id", ValidationNoDetail>,
   DefaultTransitionOwner,
   StateKind,
   CompilerError,

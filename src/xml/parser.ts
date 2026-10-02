@@ -119,7 +119,15 @@ export type ParseErrorReason =
   | "invalid_character"
   | "cdata_end_in_text";
 
-/** A refusal: the reason token, a message for a human, and where it stopped. */
+/**
+ * A refusal: the reason token, a message for a human, and where it stopped.
+ *
+ * This is the XML parser's refusal. `@riddler/predicator` exports a
+ * `ParseError` of its own, the expression parser's, which a `CompilerError`
+ * carries as its `error`. A host that imports both renames one at the import,
+ * as this package does: `import type { ParseError as ExpressionParseError }
+ * from "@riddler/predicator"`.
+ */
 export interface ParseError {
   readonly reason: ParseErrorReason;
   readonly message: string;

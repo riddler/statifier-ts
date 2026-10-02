@@ -57,74 +57,77 @@ export interface DefaultTransitionOwner {
 
 /** Why a chart does not validate, with the detail each reason carries. */
 export type ValidationError =
-  | ErrorOf<"duplicate_id", { readonly id: string }>
-  | ErrorOf<"empty_id", Empty>
-  | ErrorOf<"unresolved_target", { readonly id: string }>
-  | ErrorOf<"unresolved_initial", { readonly id: string }>
-  | ErrorOf<"initial_not_descendant", { readonly id: string; readonly parentId: string }>
-  | ErrorOf<"initial_on_atomic_state", { readonly id: string }>
-  | ErrorOf<"initial_attribute_and_element", { readonly id: string | null }>
-  | ErrorOf<"transition_count", { readonly owner: DefaultTransitionOwner; readonly count: number }>
-  | ErrorOf<"transition_missing_target", { readonly owner: DefaultTransitionOwner }>
-  | ErrorOf<
+  | ValidationErrorOf<"duplicate_id", { readonly id: string }>
+  | ValidationErrorOf<"empty_id", ValidationNoDetail>
+  | ValidationErrorOf<"unresolved_target", { readonly id: string }>
+  | ValidationErrorOf<"unresolved_initial", { readonly id: string }>
+  | ValidationErrorOf<"initial_not_descendant", { readonly id: string; readonly parentId: string }>
+  | ValidationErrorOf<"initial_on_atomic_state", { readonly id: string }>
+  | ValidationErrorOf<"initial_attribute_and_element", { readonly id: string | null }>
+  | ValidationErrorOf<
+      "transition_count",
+      { readonly owner: DefaultTransitionOwner; readonly count: number }
+    >
+  | ValidationErrorOf<"transition_missing_target", { readonly owner: DefaultTransitionOwner }>
+  | ValidationErrorOf<
       "transition_forbidden_attribute",
       { readonly owner: DefaultTransitionOwner; readonly attribute: "event" | "cond" }
     >
-  | ErrorOf<
+  | ValidationErrorOf<
       "history_bad_parent",
       { readonly id: string | null; readonly parentKind: StateKind | "scxml" }
     >
-  | ErrorOf<"history_bad_type", { readonly raw: string }>
-  | ErrorOf<"transition_bad_type", { readonly raw: string }>
-  | ErrorOf<"scxml_bad_binding", { readonly raw: string }>
-  | ErrorOf<"final_has_states", { readonly id: string | null }>
-  | ErrorOf<"final_has_transitions", { readonly id: string | null }>
-  | ErrorOf<"final_parent_missing_id", { readonly finalId: string | null }>
-  | ErrorOf<
+  | ValidationErrorOf<"history_bad_type", { readonly raw: string }>
+  | ValidationErrorOf<"transition_bad_type", { readonly raw: string }>
+  | ValidationErrorOf<"scxml_bad_binding", { readonly raw: string }>
+  | ValidationErrorOf<"final_has_states", { readonly id: string | null }>
+  | ValidationErrorOf<"final_has_transitions", { readonly id: string | null }>
+  | ValidationErrorOf<"final_parent_missing_id", { readonly finalId: string | null }>
+  | ValidationErrorOf<
       "default_entry_not_enterable",
       { readonly id: string | null; readonly childKind: StateKind }
     >
-  | ErrorOf<"donedata_not_on_final", { readonly id: string | null }>
-  | ErrorOf<"donedata_content_and_params", { readonly id: string | null }>
-  | ErrorOf<"content_expr_and_text", { readonly expr: string }>
-  | ErrorOf<"param_expr_and_location", { readonly name: string }>
-  | ErrorOf<"param_no_value", { readonly name: string }>
-  | ErrorOf<"bad_namespace", { readonly uri: string | null }>
-  | ErrorOf<"bad_version", { readonly version: string | null }>
-  | ErrorOf<"scxml_bad_datamodel", { readonly raw: string }>
-  | ErrorOf<"data_expr_and_src", { readonly id: string }>
-  | ErrorOf<"data_value_and_children", { readonly id: string }>
-  | ErrorOf<"data_reserved_id", { readonly id: string }>
-  | ErrorOf<"datamodel_bad_parent", { readonly kind: StateKind }>
-  | ErrorOf<"assign_expr_and_text", { readonly expr: string }>
-  | ErrorOf<"if_elseif_after_else", Empty>
-  | ErrorOf<"if_duplicate_else", Empty>
-  | ErrorOf<"script_no_src_or_text", Empty>
-  | ErrorOf<"invoke_type_and_typeexpr", Empty>
-  | ErrorOf<"invoke_src_and_srcexpr", Empty>
-  | ErrorOf<"invoke_src_and_content", Empty>
-  | ErrorOf<"invoke_id_and_idlocation", Empty>
-  | ErrorOf<"invoke_namelist_and_param", Empty>
-  | ErrorOf<"invoke_bad_autoforward", { readonly raw: string }>
-  | ErrorOf<"send_event_and_eventexpr", Empty>
-  | ErrorOf<"send_target_and_targetexpr", Empty>
-  | ErrorOf<"send_type_and_typeexpr", Empty>
-  | ErrorOf<"send_id_and_idlocation", Empty>
-  | ErrorOf<"send_delay_and_delayexpr", Empty>
-  | ErrorOf<"send_delay_and_internal_target", Empty>
-  | ErrorOf<"send_namelist_and_content", Empty>
-  | ErrorOf<"send_param_and_content", Empty>
-  | ErrorOf<"cancel_sendid_and_sendidexpr", Empty>
-  | ErrorOf<"cancel_no_sendid", Empty>;
+  | ValidationErrorOf<"donedata_not_on_final", { readonly id: string | null }>
+  | ValidationErrorOf<"donedata_content_and_params", { readonly id: string | null }>
+  | ValidationErrorOf<"content_expr_and_text", { readonly expr: string }>
+  | ValidationErrorOf<"param_expr_and_location", { readonly name: string }>
+  | ValidationErrorOf<"param_no_value", { readonly name: string }>
+  | ValidationErrorOf<"bad_namespace", { readonly uri: string | null }>
+  | ValidationErrorOf<"bad_version", { readonly version: string | null }>
+  | ValidationErrorOf<"scxml_bad_datamodel", { readonly raw: string }>
+  | ValidationErrorOf<"data_expr_and_src", { readonly id: string }>
+  | ValidationErrorOf<"data_value_and_children", { readonly id: string }>
+  | ValidationErrorOf<"data_reserved_id", { readonly id: string }>
+  | ValidationErrorOf<"datamodel_bad_parent", { readonly kind: StateKind }>
+  | ValidationErrorOf<"assign_expr_and_text", { readonly expr: string }>
+  | ValidationErrorOf<"if_elseif_after_else", ValidationNoDetail>
+  | ValidationErrorOf<"if_duplicate_else", ValidationNoDetail>
+  | ValidationErrorOf<"script_no_src_or_text", ValidationNoDetail>
+  | ValidationErrorOf<"invoke_type_and_typeexpr", ValidationNoDetail>
+  | ValidationErrorOf<"invoke_src_and_srcexpr", ValidationNoDetail>
+  | ValidationErrorOf<"invoke_src_and_content", ValidationNoDetail>
+  | ValidationErrorOf<"invoke_id_and_idlocation", ValidationNoDetail>
+  | ValidationErrorOf<"invoke_namelist_and_param", ValidationNoDetail>
+  | ValidationErrorOf<"invoke_bad_autoforward", { readonly raw: string }>
+  | ValidationErrorOf<"send_event_and_eventexpr", ValidationNoDetail>
+  | ValidationErrorOf<"send_target_and_targetexpr", ValidationNoDetail>
+  | ValidationErrorOf<"send_type_and_typeexpr", ValidationNoDetail>
+  | ValidationErrorOf<"send_id_and_idlocation", ValidationNoDetail>
+  | ValidationErrorOf<"send_delay_and_delayexpr", ValidationNoDetail>
+  | ValidationErrorOf<"send_delay_and_internal_target", ValidationNoDetail>
+  | ValidationErrorOf<"send_namelist_and_content", ValidationNoDetail>
+  | ValidationErrorOf<"send_param_and_content", ValidationNoDetail>
+  | ValidationErrorOf<"cancel_sendid_and_sendidexpr", ValidationNoDetail>
+  | ValidationErrorOf<"cancel_no_sendid", ValidationNoDetail>;
 
 /** The detail of a validation reason that carries none beyond its location. */
-export type Empty = Readonly<Record<never, never>>;
+export type ValidationNoDetail = Readonly<Record<never, never>>;
 
 /**
  * One validation refusal: the reason token `R`, a message for a human, the
  * span it was refused at, and the detail `D` that reason carries.
  */
-export type ErrorOf<R extends string, D> = {
+export type ValidationErrorOf<R extends string, D> = {
   readonly reason: R;
   readonly message: string;
   readonly location: Location;
