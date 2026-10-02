@@ -399,3 +399,122 @@ either key without the other, as the reference's harness does (`accepts/2` in
 and that drive, and `conformance/registry.json` claims it, written by
 `pnpm ratchet` from the run that observed it. Every row of the Amendment's
 table is now answered by a later record.
+
+## Amendment: the Basic HTTP cases are driven through a loopback front (2026-10-01)
+
+Status: proposed
+
+The vendored corpus at `v2.10.0` carries w3c cases whose `host` object names
+an Event I/O Processor in `event_io_processors`, the Basic HTTP processor in
+each. Until this change the runner failed each before it was driven, so none
+was claimed. Driving them with an in-memory implementation for the tests was
+ruled by the operator, 2026-10-01.
+
+**What the reference does.** Its runner hands any case carrying a `host`
+object, whatever its suite, to its host-case harness (`run_case/1` in
+`lib/mix/statifier/corpus/runner.ex` at `v2.10.0`). That harness compiles
+the source, compares the accepts check, and only then registers the
+processors the case names (`run/2` in `lib/mix/statifier/corpus/host_case.ex`
+at `v2.10.0`); it makes no feature check. Each processor is registered under
+its URI and its short form with the base URL of a loopback front started for
+the case (`with_event_io_processors/2`, same file), an HTTP server on a local
+port (`Mix.Statifier.BasicHTTPFront` in
+`lib/mix/statifier/basic_http_front.ex` at `v2.10.0`). The front resolves the
+path after its base URL to a live session, decodes the request with the
+processor's own decoder and enqueues the event on that session: 204 once
+enqueued, 405 for a method other than POST, 400 for a request that forms no
+event, 404 for a path naming no live session, and no deduplication
+(`respond/1` there). A miss the processor meets is reported to the sending
+session through `Statifier.Session.failed_send/3` (`Statifier.Send.BasicHTTP`
+in `lib/statifier/send/basic_http.ex` at `v2.10.0`).
+
+**What the runner here does.**
+
+- A w3c case with a `host` object is routed to the host-case drive and gets
+  no feature check (`runW3cCase` in `test/conformance/w3c.ts`). The drive
+  compiles, compares the accepts check, then registers the processors, in the
+  reference's order (`runHostCase` in `test/conformance/statifier.ts`).
+- The closed set of processors a case may name has one member, the
+  package's own Basic HTTP processor, `basicHttp` in
+  `src/basichttp/processor.ts` (read at `b48814b`), registered under every
+  type it names itself under, its URI and `basichttp`
+  (`EVENT_IO_PROCESSORS` and `wireEventIoProcessors` in
+  `test/conformance/loopback.ts`). A URI outside the set fails the case before
+  it is driven, naming the URI.
+- The processor's transport is an in-memory loopback front, the reference's
+  front without the socket (`loopbackFront`, same file): it reads the path
+  after its base URL as the session's id, decodes the request with
+  `decodeRequest` in `src/basichttp/decode.ts` (read at `b48814b`), and
+  answers by the reference front's status rule, without deduplication. It
+  answers on the job queue, never within the call.
+- An event the front took is stepped into the session with `step`, and a
+  miss the processor reported is reported with `reportSendFailed`, both in
+  `src/driver.ts` (read at `b48814b`); either refused because the chart has
+  stopped is dropped (`exchange` in `test/conformance/statifier.ts`).
+- The processor's `deliver` is wrapped only to keep the promise it answers,
+  so the drive can wait on the deliveries themselves rather than on a timer;
+  what it answers is handed to the driver unchanged (`wireEventIoProcessors`).
+
+**The drive order, against the reference's.** The reference's harness runs
+on a real clock: its front and its processor reach the session while the
+harness polls every 5 ms, and a request takes milliseconds. The runner here
+runs on the virtual clock of decision 8, and a request over the loopback
+takes no virtual time. So before each comparison and before each timer
+fires, it lets every delivery handed so far settle, steps in each event the
+front took and reports each miss, in the order they arrived; the clock
+moves only once nothing more comes back (`observe` and `settleHost` in
+`test/conformance/statifier.ts`). An event delivered through the front is
+therefore taken at the virtual time its send was made, ahead of any timer
+the clock has yet to reach. A failed send that a statifier case's expected
+item asks for is still reported only while a configuration is awaited, as
+the reference's harness reads its processor's messages only then. The
+difference from the reference is the request's latency: a case whose
+outcome turned on a timer due within a request's real round trip would
+diverge. None of the vendored cases has one; the shortest timer racing a
+delivery is the three-second timeout of `w3c/test531`, `w3c/test532` and
+`w3c/test567`.
+
+**What a claim of these cases rests on.** The loopback. A pass proves the
+processor's logic - the request `requestFor` builds from a send, its form
+or text body, its `scxml-send-key` header, the location `_ioprocessors`
+carries, the no-target failure - and the core's event I/O logic - the
+decode, the event taken from outside the session, the miss reported back -
+on the engine the run is on. It proves nothing about a network round trip,
+and the READMEs say so.
+
+| Case | What the chart sends through the processor | Why it passes, here as in the reference |
+|---|---|---|
+| `w3c/test509` | event `test` to its own location | `test` comes back and is taken before the 30 s timeout |
+| `w3c/test510` | event `test`, then raises `internal` | the raised event is taken first, then `test` from outside |
+| `w3c/test518` | event `test` with `namelist="Var1"` | `test` comes back with the form body's data |
+| `w3c/test519` | event `test` with a `param` | `test` comes back with the form body's data |
+| `w3c/test520` | `<content>` and no event | the text body comes back named `HTTP.POST` |
+| `w3c/test522` | event `test` | an event comes back that is neither `timeout` nor an error |
+| `w3c/test531` | a `_scxmleventname` param and no event | the param names the event `test`, taken before the 3 s timeout |
+| `w3c/test532` | `<content>` and no event | `HTTP.POST` comes back before the 3 s timeout |
+| `w3c/test534` | event `test` | `test` comes back, named by `_scxmleventname` |
+| `w3c/test567` | event `test` with `param1` of 2 | `_event.data.param1` reads 2 before the 3 s timeout |
+| `w3c/test577` | event `test` with no target | the send fails within the run and `error.communication` follows; no request is made |
+
+Each of the first ten fails when the front answers 204 and hands nothing
+on, and `w3c/test577` fails when no processor is registered: the run
+observed each before `pnpm ratchet` wrote its entry into
+`conformance/registry.json`. `w3c/test201` is driven the same way and fails
+on the configuration it rests in; the reference's registry does not list it
+either (the copy's `RATCHET.md`, "The host object").
+
+**Limits.** The front's 405 carries no `Allow` header, because a transport
+answers a status alone (`HttpAnswer` in `src/http-transport.ts`, read at
+`b48814b`). It resolves only the case's own session, not one an invoked
+child runs; no vendored case addresses one. A delayed send to the processor
+is held on the host's timer, which the virtual clock does not move; no
+vendored case makes one. The event `decodeRequest` answers carries no
+`origintype`, where the reference's decoder sets the processor's URI; none
+of these cases reads it.
+
+The change that adds this Amendment adds the code: `test/conformance/loopback.ts`,
+the host-case routing in `test/conformance/w3c.ts`, the host-case drive's
+registration and exchange in `test/conformance/statifier.ts`, and the run of
+every suite settling on the job queue (`runSuite` in
+`test/conformance/runner.ts`). The engine proof,
+`scripts/hermes-conformance.mjs`, drives the same loopback.

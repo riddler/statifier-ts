@@ -40,13 +40,15 @@ function readArguments(argv) {
   process.exit(2);
 }
 
-function main() {
+async function main() {
   const root = readArguments(process.argv.slice(2));
   const manifest = loadManifest(root);
   const suites = loadSuites(root, manifest);
   const text = readRegistryText(root);
   const registry = JSON.parse(text);
-  const results = suites.flatMap((suite) => runSuite(suite, manifest.corpus_hash).results);
+  const results = [];
+  for (const suite of suites)
+    results.push(...(await runSuite(suite, manifest.corpus_hash)).results);
 
   const { findings, claimMade } = registryFindings({
     registry,
@@ -78,4 +80,4 @@ function main() {
   );
 }
 
-main();
+await main();

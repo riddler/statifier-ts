@@ -56,6 +56,23 @@
 // The check is this package's `checkAccepts`, the port of the reference's
 // `Statifier.Chart.check_accepts/2`.
 //
+// A case whose host carries `event_io_processors` - at v2.10.0 a w3c case,
+// which the w3c runner routes here - has each processor it names registered
+// as the reference's `with_event_io_processors/2` registers it, after the
+// accepts check and before the start: the package's own Basic HTTP processor,
+// under its URI and its short form, delivering through an in-memory loopback
+// front (`test/conformance/loopback.ts`) rather than the reference's HTTP
+// server. Its deliveries settle on the job queue, so this drive is async: the
+// configuration is read one timer at a time, and before each timer fires,
+// every delivery handed so far is let settle, each event the front took is
+// stepped into the session and each miss the processor reported is reported
+// through `reportSendFailed`, as the reference's front and processor reach
+// its session while its harness polls. An event delivered through the front
+// is so taken at the virtual time its send was made, ahead of any timer the
+// clock has yet to reach; a request over the loopback takes no virtual time.
+// No feature check is made for a host case, as the reference's harness makes
+// none.
+//
 // Like the runner, this reaches nothing outside the language.
 
 import { fromHost, toHost, typeName, type Value } from "@riddler/predicator";
@@ -65,7 +82,9 @@ import type { Chart } from "../../src/compiler.js";
 import type { Cancel, Send, SendDelayed } from "../../src/core/send.js";
 import type { Event } from "../../src/datamodel.js";
 import {
+  advance,
   type DriveOptions,
+  type DriveResult,
   type HostEvent,
   reportSendFailed,
   type SendProcessor,
@@ -74,8 +93,23 @@ import {
   start,
   step,
 } from "../../src/driver.js";
+import {
+  EVENT_IO_PROCESSORS,
+  type EventIoProcessors,
+  PROCESSOR_NOT_REGISTERED,
+  processorsNotRegistered,
+  type Wire,
+  wireEventIoProcessors,
+} from "./loopback.js";
 import type { CaseOutcome } from "./runner.js";
-import { awaitConfiguration, compareLeafSets, compileCase, runScionCase, settle } from "./scion.js";
+import {
+  CONFIGURATION_DEADLINE_MS,
+  compareLeafSets,
+  compileCase,
+  earliestDue,
+  runScionCase,
+  SETTLE_WINDOW_MS,
+} from "./scion.js";
 
 /**
  * The accepts check's comparison, before the case is driven: null when the
@@ -143,8 +177,17 @@ export interface Host {
   takeFailed(): (Send | SendDelayed)[];
 }
 
-/** A host for these send types, comparing what it is handed with `expected`. */
-export function hostFor(sendTypes: readonly string[], expected: readonly SendItem[]): Host {
+/**
+ * A host for these send types, comparing what it is handed with `expected`,
+ * with the Event I/O Processors `delivering` holds registered beside its own
+ * processor, as the reference merges the two registrations; they deliver
+ * rather than record.
+ */
+export function hostFor(
+  sendTypes: readonly string[],
+  expected: readonly SendItem[],
+  delivering: SendProcessors = {},
+): Host {
   const handed: Handed[] = [];
   let failed: (Send | SendDelayed)[] = [];
   const processor: SendProcessor = {
@@ -172,7 +215,10 @@ export function hostFor(sendTypes: readonly string[], expected: readonly SendIte
       }
     },
   };
-  const processors: SendProcessors = Object.fromEntries(sendTypes.map((type) => [type, processor]));
+  const processors: SendProcessors = {
+    ...Object.fromEntries(sendTypes.map((type) => [type, processor])),
+    ...delivering,
+  };
   return {
     options: { sendTypes: processors },
     get handed() {
@@ -203,24 +249,111 @@ function reportFailed(chart: Chart, state: State, host: Host): Observed {
   return current;
 }
 
-// The state a driver call leads to once it is read: every failed send
-// reported first, then the timers due by the deadline fired, and again while
-// a fired timer hands a send to report, as the reference's harness reports a
-// failed send before it reads the configuration again.
-function observe(
+// What the wire brought back since it was last read, handed to the driver in
+// the order it arrived, each delivery first allowed to settle: an event the
+// front took is stepped into the session, as the reference's front enqueues
+// it there, and a miss the processor reported is reported through
+// `reportSendFailed`, as the reference's processor reports it to its session.
+// Either refused because the chart has stopped is dropped, as the reference's
+// stopped session takes neither; any other refusal fails the case. Repeats
+// until a settle brings nothing back. With no wire, nothing is exchanged.
+async function exchange(
+  chart: Chart,
+  state: State,
+  options: DriveOptions,
+  wire: Wire | null,
+): Promise<Observed> {
+  if (wire === null) return state;
+  let current = state;
+  for (;;) {
+    await wire.settle();
+    const arrivals = wire.take();
+    if (arrivals.length === 0) return current;
+    for (const arrival of arrivals) {
+      const answered =
+        arrival.kind === "event"
+          ? step(chart, current, arrival.delivered.event, options)
+          : reportSendFailed(
+              chart,
+              current,
+              { send: arrival.failure.send, reason: arrival.failure.reason },
+              options,
+            );
+      if (answered.ok) current = answered.state;
+      else if (answered.reason !== "not_running") {
+        const what = arrival.kind === "event" ? "a delivered event" : "a reported miss";
+        return { reason: `the driver refused ${what}: ${answered.reason}` };
+      }
+    }
+  }
+}
+
+// The settle window before a step (scion's `settle`), with what the wire
+// brings back exchanged after each timer fires: the reference's front and its
+// processor reach the session while its harness waits out the window. The
+// host's failed sends are not reported here, as the reference's harness
+// reads its processor's messages only while it waits for a configuration.
+async function settleHost(
+  chart: Chart,
+  state: State,
+  options: DriveOptions,
+  wire: Wire | null,
+): Promise<Observed> {
+  const windowEnd = state.nowMs + SETTLE_WINDOW_MS;
+  let current: Observed = state;
+  for (;;) {
+    if ("reason" in current) return current;
+    const due = earliestDue(current);
+    if (due === undefined) return current;
+    if (due > windowEnd) {
+      return moved(advance(chart, current, windowEnd - current.nowMs, options), "advance");
+    }
+    const fired = moved(advance(chart, current, due - current.nowMs, options), "advance");
+    current = await exchange(chart, fired, options, wire);
+  }
+}
+
+// The state a driver call leads to once it is read (scion's
+// `awaitConfiguration`, one timer at a time): before each comparison, every
+// failed send the host marked is reported, as the reference's harness
+// reports one before it reads the configuration again, and what the wire
+// brings back is exchanged, as the reference's front and processor reach the
+// session at once rather than after a timer it holds. So an event delivered
+// through the front is taken at the virtual time its send was made, ahead of
+// any timer the clock has yet to reach.
+async function observe(
   chart: Chart,
   state: State,
   expected: readonly string[],
   since: number,
   host: Host,
-): Observed {
-  let current = reportFailed(chart, state, host);
+  wire: Wire | null,
+): Promise<Observed> {
+  const deadline = since + CONFIGURATION_DEADLINE_MS;
+  let current: Observed = state;
   for (;;) {
-    if ("reason" in current) return current;
-    const awaited = awaitConfiguration(chart, current, expected, since, host.options);
-    current = reportFailed(chart, awaited, host);
-    if (current === awaited) return current;
+    for (;;) {
+      const reported = reportFailed(chart, current, host);
+      if ("reason" in reported) return reported;
+      const exchanged = await exchange(chart, reported, host.options, wire);
+      if ("reason" in exchanged) return exchanged;
+      const unchanged = exchanged === current;
+      current = exchanged;
+      if (unchanged) break;
+    }
+    if (compareLeafSets(chart, current, expected, "") === null || current.done !== null) {
+      return current;
+    }
+    const due = earliestDue(current, true);
+    if (due === undefined || due > deadline) return current;
+    current = moved(advance(chart, current, due - current.nowMs, host.options), "advance");
   }
+}
+
+/** A refused drive, as a thrown bug: every call here is handed a state the driver made. */
+function moved(result: DriveResult, call: string): State {
+  if (result.ok) return result.state;
+  throw new Error(`the driver refused ${call}: ${result.reason}`);
 }
 
 // Canonical text for a comparison: object keys sorted, list order kept.
@@ -255,8 +388,18 @@ function strings(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((item) => typeof item === "string") : [];
 }
 
-/** Runs one host case: a pass, or a fail naming what disagreed. */
-export function runHostCase(testCase: CorpusCase): CaseOutcome {
+/**
+ * Runs one host case, in the reference's order (`run/2` in `host_case.ex` at
+ * v2.10.0): the source compiled, the accepts check compared, the Event I/O
+ * Processors the host names registered with a loopback front, then the drive;
+ * a pass, or a fail naming what disagreed. No feature check is made: the
+ * reference's host-case harness makes none. `registered` is the closed set
+ * of processors a case may name, the runner's unless a caller names another.
+ */
+export async function runHostCase(
+  testCase: CorpusCase,
+  registered: EventIoProcessors = EVENT_IO_PROCESSORS,
+): Promise<CaseOutcome> {
   const spec = testCase.host ?? {};
   const compiled = compileCase(testCase);
   if ("reason" in compiled) return { result: "fail", reason: compiled.reason };
@@ -264,13 +407,32 @@ export function runHostCase(testCase: CorpusCase): CaseOutcome {
   const accepts = compareAccepts(chart, spec);
   if (accepts !== null) return { result: "fail", reason: accepts };
 
+  const unregistered = processorsNotRegistered(testCase, registered);
+  if (unregistered.length > 0) {
+    return { result: "fail", reason: `${PROCESSOR_NOT_REGISTERED}: ${unregistered.join(", ")}` };
+  }
+  const uris = strings(spec.event_io_processors);
+  const wired =
+    uris.length === 0
+      ? null
+      : wireEventIoProcessors(uris, (sessionId) => sessionId === testCase.id, registered);
+  if (wired !== null && !wired.ok) return { result: "fail", reason: wired.reason };
+  const wire = wired === null ? null : wired.wire;
+
   const expected = (Array.isArray(spec.expect_sends) ? spec.expect_sends : []) as SendItem[];
-  const host = hostFor(strings(spec.send_types), expected);
+  const host = hostFor(strings(spec.send_types), expected, wire?.sendTypes ?? {});
   const { options } = host;
 
   const started = start(chart, { sessionId: testCase.id, ...options });
   if (!started.ok) return { result: "fail", reason: `start was refused: ${started.reason}` };
-  const observed = observe(chart, started.state, testCase.initial_configuration, 0, host);
+  const observed = await observe(
+    chart,
+    started.state,
+    testCase.initial_configuration,
+    0,
+    host,
+    wire,
+  );
   if ("reason" in observed) return { result: "fail", reason: observed.reason };
   let state = observed;
   const initial = compareLeafSets(
@@ -285,7 +447,8 @@ export function runHostCase(testCase: CorpusCase): CaseOutcome {
     const where = `step ${index + 1} (event ${JSON.stringify(event.name)})`;
     const hostEvent = eventOf(event);
     if ("reason" in hostEvent) return { result: "fail", reason: `${where}: ${hostEvent.reason}` };
-    const settled = settle(chart, state, options);
+    const settled = await settleHost(chart, state, options, wire);
+    if ("reason" in settled) return { result: "fail", reason: `${where}: ${settled.reason}` };
     const stepped = step(chart, settled, hostEvent, options);
     if (!stepped.ok) {
       return {
@@ -293,7 +456,7 @@ export function runHostCase(testCase: CorpusCase): CaseOutcome {
         reason: `${where}: the driver refused the event: ${stepped.reason}`,
       };
     }
-    const after = observe(chart, stepped.state, configuration, settled.nowMs, host);
+    const after = await observe(chart, stepped.state, configuration, settled.nowMs, host, wire);
     if ("reason" in after) return { result: "fail", reason: `${where}: ${after.reason}` };
     state = after;
     const found = compareLeafSets(chart, state, configuration, where);
@@ -309,6 +472,6 @@ export function runHostCase(testCase: CorpusCase): CaseOutcome {
  * `host` object, as the reference's runner routes it, and otherwise through
  * the scion runner's drive.
  */
-export function runStatifierCase(testCase: CorpusCase): CaseOutcome {
+export function runStatifierCase(testCase: CorpusCase): CaseOutcome | Promise<CaseOutcome> {
   return testCase.host === undefined ? runScionCase(testCase) : runHostCase(testCase);
 }

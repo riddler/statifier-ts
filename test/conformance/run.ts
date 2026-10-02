@@ -54,7 +54,7 @@ function readSuites(argv: readonly string[]): string[] {
   return names;
 }
 
-const reports = runVendored(readSuites(process.argv.slice(2)));
+const reports = await runVendored(readSuites(process.argv.slice(2)));
 const written = writeReports(reports);
 
 for (const [index, report] of reports.entries()) {

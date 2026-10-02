@@ -13,7 +13,7 @@ import { eventValue } from "../../src/datamodel.js";
 import { gapLines, KNOWN_CAUSES, unclaimedByEither, unclaimedByEitherLines } from "./reports.js";
 import { type RunCase, runCorpusCase, runSuite, suiteNotDriven } from "./runner.js";
 import { runScionCase } from "./scion.js";
-import { featuresNotRun, PROCESSOR_NOT_REGISTERED, processorsNotRegistered } from "./w3c.js";
+import { featuresNotRun } from "./w3c.js";
 
 const manifest = loadManifest();
 const suites = loadSuites();
@@ -27,8 +27,8 @@ function suiteNamed(name: string): CorpusSuite {
 describe("the runner over the vendored corpus", () => {
   // Sabotage: making the default case runner fail every case with one reason
   // turns this red on the failures. It was run and reverted.
-  it("drives every scion case through the interpreter, and every one passes", () => {
-    const report = runSuite(suiteNamed("scion"), manifest.corpus_hash);
+  it("drives every scion case through the interpreter, and every one passes", async () => {
+    const report = await runSuite(suiteNamed("scion"), manifest.corpus_hash);
     expect(report.suite).toBe("scion");
     expect(report.corpus_hash).toBe(manifest.corpus_hash);
     expect(report.results).toHaveLength(119);
@@ -37,8 +37,8 @@ describe("the runner over the vendored corpus", () => {
 
   // Sabotage: answering the w3c suite with the not-driven reason turns this red
   // on the passes. It was run and reverted.
-  it("drives every w3c case through the interpreter, and every case it claims passes", () => {
-    const report = runSuite(suiteNamed("w3c"), manifest.corpus_hash);
+  it("drives every w3c case through the interpreter, and every case it claims passes", async () => {
+    const report = await runSuite(suiteNamed("w3c"), manifest.corpus_hash);
     expect(report.suite).toBe("w3c");
     expect(report.results).toHaveLength(168);
     const passed = new Set(
@@ -55,8 +55,8 @@ describe("the runner over the vendored corpus", () => {
 
   // Sabotage: restoring `invoke_elements` to the features not run turns this
   // red on every invoke case, each failed before its drive.
-  it("drives every w3c case naming no processor, an invoke case included, and every fail is the comparison's", () => {
-    const report = runSuite(suiteNamed("w3c"), manifest.corpus_hash);
+  it("drives every w3c case, an invoke case and a case naming a processor included, and every fail is the comparison's", async () => {
+    const report = await runSuite(suiteNamed("w3c"), manifest.corpus_hash);
     const cases = new Map(suiteNamed("w3c").cases.map((testCase) => [testCase.id, testCase]));
     const invoking = suiteNamed("w3c")
       .cases.filter((testCase) => testCase.required_features.includes("invoke_elements"))
@@ -66,7 +66,6 @@ describe("the runner over the vendored corpus", () => {
     for (const result of report.results.filter((candidate) => candidate.result === "fail")) {
       const testCase = cases.get(result.case_id);
       if (testCase === undefined) throw new Error(`${result.case_id} is not in the w3c suite`);
-      if (processorsNotRegistered(testCase).length > 0) continue;
       expect(testCase.required_features).not.toContain("invoke_elements");
       expect(result.reason).toMatch(/^the initial configuration: expected active leaf states /);
     }
@@ -74,16 +73,15 @@ describe("the runner over the vendored corpus", () => {
     expect(passed.map((result) => result.case_id)).toEqual(expect.arrayContaining(invoking));
   });
 
-  // Sabotage: driving a case whose processor is not registered, without the
-  // processor check, turns this red: each fails on the comparison instead.
-  // It was run and reverted.
-  it("fails every w3c case naming a processor before the drive, naming it, and claims none", () => {
-    const report = runSuite(suiteNamed("w3c"), manifest.corpus_hash);
+  // Sabotage: answering 204 from the loopback front without handing the event
+  // on turns this red on every case but test577, whose send has no target and
+  // fails within the run before any request is made. It was run and reverted.
+  it("drives every w3c case naming a processor through the loopback: the reference's eleven pass and are claimed, test201 fails on the comparison", async () => {
+    const report = await runSuite(suiteNamed("w3c"), manifest.corpus_hash);
     const naming = suiteNamed("w3c")
       .cases.filter((testCase) => testCase.host?.event_io_processors !== undefined)
       .map((testCase) => testCase.id);
-    expect(naming).toEqual([
-      "w3c/test201",
+    const referenceClaims = [
       "w3c/test509",
       "w3c/test510",
       "w3c/test518",
@@ -95,23 +93,31 @@ describe("the runner over the vendored corpus", () => {
       "w3c/test534",
       "w3c/test567",
       "w3c/test577",
-    ]);
-    for (const id of naming) {
+    ];
+    expect(naming).toEqual(["w3c/test201", ...referenceClaims]);
+    const reference = new Set(loadReferenceRegistry().entries.map((entry) => entry.case_id));
+    expect(naming.filter((id) => reference.has(id))).toEqual(referenceClaims);
+    for (const id of referenceClaims) {
       expect(report.results.find((result) => result.case_id === id)).toEqual({
         case_id: id,
         suite: "w3c",
-        result: "fail",
-        reason: `${PROCESSOR_NOT_REGISTERED}: http://www.w3.org/TR/scxml/#BasicHTTPEventProcessor`,
+        result: "pass",
       });
     }
+    expect(report.results.find((result) => result.case_id === "w3c/test201")).toEqual({
+      case_id: "w3c/test201",
+      suite: "w3c",
+      result: "fail",
+      reason: "the initial configuration: expected active leaf states [pass], got [fail]",
+    });
     const claimed = new Set(loadRegistry().entries.map((entry) => entry.case_id));
-    expect(naming.filter((id) => claimed.has(id))).toEqual([]);
+    expect(naming.filter((id) => claimed.has(id))).toEqual(referenceClaims);
   });
 
   // Sabotage: answering the statifier suite with the not-driven reason turns
   // this red on the passes. It was run and reverted.
-  it("drives every statifier case, and every case it claims passes", () => {
-    const report = runSuite(suiteNamed("statifier"), manifest.corpus_hash);
+  it("drives every statifier case, and every case it claims passes", async () => {
+    const report = await runSuite(suiteNamed("statifier"), manifest.corpus_hash);
     expect(report.results).toHaveLength(31);
     const passed = new Set(
       report.results.filter((result) => result.result === "pass").map((result) => result.case_id),
@@ -133,9 +139,9 @@ describe("the runner over the vendored corpus", () => {
     );
   });
 
-  it("never shortens a suite: every case of every suite, once, in corpus order", () => {
+  it("never shortens a suite: every case of every suite, once, in corpus order", async () => {
     for (const suite of suites) {
-      const report = runSuite(suite, manifest.corpus_hash);
+      const report = await runSuite(suite, manifest.corpus_hash);
       const expected = manifest.suites.find((entry) => entry.suite === suite.suite)?.case_count;
       expect(report.results.map((result) => result.case_id)).toEqual(
         suite.cases.map((testCase) => testCase.id),
@@ -151,12 +157,12 @@ describe("the runner with a case runner handed in", () => {
   const first = scion.cases[0] as CorpusCase;
   const small: CorpusSuite = { suite: "scion", file: scion.file, cases: scion.cases.slice(0, 3) };
 
-  it("reports a pass as a pass and a fail with its own reason", () => {
+  it("reports a pass as a pass and a fail with its own reason", async () => {
     const runCase: RunCase = (testCase) =>
       testCase.id === first.id
         ? { result: "pass" }
         : { result: "fail", reason: "event_transitions" };
-    const report = runSuite(small, manifest.corpus_hash, runCase);
+    const report = await runSuite(small, manifest.corpus_hash, runCase);
     expect(report.results.map((result) => result.result)).toEqual(["pass", "fail", "fail"]);
     expect(report.results[0]).toEqual({ case_id: first.id, suite: "scion", result: "pass" });
     expect(report.results[1]).toMatchObject({ result: "fail", reason: "event_transitions" });
@@ -164,12 +170,12 @@ describe("the runner with a case runner handed in", () => {
 
   // Sabotage: letting a throw escape the case loop turns this red - the run
   // throws instead of reporting the other cases. It was run and reverted.
-  it("reports a case runner that throws as a fail carrying what it threw", () => {
+  it("reports a case runner that throws as a fail carrying what it threw", async () => {
     const runCase: RunCase = (testCase) => {
       if (testCase.id === first.id) throw new Error("no such state");
       return { result: "pass" };
     };
-    const report = runSuite(small, manifest.corpus_hash, runCase);
+    const report = await runSuite(small, manifest.corpus_hash, runCase);
     expect(report.results[0]).toEqual({
       case_id: first.id,
       suite: "scion",
@@ -179,16 +185,16 @@ describe("the runner with a case runner handed in", () => {
     expect(report.results.slice(1).map((result) => result.result)).toEqual(["pass", "pass"]);
   });
 
-  it("refuses a third value rather than writing it into a report", () => {
+  it("refuses a third value rather than writing it into a report", async () => {
     const skip = (() => ({ result: "skip" })) as unknown as RunCase;
-    expect(() => runSuite(small, manifest.corpus_hash, skip)).toThrow(
+    await expect(runSuite(small, manifest.corpus_hash, skip)).rejects.toThrow(
       /neither a pass nor a fail with a reason/,
     );
   });
 
-  it("refuses a fail with no reason", () => {
+  it("refuses a fail with no reason", async () => {
     const silent = (() => ({ result: "fail", reason: "" })) as unknown as RunCase;
-    expect(() => runSuite(small, manifest.corpus_hash, silent)).toThrow(
+    await expect(runSuite(small, manifest.corpus_hash, silent)).rejects.toThrow(
       /neither a pass nor a fail with a reason/,
     );
   });
@@ -218,8 +224,8 @@ describe("the gap list", () => {
 
   // Sabotage: dropping the run's clause from every line turns this red. It was
   // run and reverted.
-  it("ends each line with what a run found: the fail's reason, or a pass not yet recorded", () => {
-    const report = runSuite(suiteNamed("w3c"), manifest.corpus_hash);
+  it("ends each line with what a run found: the fail's reason, or a pass not yet recorded", async () => {
+    const report = await runSuite(suiteNamed("w3c"), manifest.corpus_hash);
     const gap = unclaimed(loadReferenceRegistry(), loadRegistry(), ["w3c"]);
     expect(gap.length).toBeGreaterThan(0);
     const lines = gapLines(gap, suites, report.results);
@@ -274,8 +280,10 @@ describe("the known causes", () => {
 
   // Sabotage: keying the cause to a case the run passes turns this red. It
   // was run and reverted.
-  it("name only cases the run fails", () => {
-    const results = suites.flatMap((suite) => runSuite(suite, manifest.corpus_hash).results);
+  it("name only cases the run fails", async () => {
+    const results = [];
+    for (const suite of suites)
+      results.push(...(await runSuite(suite, manifest.corpus_hash)).results);
     expect(KNOWN_CAUSES.size).toBeGreaterThan(0);
     for (const caseId of KNOWN_CAUSES.keys()) {
       expect(results.find((result) => result.case_id === caseId)?.result).toBe("fail");
@@ -312,14 +320,14 @@ describe("the known causes", () => {
 describe("the cases neither registry claims", () => {
   // Sabotage: keeping the claimed cases instead of dropping them turns this
   // red. It was run and reverted.
-  it("are the three w3c cases the reference leaves unclaimed, each with the run's reason", () => {
+  it("are the three w3c cases the reference leaves unclaimed, each with the run's reason", async () => {
     const neither = unclaimedByEither(loadReferenceRegistry(), loadRegistry(), suites, ["w3c"]);
     expect(neither).toEqual([
       { case_id: "w3c/test201", suite: "w3c" },
       { case_id: "w3c/test330", suite: "w3c" },
       { case_id: "w3c/test552", suite: "w3c" },
     ]);
-    const report = runSuite(suiteNamed("w3c"), manifest.corpus_hash);
+    const report = await runSuite(suiteNamed("w3c"), manifest.corpus_hash);
     const lines = unclaimedByEitherLines(neither, report.results);
     for (const [index, entry] of neither.entries()) {
       const result = report.results.find((candidate) => candidate.case_id === entry.case_id);

@@ -468,14 +468,14 @@ hand. Its registry, `conformance/registry.json`, lists the cases this package
 claims to pass - written only by a run that observed the pass, and never
 narrowed.
 
-**The claim:** this package makes four claims, with 303 entries in its
+**The claim:** this package makes four claims, with 314 entries in its
 registry: `scion` with 119 entries out of the suite's 119 cases, `statifier`
 with 31 entries out of the suite's 31 cases, `w3c-mandatory` with 151 entries
-out of the w3c suite's 154 mandatory cases, and `w3c-optional` with 2 entries
+out of the w3c suite's 154 mandatory cases, and `w3c-optional` with 13 entries
 out of its 14 optional cases. A claim is exactly its entries: a case with no
 entry is one this package does not claim to pass.
 
-**The gap:** it does not yet claim the 12 w3c cases
+**The gap:** it does not yet claim the 1 w3c case
 the reference's own registry lists that this package's does not, nor the 3 w3c
 cases the reference's registry does not list either. `pnpm conformance` runs
 the corpus, writes one report per suite under `reports/`, and prints both
@@ -484,8 +484,12 @@ the reference claims with the features it needs in the corpus's own words. The
 runner drives the scion, w3c and statifier suites through the interpreter. A
 w3c case that needs `<invoke>` is driven with its child run in process. A w3c
 case that names an Event I/O Processor in its host object (the Basic HTTP
-processor is the one such cases name) fails before it is driven, naming the
-processor, because the runner registers none yet. A statifier case that
+processor is the one such cases name) is driven as the reference's host-case
+harness drives it: the package's own Basic HTTP processor is registered under
+its URI and its short form, and its requests come back into the session
+through an in-memory loopback front that opens no socket. So a claim of such
+a case rests on that loopback: it proves the processor's and the core's event
+I/O logic, not a network round trip. A statifier case that
 carries a host object registers its send types with the driver, and agrees
 only when the sends handed to them are exactly the ones it expects. A diff
 case is driven the same way, on its configurations and its sends, because

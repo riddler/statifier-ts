@@ -122,7 +122,7 @@ function matches(chart: Chart, state: State, expected: readonly string[]): boole
 // The earliest due time of a timer pending in the session itself; with
 // `children`, in any session of its tree, since an invoked child's timers run
 // on the same clock.
-function earliestDue(state: State, children = false): number | undefined {
+export function earliestDue(state: State, children = false): number | undefined {
   let earliest: number | undefined;
   for (const timer of state.timers) {
     if (earliest === undefined || timer.dueMs < earliest) earliest = timer.dueMs;

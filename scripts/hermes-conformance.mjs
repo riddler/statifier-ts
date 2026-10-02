@@ -42,11 +42,15 @@
 // current React Native ships: it refuses the `class` keyword outright, where
 // the newer engine's compiler parses it. A bundler targeting an older output
 // language lowers class FIELDS but keeps the keyword, so the bundle is put
-// through a class transform before the VM sees it. The pass is for the
-// standalone VM, and the proof this script produces is a proof against that
-// VM. It is evidence about the engine family and about this package's use of
-// the language; it is not a run on the exact engine build an application
-// ships, and the README says so rather than claiming more.
+// through a class transform before the VM sees it. The same VM refuses an
+// `async` function, which the Basic HTTP processor and the runner's host-case
+// drive both use, so the VM's bundle targets an output language older than
+// `async`, and the bundler lowers each one to a generator, which the VM runs.
+// Both passes are for the standalone VM, and the proof this script produces
+// is a proof against that VM. It is evidence about the engine family and about
+// this package's use of the language; it is not a run on the exact engine
+// build an application ships, and the README says so rather than claiming
+// more.
 //
 // WHY THE TOOLCHAIN IS NOT A DEPENDENCY. The VM, the bundler and the class
 // transform are development tools for producing this evidence by hand, not
@@ -155,7 +159,13 @@ function writeSources(outDir, corpus) {
   );
   // `print` is the VM's only output channel and the only one it has; a server
   // runtime has the console instead. The entry asks which it is given rather
-  // than being generated twice, so both engines run one text.
+  // than being generated twice, so both engines run one text. Each suite is
+  // awaited, because a case whose host runs an Event I/O Processor settles on
+  // the job queue: its deliveries go through the runner's in-memory loopback
+  // front, which answers on that queue and opens no socket, so the BasicHTTP
+  // rows run on the VM through the same front as on the server runtime. Both
+  // engines run the job queue once the script itself has run; a throw that
+  // escapes the run prints one line, which the report count then refuses.
   writeFileSync(
     join(outDir, "entry.ts"),
     [
@@ -165,9 +175,17 @@ function writeSources(outDir, corpus) {
       `const emit =`,
       `  typeof print === "function" ? print : (line) => { console.log(line); };`,
       ``,
-      `for (const suite of corpus.suites) {`,
-      `  emit(JSON.stringify(runSuite(suite, corpus.corpus_hash)));`,
+      `async function main() {`,
+      `  for (const suite of corpus.suites) {`,
+      `    emit(JSON.stringify(await runSuite(suite, corpus.corpus_hash)));`,
+      `  }`,
       `}`,
+      ``,
+      `main().catch((error) => {`,
+      `  emit(`,
+      `    "the run threw: " + (error instanceof Error ? error.message : String(error)),`,
+      `  );`,
+      `});`,
       ``,
     ].join("\n"),
     "utf8",
@@ -189,7 +207,7 @@ async function bundle(esbuild, entry, outfile, forVM) {
     bundle: true,
     platform: "neutral",
     format: forVM ? "iife" : "esm",
-    target: forVM ? "es2019" : "es2020",
+    target: forVM ? "es2016" : "es2020",
     logLevel: "warning",
   });
   return outfile;
