@@ -49,7 +49,7 @@
 // ran in, before the microstep it starts. With the flag clear, no trace
 // effect is built.
 
-import { Undefined, type Value } from "@riddler/predicator";
+import type { Value } from "@riddler/predicator";
 import {
   type ActiveStates,
   type Datamodel,
@@ -136,7 +136,8 @@ export interface BudgetExhausted {
 
 /**
  * The chart has stopped. `donedata` is the top-level final's donedata, or
- * undefined when it has none or it failed; `donedataError` is the data of the
+ * undefined when it has none or it failed, or null when no top-level final
+ * was exited, as when the chart was cancelled; `donedataError` is the data of the
  * `error.execution` that failure raised, which nothing can take from the
  * queue once the chart has stopped, or null.
  */
@@ -533,7 +534,8 @@ export function mainEventLoop(state: MachineState): Stepped {
 /**
  * `exitInterpreter`: every active state leaves in exit order, running its
  * `<onexit>` blocks and cancelling its live invocations, with no history
- * recorded; the top-level final among them, if any, yields the donedata.
+ * recorded; the top-level final among them, if any, yields the donedata, and
+ * with none among them the donedata is null, as the reference's nil.
  * `done` is answered last, the status becomes `done`, and the internal queue
  * is emptied, taking any event the exits raised with it. With tracing on,
  * an `exit_set` trace comes first and a `done` trace just before `done`.
@@ -541,7 +543,7 @@ export function mainEventLoop(state: MachineState): Stepped {
 export function exitInterpreter(state: MachineState): Stepped {
   const configurationAtExit = documentOrder(state.configuration);
   let current = state;
-  let data: Value = Undefined;
+  let data: Value = null;
   let dataError: Value | null = null;
   const effects: InterpreterEffect[] = [];
   for (const s of exitOrder(state.configuration)) {
