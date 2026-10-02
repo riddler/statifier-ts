@@ -1904,7 +1904,7 @@ exported from `src/index.ts`; its worked example, run at `8a2e210`, hands
 
 ## Amendment: the idlocation and empty finalize writes answer a datamodel_change (2026-10-02)
 
-Status: proposed
+Status: accepted (2026-10-02; proposed 2026-10-02)
 
 The datamodel and trace effects Amendment left three writes out of
 `datamodel_change`: in its paragraph beginning "Not ported", the reference's
@@ -1989,7 +1989,7 @@ changelog fragment names both changes.
 
 ## Amendment: a write resolves its location through the expression language (2026-10-02)
 
-Status: proposed
+Status: accepted (2026-10-02; proposed 2026-10-02)
 
 Until this Amendment a write accepted a bare root alone: `writeLocation` in
 `src/datamodel.ts` (at `6249302`) matched the root by pattern, refused a root
@@ -2128,3 +2128,80 @@ that the 0.2.0 section of `CHANGELOG.md` names under Changed:
 
 Both are changed answers of a published version, and the list reads with
 them.
+
+## Note: the acceptance of the two Amendments of 2026-10-02 (2026-10-02)
+
+This Note records that the Amendments "the idlocation and empty finalize
+writes answer a datamodel_change" and "a write resolves its location through
+the expression language" moved from proposed to accepted together. The
+conductor moved them under the flip standard of the campaign consent adopted
+under the operator's pre-consent, 2026-10-01. It decides nothing, so it
+carries no Status line, and it removes no line. With it, no entry in this
+record reads proposed, as the acceptance Note of 2026-10-02 above said of the
+record before the two Amendments were added.
+
+**They shipped in `@riddler/statifier` 0.2.0.** That version is on npm, built
+from the commit tagged `v0.2.0` (`b091164`), and both Amendments' own changes
+are in the tag: `6249302` and `5560a8c`. No file under `src/`, `test/`,
+`conformance/` or `package.json` changed between `b091164` and the commit
+this Note was written on; only this record did, by the Note of 2026-10-02
+above. Every claim about this package was re-checked at `b091164` and
+re-located by anchor; every claim about the reference was read at
+statifier-ex `v2.10.0` (`c8894ae`), and every claim about
+`@riddler/predicator` at its `v0.5.0` (`36c23a5`), the version
+`package.json` requires as `^0.5.0` and the one installed.
+
+**The idlocation and empty finalize writes.** `DatamodelChange` in
+`src/core/effects.ts` has the fields and the widened `owner` the Amendment
+prints, and `Owner` in `src/datamodel.ts` is unchanged. `executeSend` in
+`src/core/send.ts` answers the change with the `<send>`'s `cIndex` and its
+block's owner just before the `send` or `send_delayed`, and a send refused
+for its target, its type or its route answers no effect, keeping the write
+and the minted id. `invokeOne` in `src/core/invoke.ts` answers the change
+with the `invoke` owner just before the `invoke`, and neither when the write
+is refused; `autoAssignFinalize` there answers one change per write that
+lands, with the `finalize` owner, and raises `error.execution` for one that
+fails, the others standing. In the reference, the field order of
+`Statifier.Effect.DatamodelChange`, its `owner/0` and its typedoc,
+`datamodel_change_effects/4` and `dispatch_or_reject/8` in
+`Statifier.Machine.Content.Send`, and `datamodel_change_effects/5`,
+`invoke_one/6`, `write_finalize_target/6` and `auto_assign_finalize/5` in
+`Statifier.Interpreter` read as the Amendment says. The three sentences it
+meets are where it says they are, and the 0.2.0 section of `CHANGELOG.md`
+names both changes under Changed.
+
+**The nested locations.** `writeLocation` at `6249302` reads as the
+Amendment's opening says. At `b091164`, `writeLocation` in `src/datamodel.ts`
+resolves through `contextLocation`, handing over the roots only for a source
+with a bracket, then refuses `system_variable`, then `unbound_location`, reads
+the prior value at the full path, binds a root-alone path directly and writes
+any longer one with `contextPut` over the root alone; `evaluator_error` in
+`ExecutionReason` carries `PredicatorError | ParseError | LocationError`, and
+no file under `src/` names `unsupported_location`. `executeAssign` in
+`src/core/content.ts` and the three sites above answer the resolved path and
+the prior value. Each refusal and each write the five steps, the reserved
+word paragraph and the forks paragraph describe was run through
+`writeLocation` at `b091164` and answers as written: `[0]`, `renewals + 1`
+and a bracket key bound to `true` answer a `LocationError`, a write through a
+scalar, a string key against a list and a negative index answer one too,
+`holds[2]` on `["c-1"]` leaves `["c-1", Undefined, "c-3"]`, `next`, `and`
+and `if` answer a `ParseError` and `true` a `not_assignable` `LocationError`
+bound or unbound, `today` is written, and `patron[1]` writes the key `"1"`
+with the absence as its prior value. `write_location/4` in
+`lib/statifier/interpreter/datamodel.ex` at `v2.10.0` is quoted as the
+Amendment quotes it, and its `read_path/2` answers the absence for an integer
+segment against a map. `contextLocation` and `contextPut` are in
+`src/location.ts` at predicator-ts `v0.5.0`, and its ADR-0005 declares the
+two forks the Amendment names. The vendored corpus is unchanged by the
+Amendment's change, and its cases that write `foo.bar.baz` over an
+undeclared root still answer as the gate's registry stage claims.
+
+**Sentences later records name.** These read differently on `main` at
+`b091164`, and each is named by a later dated entry above:
+
+- The nested-locations Amendment's citation of the two tags as `bb94ebf` and
+  `000b9d8`, its reference site for a `<send>`'s `idlocation` write, and its
+  closing list of what a host sees: the Note of 2026-10-02 above names all
+  three and says what holds, and each holds as that Note says at `b091164`
+  and at `c8894ae`. That Note's sentence "that Amendment's Status line does
+  not move" described the Note alone; this acceptance moves it.
