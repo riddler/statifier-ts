@@ -23,6 +23,7 @@ import {
   type HostValue,
   isFloat,
   type ParseError,
+  type PDateTime,
   type PredicatorError,
   type Program,
   evaluate as predicatorEvaluate,
@@ -114,6 +115,41 @@ export function inState(states: ActiveStates, args: readonly Value[]): boolean {
 /** The functions every evaluation gets: `In()` over this context's configuration. */
 function functionsOf(context: EvaluationContext): Record<string, HostFunction> {
   return { In: (args) => inState(context.states, args) };
+}
+
+/**
+ * The clock `Date.now()` and a relative date read, and the source
+ * `Math.random()` draws from, as predicator's `now` and `random` options
+ * take them.
+ */
+export interface Draws {
+  readonly now: () => PDateTime;
+  readonly random: () => number;
+}
+
+// The draws pinned for the evaluations the current driver call's run makes,
+// or none, when predicator reads its own clock and random source.
+let pinnedDraws: Draws | null = null;
+
+/**
+ * Runs `run` with every evaluation it makes reading `draws`, and restores
+ * what was pinned before, whether `run` returns or throws. A driver call
+ * pins one source for its runs, so a run made again reads what the first
+ * run read.
+ */
+export function withDraws<T>(draws: Draws, run: () => T): T {
+  const outer = pinnedDraws;
+  pinnedDraws = draws;
+  try {
+    return run();
+  } finally {
+    pinnedDraws = outer;
+  }
+}
+
+/** The `now` and `random` options for an evaluation: the pinned draws, or none. */
+export function drawOptions(): Partial<Draws> {
+  return pinnedDraws === null ? {} : { now: pinnedDraws.now, random: pinnedDraws.random };
 }
 
 /** The datamodel as the plain object predicator reads a context from. */
@@ -284,7 +320,11 @@ function decodedValue(text: HostValue): Value {
 export function evaluate(context: EvaluationContext, expr: Expr): EvaluateOutcome {
   if (expr.kind === "static") return { ok: true, value: expr.value };
   const data = contextObject(context.data);
-  const options = { functions: functionsOf(context), onUnbound: ON_UNBOUND } as const;
+  const options = {
+    functions: functionsOf(context),
+    onUnbound: ON_UNBOUND,
+    ...drawOptions(),
+  } as const;
   const tagged = evaluateTagged(expr.program, data, { ...options, tagged: true });
   if (tagged.ok) return { ok: true, value: decodedValue(tagged.value) };
   if (tagged.error.message !== TAGGED_REFUSAL) {
@@ -818,6 +858,7 @@ export function runProgram(context: EvaluationContext, compiled: CompiledProgram
     functions: functionsOf(context),
     onUnbound: ON_UNBOUND,
     protectedRoots: protectedRoots(before),
+    ...drawOptions(),
   });
 
   let failure: ExecutionReason | undefined;
