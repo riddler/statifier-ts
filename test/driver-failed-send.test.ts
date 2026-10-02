@@ -234,7 +234,9 @@ describe("a processor's deliver answering a failure", () => {
     expect(moved.state.configuration).toEqual(["calling"]);
   });
 
-  // Sabotage: raising the failures in reverse order turns this red.
+  // Sabotage: answering a call an earlier run made as taken, rather than
+  // with the failure it answered, turns this red: the chart rests in
+  // notifying.
   it("raises each failed send in the order it was handed", () => {
     // The first two sends handed, the notice and the reminder, both fail.
     let failures = 2;
@@ -247,7 +249,7 @@ describe("a processor's deliver answering a failure", () => {
     const reminder = sent(host, "hold.reminder");
     // The notice fails first and moves the chart on; the reminder's failure
     // then finds no transition from `calling` and is taken by nothing.
-    expect(host.handed).toHaveLength(2);
+    expect(host.handed.map((send) => send.event)).toEqual(["hold.ready", "hold.reminder"]);
     expect(logged(moved.effects)).toEqual([
       ["type", "platform"],
       ["sendid", "notice"],
@@ -256,8 +258,8 @@ describe("a processor's deliver answering a failure", () => {
     expect(reminder.sendId).not.toBe("notice");
   });
 
-  // Sabotage: dropping the processor calls a failure's run makes (the
-  // answer loop running only the first pass of calls) turns this red.
+  // Sabotage: answering once the first run's calls are made, without making
+  // the run again after the failure, turns this red.
   it("hands the sends the failure's run makes, within the same call", () => {
     let failures = 1;
     const host = desk((send) => {
@@ -295,5 +297,97 @@ describe("a processor's deliver answering a failure", () => {
     expect(() => step(HOLD, started.state, { name: "copy.available" }, host.options)).toThrow(
       thrown,
     );
+  });
+});
+
+describe("a failure deliver answers, raised within the run that handed the send", () => {
+  const failure: DeliveryFailure = { kind: "failure", reason: "patron:ada has no address" };
+
+  // The branch tells the desk to stand by, an event the chart sends itself,
+  // and then sends the notice, in one block. A notice that fails moves the
+  // chart to `notice_failed` before the desk's event is taken; taken first,
+  // that event would move it to `standing_by`.
+  const RETURNS = chartOf(`<scxml ${SCXML} initial="awaiting_copy" name="returns">
+  <state id="awaiting_copy"><transition event="copy.available" target="notifying"/></state>
+  <state id="notifying">
+    <onentry>
+      <send event="desk.stand_by"/>
+      <send id="notice" type="library:notice" target="patron:ada" event="hold.ready"/>
+    </onentry>
+    <transition event="error.communication" target="notice_failed">
+      <log label="sendid" expr="_event.sendid"/>
+    </transition>
+    <transition event="desk.stand_by" target="standing_by"/>
+  </state>
+  <state id="notice_failed">
+    <onentry><send type="library:notice" target="desk:front" event="hold.call_patron"/></onentry>
+  </state>
+  <state id="standing_by">
+    <onentry><send type="library:notice" target="patron:ada" event="hold.stand_by"/></onentry>
+  </state>
+</scxml>`);
+
+  // Sabotage: raising the failure only once the run has taken its external
+  // queue (the held call's answer read after the run, as before) turns this
+  // red: the chart takes the desk's event first and rests in `standing_by`.
+  it("joins the internal queue before the run takes its external queue", () => {
+    const host = desk((send) => (send.event === "hold.ready" ? failure : undefined));
+    const started = ok(start(RETURNS, { sessionId: "returns-ada", ...host.options }));
+    const moved = ok(step(RETURNS, started.state, { name: "copy.available" }, host.options));
+    expect(moved.state.configuration).toEqual(["notice_failed"]);
+    expect(logged(moved.effects)).toEqual([["sendid", "notice"]]);
+    // The desk's event was taken after the failure, by a state with no
+    // transition for it.
+    expect(moved.state.externalQueue).toEqual([]);
+  });
+
+  // Sabotage: calling the processor again for the sends the call already
+  // handed when it raises a failure turns this red: the notice is handed
+  // twice. So does making the calls a run held past the failure: the
+  // stand-by notice, which only the run without the failure sends, is handed.
+  it("calls each processor once for each send the call hands", () => {
+    const host = desk((send) => (send.event === "hold.ready" ? failure : undefined));
+    const started = ok(start(RETURNS, { sessionId: "returns-ada", ...host.options }));
+    ok(step(RETURNS, started.state, { name: "copy.available" }, host.options));
+    expect(host.handed.map((send) => send.event)).toEqual(["hold.ready", "hold.call_patron"]);
+  });
+
+  // Sabotage: asking the entry hook each time the call's run is made again
+  // turns this red: a start whose run a failure changes asks it twice.
+  it("asks the entry hook once per type when a start's run fails a send", () => {
+    const asked: string[] = [];
+    const processor: SendProcessor = {
+      deliver: (send) => (send.event === "hold.ready" ? failure : undefined),
+      ioprocessorsEntry: (type) => {
+        asked.push(type);
+        return {};
+      },
+    };
+    const AT_ONCE = chartOf(`<scxml ${SCXML} initial="notifying" name="at_once">
+  <state id="notifying">
+    <onentry><send id="notice" type="library:notice" target="patron:ada" event="hold.ready"/></onentry>
+    <transition event="error.communication" target="notice_failed"/>
+  </state>
+  <state id="notice_failed"/>
+</scxml>`);
+    const started = ok(
+      start(AT_ONCE, { sessionId: "hold-ada", sendTypes: { "library:notice": processor } }),
+    );
+    expect(started.state.configuration).toEqual(["notice_failed"]);
+    expect(asked).toEqual(["library:notice"]);
+  });
+
+  // Sabotage: making the held calls before the state is written turns this
+  // red: the refused start hands the failing notice.
+  it("hands nothing when the call is refused, a send that would fail included", () => {
+    const host = desk(() => failure);
+    expect(
+      start(RETURNS, {
+        sessionId: "returns-ada",
+        ...host.options,
+        datamodel: { shelf: { $type: "date" } },
+      }),
+    ).toEqual({ ok: false, reason: "unencodable_value" });
+    expect(host.handed).toEqual([]);
   });
 });

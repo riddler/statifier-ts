@@ -8,6 +8,7 @@
 
 import { float, Undefined } from "@riddler/predicator";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { loadSuites } from "../scripts/lib/corpus.mjs";
 import {
   BASIC_HTTP_EVENT_PROCESSOR,
   basicHttp,
@@ -491,5 +492,61 @@ describe("the driver's processor context and entry hook", () => {
     expect(logged(started.effects)).toEqual({ entry: {} });
     const moved = ok(advance(SIMPLE, started.state, 0, { sendTypes }));
     expect(moved.state.configuration).toEqual(["notifying"]);
+  });
+});
+
+describe("a send with no target, beside a send to the session itself", () => {
+  // The branch tells its own desk to stand by and posts the notice with no
+  // target, in one block. The notice's failure joins the internal queue
+  // within the run that handed it, so it is taken before the desk's event,
+  // as the reference raises it from the processor's plan.
+  const STAND_BY = chartOf(`<scxml ${SCXML} initial="notifying">
+    <state id="notifying">
+      <onentry>
+        <send event="desk.stand_by"/>
+        <send id="notice" event="hold.ready" type="basichttp"/>
+      </onentry>
+      <transition event="error.communication" target="notice_failed"/>
+      <transition event="*" target="standing_by"/>
+    </state>
+    <state id="notice_failed"/>
+    <state id="standing_by"/>
+  </scxml>`);
+
+  // Sabotage: raising a failure deliver answered only once the run has
+  // taken its external queue turns this red: the chart rests in
+  // `standing_by`.
+  it("is taken before the event the same block sent the session", async () => {
+    const d = desk();
+    const started = ok(start(STAND_BY, { sessionId: "branch-7", sendTypes: sendTypesFor(d) }));
+    await settle();
+
+    expect(started.state.configuration).toEqual(["notice_failed"]);
+    expect(d.requests).toEqual([]);
+    expect(d.reports).toEqual([]);
+  });
+
+  // The vendored corpus's own w3c/test577, driven through the processor with
+  // a transport that records requests and makes none: the case passes for
+  // the reason the reference's harness passes it, the processor's
+  // no-target failure taken ahead of `event1`, and with no request made.
+  // Sabotage: as above; the chart rests in `fail`.
+  it("passes w3c/test577 through the processor, making no request", async () => {
+    const testCase = loadSuites()
+      .find((suite) => suite.suite === "w3c")
+      ?.cases.find((found) => found.id === "w3c/test577");
+    if (testCase === undefined) throw new Error("no w3c/test577 in the vendored corpus");
+    expect(testCase.host?.event_io_processors).toEqual([BASIC_HTTP_EVENT_PROCESSOR]);
+    const d = desk();
+    const started = ok(
+      start(chartOf(testCase.source), { sessionId: "w3c-577", sendTypes: sendTypesFor(d) }),
+    );
+    await settle();
+
+    expect(started.state.done?.configuration).toEqual(testCase.initial_configuration);
+    expect(started.state.done?.configuration).toEqual(["pass"]);
+    expect(logged(started.effects)).toEqual({ Outcome: "pass" });
+    expect(d.requests).toEqual([]);
+    expect(d.reports).toEqual([]);
   });
 });
