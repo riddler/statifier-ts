@@ -770,10 +770,11 @@ seam as an exception.
 
 **How a failure reaches the chart.** The processor reads a `failure`, and a
 `status` outside 2xx, as a missed delivery. It makes no second attempt and
-reports the miss through the driver's failed-send report, which raises
-`error.communication` (SCXML appendix C.1) for the sending chart. That report
-is the host-reported failed send, which its own Amendment to this record
-states; the reference's counterpart is `Statifier.Session.failed_send/3`,
+is to report the miss through a failed-send report on the driver, which is to
+raise `error.communication` (SCXML appendix C.1) for the sending chart. The
+driver has no such report on `main` yet, and ADR-0003's failed-send row says
+so; a later Amendment to this record will state it. The reference's
+counterpart is `Statifier.Session.failed_send/3`,
 reached from `post_now/2` in `lib/statifier/send/basic_http.ex` at `v2.10.0`
 (ADR-0075 decision 8, point d). A status in 2xx is a delivery, and nothing
 reaches the chart.
