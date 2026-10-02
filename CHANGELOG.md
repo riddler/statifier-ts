@@ -35,8 +35,9 @@ root spelled as one of the expression language's reserved words is now refused
 the same way where it was written; a `<send idlocation>`, an
 `<invoke idlocation>` and an empty `<finalize>` write each answer a
 `datamodel_change`, whose `owner` may now be the `invoke` member naming an
-invocation; and every `datamodel_change` names the path the location resolved
-to and the value read there before the write.
+invocation; every `datamodel_change` names the path the location resolved
+to and the value read there before the write; and a write at an index past a
+list's end pads the list with the absence.
 
 ### Changed
 
