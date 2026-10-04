@@ -13,6 +13,7 @@
 import { paramsData, textData } from "../core/send.js";
 import type { HostEvent } from "../driver.js";
 import { decodeField, decodeForm, wellFormed } from "./encoding.js";
+import { BASIC_HTTP_EVENT_PROCESSOR } from "./processor.js";
 
 const EVENT_NAME_PARAM = "_scxmleventname";
 const FORM = "application/x-www-form-urlencoded";
@@ -56,8 +57,10 @@ export type DecodeResult = { readonly ok: true; readonly event: HostEvent } | De
  * a `<content>` body's text is read - a predicator literal, else the text -
  * so `2` is the number 2; the last of a repeated name wins, and no
  * parameters is no data. A body of any other content type is the data, read
- * the same way, and the query string then gives the name only. The
- * `scxml-send-key` value is checked and sets nothing on the event.
+ * the same way, and the query string then gives the name only. The event's
+ * `origintype` is the processor's URI, `BASIC_HTTP_EVENT_PROCESSOR`, which
+ * the chart reads as `_event.origintype`. The `scxml-send-key` value is
+ * checked and sets nothing on the event.
  *
  * A front answers 204 once it has queued the event, and a front that has
  * already queued a request carrying the same `scxml-send-key` answers 204
@@ -91,7 +94,7 @@ export function decodeRequest(request: InboundRequest): DecodeResult {
     text === null
       ? paramsData(params.map(([key, value]) => [key, textData(value)] as const))
       : textData(text);
-  return { ok: true, event: { name, data } };
+  return { ok: true, event: { name, origintype: BASIC_HTTP_EVENT_PROCESSOR, data } };
 }
 
 function isForm(contentType: string | null): boolean {

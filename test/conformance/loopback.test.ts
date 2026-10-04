@@ -50,7 +50,10 @@ describe("the loopback front", () => {
     const { loopback, taken } = front();
     expect(await loopback.transport.post(request())).toEqual({ kind: "status", status: 204 });
     expect(taken).toEqual([
-      { sessionId: SESSION, event: { name: "hold.placed", data: { copy: 7 } } },
+      {
+        sessionId: SESSION,
+        event: { name: "hold.placed", origintype: BASIC_HTTP, data: { copy: 7 } },
+      },
     ]);
   });
 
@@ -63,7 +66,10 @@ describe("the loopback front", () => {
     });
     expect(await loopback.transport.post(text)).toEqual({ kind: "status", status: 204 });
     expect(taken).toEqual([
-      { sessionId: SESSION, event: { name: "hold.placed", data: "a note for the patron" } },
+      {
+        sessionId: SESSION,
+        event: { name: "hold.placed", origintype: BASIC_HTTP, data: "a note for the patron" },
+      },
     ]);
   });
 
@@ -153,7 +159,10 @@ describe("the wire", () => {
     expect(wired.wire.take()).toEqual([
       {
         kind: "event",
-        delivered: { sessionId: SESSION, event: { name: "hold.placed", data: Undefined } },
+        delivered: {
+          sessionId: SESSION,
+          event: { name: "hold.placed", origintype: BASIC_HTTP, data: Undefined },
+        },
       },
     ]);
     expect(wired.wire.take()).toEqual([]);
