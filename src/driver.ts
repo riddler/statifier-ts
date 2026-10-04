@@ -150,11 +150,15 @@
 // One driver call spends the same budget twice more, per session, so that a
 // call always returns where the reference's session would keep running:
 // against the failures its processors answer that the call raises, and
-// against the events its sessions take. A session that would raise one
-// failure more than its budget queues that failure on its internal queue
-// unrun, and a session that would take one event more than its budget
+// against the events the session takes that an undelayed send queued in
+// this call, to the session itself or from a child to its parent. A fired
+// timer's event is never counted. A session that would raise one failure
+// more than its budget queues that failure on its internal queue unrun,
+// and a session that would take one counted event more than its budget
 // leaves it queued; either halts the session with the `budget_exhausted`
-// effect. An `infinity` budget bounds neither.
+// effect, and a session halted this way runs its chart no further in the
+// call: an event raised onto its internal queue afterwards waits there
+// unrun. An `infinity` budget bounds neither.
 
 import {
   PDateTime,
@@ -332,7 +336,8 @@ export interface State {
   readonly heldSends: Readonly<Record<string, readonly string[]>>;
   /**
    * Set when a macrostep spent its round budget, or a call its count of
-   * raised failures or taken events: external events then wait.
+   * raised failures or of taken events an undelayed send queued: external
+   * events then wait.
    */
   readonly halted: "budget_exhausted" | null;
   /** Set once the chart has stopped. */
@@ -481,7 +486,8 @@ export interface StartOptions extends DriveOptions {
   readonly datamodel?: Readonly<Record<string, Value>>;
   /**
    * The rounds one macrostep may spend, and the failures a session raises
-   * and the events it takes in one call; 10000 when absent.
+   * and the events an undelayed send queued that it takes in one call;
+   * 10000 when absent.
    */
   readonly maxMacrostepRounds?: RoundBudget;
 }
@@ -803,8 +809,15 @@ interface Live {
    * the parent, which has already retired the invocation.
    */
   cancelled: boolean;
-  /** The events this session has taken in this call. */
+  /** The counted events this session has taken in this call. */
   taken: number;
+  /**
+   * The queued events and mailbox entries an undelayed send made in this
+   * call: the ones the round budget counts when they are taken.
+   */
+  readonly counted: Set<object>;
+  /** Set once this call has halted the session for its round budget. */
+  spent: boolean;
   /** The failures its processors answered that this session has raised in this call. */
   raised: number;
   /**
@@ -926,6 +939,8 @@ function launch(spec: Launch, register?: (live: Live) => void): Live {
     mailbox: [],
     cancelled: false,
     taken: 0,
+    counted: new Set(),
+    spent: false,
     raised: 0,
     processors: spec.processors,
     inherit: spec.inherit,
@@ -1008,33 +1023,47 @@ function nextDue(
 
 // Takes the external queue one event per macrostep, while the chart runs and
 // no macrostep has spent its budget; once it is empty, takes the mailbox one
-// entry at a time, each run to completion before the next. An event the
-// session would take past its round budget in this call is left queued, and
-// the session halts.
+// entry at a time, each run to completion before the next. A counted event
+// the session would take past its round budget in this call is left
+// queued, and the session halts.
 function drain(live: Live): void {
   while (live.halted === null && live.core.running) {
-    if (takesNext(live) && !within(live.taken + 1, live.core.maxMacrostepRounds)) {
-      perform(live, [budgetExhausted(live)]);
-      return;
-    }
     const [event, ...rest] = live.externalQueue;
     if (event !== undefined) {
+      if (spends(live, event)) {
+        halt(live);
+        return;
+      }
       live.externalQueue = rest;
       take(live, event);
       continue;
     }
     const [mail, ...later] = live.mailbox;
     if (mail === undefined) return;
+    if (spends(live, mail)) {
+      halt(live);
+      return;
+    }
     live.mailbox = later;
     takeMail(live, mail);
   }
 }
 
-// Whether the drain's next entry is an event to take: one on the external
-// queue, or a mailbox entry carrying one.
-function takesNext(live: Live): boolean {
-  const [mail] = live.mailbox;
-  return live.externalQueue.length > 0 || (mail !== undefined && mail.kind !== "completed");
+// Whether taking a queued event or mailbox entry would spend the session's
+// round budget for this call; one the budget counts and leaves room for is
+// counted as taken.
+function spends(live: Live, entry: object): boolean {
+  if (!live.counted.has(entry)) return false;
+  if (!within(live.taken + 1, live.core.maxMacrostepRounds)) return true;
+  live.taken += 1;
+  return false;
+}
+
+// Halts the session for this call's round budget, with the spent-budget
+// effect.
+function halt(live: Live): void {
+  live.spent = true;
+  perform(live, [budgetExhausted(live)]);
 }
 
 // Whether a count is within a round budget: always, for `infinity`.
@@ -1062,7 +1091,6 @@ function budgetExhausted(live: Live): BudgetExhausted {
 // event the chart queued for itself declares nothing new, as the reference's
 // drain does not.
 function take(live: Live, event: Event): void {
-  live.taken += 1;
   const outcome = handleEvent(live.core, event);
   if (!outcome.ok) return;
   live.core = outcome.state;
@@ -1123,7 +1151,7 @@ function performOne(live: Live, effect: InterpreterEffect): readonly Interpreter
   switch (effect.kind) {
     case "send":
       if (registered(live, effect)) return handOff(live, effect);
-      return route(live, effect);
+      return route(live, effect, true);
     case "send_delayed":
       if (registered(live, effect)) return handOff(live, effect);
       live.timers.push({
@@ -1342,16 +1370,22 @@ function stopped(live: Live, done: Done): void {
   }
 }
 
-// An immediate built-in send, routed now.
-function route(live: Live, send: Send | SendDelayed): readonly InterpreterEffect[] {
+// An immediate built-in send, routed now. What an undelayed send queues for
+// the session itself or its parent is counted against the round budget; a
+// fired timer's is not.
+function route(
+  live: Live,
+  send: Send | SendDelayed,
+  undelayed: boolean,
+): readonly InterpreterEffect[] {
   const target = parseTarget(send.target);
   switch (target.kind) {
     case "self":
-      live.externalQueue.push(deliveredEvent(send, live.sessionId));
+      enqueueSelf(live, deliveredEvent(send, live.sessionId), undelayed);
       return [];
     case "session":
       if (target.sessionId === live.sessionId) {
-        live.externalQueue.push(deliveredEvent(send, live.sessionId));
+        enqueueSelf(live, deliveredEvent(send, live.sessionId), undelayed);
         return [];
       }
       return communicationError(live, send);
@@ -1362,11 +1396,15 @@ function route(live: Live, send: Send | SendDelayed): readonly InterpreterEffect
       });
     case "parent":
       if (live.parent === null || live.invokedAs === null) return communicationError(live, send);
-      live.parent.mailbox.push({
-        kind: "event",
-        invokeId: live.invokedAs,
-        event: { ...deliveredEvent(send, live.sessionId), invokeid: live.invokedAs },
-      });
+      {
+        const mail: Mail = {
+          kind: "event",
+          invokeId: live.invokedAs,
+          event: { ...deliveredEvent(send, live.sessionId), invokeid: live.invokedAs },
+        };
+        live.parent.mailbox.push(mail);
+        if (undelayed) live.parent.counted.add(mail);
+      }
       return [];
     case "invoke": {
       const invocation = live.invocations.get(target.invokeId);
@@ -1382,7 +1420,14 @@ function route(live: Live, send: Send | SendDelayed): readonly InterpreterEffect
 // A fired timer's send, routed as an immediate one is; a self-addressed one
 // joins the external queue and is taken by the drain that follows.
 function fire(live: Live, send: SendDelayed): void {
-  perform(live, route(live, send));
+  perform(live, route(live, send, false));
+}
+
+// An event for the session itself joins its external queue, marked to be
+// counted when an undelayed send queued it.
+function enqueueSelf(live: Live, event: Event, undelayed: boolean): void {
+  live.externalQueue.push(event);
+  if (undelayed) live.counted.add(event);
 }
 
 // A send the host could not deliver, the reference's `failed_send/3`:
@@ -1406,17 +1451,14 @@ function sendFailure(live: Live, send: SendOrigin): readonly InterpreterEffect[]
 }
 
 // The failed send's `error.communication` on the internal queue with the
-// chart not run: the session halts, answering the spent-budget effect the
-// first time it does.
+// chart not run: the session halts for this call's round budget, answering
+// the spent-budget effect when it was not halted already.
 function spentFailure(live: Live, send: SendOrigin): readonly InterpreterEffect[] {
   if (!live.core.running) return [];
-  stamp(live);
-  const event = internalEvent(live, "platform", "error.communication", failureOrigin(send), {
-    data: Undefined,
-    sendid: send.sendId,
-  });
-  live.core = { ...live.core, internalQueue: [...live.core.internalQueue, event] };
-  if (live.halted !== null) return [];
+  const halted = live.halted !== null;
+  live.spent = true;
+  sendFailure(live, send);
+  if (halted) return [];
   live.halted = "budget_exhausted";
   return [budgetExhausted(live)];
 }
@@ -1436,7 +1478,9 @@ function communicationError(live: Live, send: Send | SendDelayed): readonly Inte
 
 // The reference's `Interpreter.deliver_internal/5`: the event joins the
 // internal queue, stamped with the counters as they stand, and the chart
-// runs to a stable configuration. A stopped chart takes nothing.
+// runs to a stable configuration. A stopped chart takes nothing, and a
+// session this call halted for its round budget runs nothing more: the
+// event waits on its internal queue.
 function deliverInternal(
   live: Live,
   type: "internal" | "platform",
@@ -1447,6 +1491,10 @@ function deliverInternal(
   if (!live.core.running) return [];
   stamp(live);
   const event = internalEvent(live, type, name, origin, fields);
+  if (live.spent) {
+    live.core = { ...live.core, internalQueue: [...live.core.internalQueue, event] };
+    return [];
+  }
   const stepped = mainEventLoop({
     ...live.core,
     internalQueue: [...live.core.internalQueue, event],
@@ -2110,6 +2158,8 @@ function decodeState(decoder: Decoder, chart: Chart, state: State, place: Place)
     mailbox: state.mailbox.map((mail, i) => decodeMail(decoder, mail, `${at}mailbox[${i}]`)),
     cancelled: false,
     taken: 0,
+    counted: new Set(),
+    spent: false,
     raised: 0,
     processors: place.processors,
     inherit: place.inherit,
