@@ -2569,3 +2569,40 @@ processor's `cancel`, which finds nothing to clear. The reference's timer is
 a process of its runtime, so its held sends end with that runtime the same
 way. Re-arming the held sends from the state is not taken; it would be an
 addition, a later change's.
+
+## Note: the second acceptance Note's citation, and the sentences the datamodel-change Amendment meets (2026-10-04)
+
+This Note completes the Note "the acceptance of the two Amendments of
+2026-10-02" (2026-10-02) above, read against `main` at `3589315`. It decides
+nothing new, carries no Status line and removes no line.
+
+**The Note it cites by date.** That Note cites "the Note of 2026-10-02 above"
+twice: in its paragraph on the shipped version, as the one change to this
+record after the tag, and in its list "Sentences later records name". Two
+Notes above it carry that date. Both citations name the Note "the
+nested-locations Amendment's tag commits, its send write and what a host
+sees": it is the one change between the commit tagged `v0.2.0` (`b091164`)
+and the acceptance Note's own, and it is the Note that names the three
+passages the list's bullet gives.
+
+**The sentences the datamodel-change Amendment meets.** That Note's list
+holds only the passages the correction Note names, where the acceptance Note
+of this record and its Amendments also lists the sentences an accepted
+Amendment made inexact. The Amendment "the idlocation and empty finalize
+writes answer a datamodel_change", which that Note moved to accepted, meets
+three earlier sentences, each named in its own paragraph "What this meets".
+Each reads differently on `main` at `3589315`:
+
+- The datamodel and trace effects Amendment's "Not ported" sentence that the
+  reference's `datamodel_change` for a `<send idlocation>` write, an
+  `<invoke idlocation>` write and an empty `<finalize>`'s writes "is not
+  emitted either", and its table's `datamodel_change` row, which names
+  neither site: `executeSend` in `src/core/send.ts`, and `invokeOne` and
+  `autoAssignFinalize` in `src/core/invoke.ts`, emit all three.
+- The invoke effects Amendment's words "nor the trace and datamodel effects
+  the passes emit": the stability Note of 2026-10-01 reads them as holding for
+  the datamodel effects only, and with the datamodel-change Amendment they
+  hold for neither.
+- That stability Note's sentence that the `datamodel_change` for an
+  `<invoke idlocation>` write and an empty `<finalize>`'s writes "is still not
+  emitted": `invokeOne` and `autoAssignFinalize` emit it.
