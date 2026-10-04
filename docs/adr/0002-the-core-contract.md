@@ -2347,7 +2347,7 @@ queues itself before it returns.
 
 ## Amendment: an inbound event's origintype, and a held send of a stopped session (2026-10-04)
 
-Status: proposed (2026-10-04)
+Status: accepted (2026-10-04; proposed 2026-10-04)
 
 The Basic HTTP processor Amendment's table "Further divergences from the
 reference, each declared" has two rows this Amendment answers. Both answers
@@ -2606,3 +2606,60 @@ Each reads differently on `main` at `3589315`:
 - That stability Note's sentence that the `datamodel_change` for an
   `<invoke idlocation>` write and an empty `<finalize>`'s writes "is still not
   emitted": `invokeOne` and `autoAssignFinalize` emit it.
+
+## Note: the acceptance of the origintype Amendment of 2026-10-04 (2026-10-04)
+
+This Note records that the Amendment "an inbound event's origintype, and a
+held send of a stopped session" (2026-10-04) above moved from proposed to
+accepted. The conductor moved it under the flip standard of the campaign
+consent adopted under the operator's pre-consent, 2026-10-03. It decides
+nothing, so it carries no Status line, and it removes no line; the
+Amendment's status text is the one passage that changed in place.
+
+**It shipped in `@riddler/statifier` 0.3.0.** That version is on npm, built
+from the commit tagged `v0.3.0` (`4e65f48`), and the Amendment's own changes
+are in the tag: `07531e0` carries the field and `df87224` records it as an
+Amendment. `main` was that tagged commit when this Note was written. Every
+claim about this package was re-checked at `4e65f48` and located by anchor;
+every claim about the reference was read at statifier-ex `v2.11.0`
+(`bbc4c0e`) and `v2.10.0` (`c8894ae`).
+
+**The origintype.** `HostEvent` in `src/driver.ts` has the optional
+`origintype` the Amendment's Typespecs print, and the earlier Typespecs line
+it widens reads as the Amendment quotes it. `step` there queues the field on
+the external event only when it is a string, and `eventValue` in
+`src/datamodel.ts` answers it as `_event.origintype`, undefined when the
+event has none. `decodeRequest` in `src/basichttp/decode.ts` sets it to
+`BASIC_HTTP_EVENT_PROCESSOR` and answers the same refusals it answered
+before. `decode/1` in `lib/statifier/send/basic_http.ex` sets `origintype`
+to the processor's URI at both reference tags. The divergence row the
+Amendment reverses read as it quotes at `f2195ad`, and the ADR-0003 sentence
+it names stands under "Limits" in that record's loopback Amendment. No
+vendored case the loopback drives reads the field: the w3c cases that read
+`_event.origintype` (test198, test253, test330, test336, test337, test352)
+carry no `event_io_processors` host object, and the change touched no file
+under `conformance/`. The 0.3.0 section of `CHANGELOG.md` names the widened
+`HostEvent` under Added and the decoded event's changed answer under
+Changed.
+
+**The held send.** `basicHttp` in `src/basichttp/processor.ts` holds a
+delayed send on the global timer and posts it when the timer fires, without
+reading the session's state, and hands a miss to the host's `report`; it
+answers only `processor` and `sendTypes`. `reportSendFailed` in
+`src/driver.ts` answers `not_running` for a state that is not running. None
+of the driver's exported calls clears a processor's held timers. In the
+reference at `v2.11.0`, `hold/4` posts only when `stopped?/2` finds no
+cancel, halt or end of the sending session; at `v2.10.0`, `hold/4` posts
+only when `running?/1` finds the sending session running, having waited for
+a cancel or the session's end. Both read as the row "A delayed send" says.
+
+**A sentence that reads more narrowly than the code.** The Amendment's
+sentence "The processor's `cancel` drops one held send, by its send id, when
+a `<cancel>` names it" is inexact. `cancel` in `basicHttp` at `4e65f48`
+deletes the session's entry for that send id and clears every timer held
+under it, so where a session holds more than one delayed send under one send
+id, a `<cancel>` naming it drops them all. The processor has done so since
+it was added (`347f638`), before the Amendment was written, so this Note
+reads the sentence against unchanged code and decides nothing new. It is
+also what the reference does at `v2.11.0`: its `perform/2` for a cancel
+reaches every timer held under the send id.
