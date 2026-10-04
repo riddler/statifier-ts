@@ -63,12 +63,16 @@ function invokes(effects: readonly InterpreterEffect[]): Invoke[] {
   return effects.filter((e): e is Invoke => e.kind === "invoke");
 }
 
-// The datamodel changes a write made outside any block: an invocation's
-// idlocation write, or an empty finalize's.
+// The datamodel changes a write made outside any executable-content block
+// (its content index is null): an invocation's idlocation write, or an empty
+// finalize's write-backs. An assign inside a populated finalize carries its
+// content index and is not counted.
 function runnerChanges(effects: readonly InterpreterEffect[]): DatamodelChange[] {
   return effects.filter(
     (e): e is DatamodelChange =>
-      e.kind === "datamodel_change" && (e.owner?.kind === "invoke" || e.owner?.kind === "finalize"),
+      e.kind === "datamodel_change" &&
+      e.cIndex === null &&
+      (e.owner?.kind === "invoke" || e.owner?.kind === "finalize"),
   );
 }
 
@@ -907,6 +911,33 @@ describe("finalize", () => {
     expect(runnerChanges(after.effects).map((e) => [e.locationSource, e.newValue])).toEqual([
       ["fine", 3],
     ]);
+  });
+
+  // A populated finalize runs its own content and writes no param back; its
+  // assign's change is owned by the finalize but carries a content index.
+  // Sabotage: dropping the `e.cIndex === null` filter in runnerChanges turns
+  // this red.
+  it("keeps a populated finalize's assign out of the runner's own writes", () => {
+    const source = `<scxml ${SCXML} initial="loan">
+      <datamodel><data id="fine"/><data id="renewed" expr="false"/></datamodel>
+      <state id="loan">
+        <invoke id="renewal" type="scxml">
+          <param name="charge" location="fine"/>
+          <finalize><assign location="renewed" expr="true"/></finalize>
+        </invoke>
+      </state>
+    </scxml>`;
+    const after = deliver(
+      start(source),
+      external("renewal.done", { invokeid: "renewal", data: { charge: 3 } }),
+    );
+    const changes = after.effects.filter(
+      (e): e is DatamodelChange => e.kind === "datamodel_change" && e.locationSource === "renewed",
+    );
+    expect(changes).toHaveLength(1);
+    expect(changes[0]?.owner).toMatchObject({ kind: "finalize" });
+    expect(typeof changes[0]?.cIndex).toBe("number");
+    expect(runnerChanges(after.effects)).toEqual([]);
   });
 });
 
