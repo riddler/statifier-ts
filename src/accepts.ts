@@ -72,13 +72,16 @@ export interface AcceptsCheck {
  * token, so a declared `loan.*` is matched by the descriptor `loan` and not
  * by `loan.renew`. An empty list declares that the chart accepts nothing:
  * `unreachable` is empty and `undeclared` is the whole vocabulary. `null`, no
- * declaration, makes the vocabulary the contract, so both lists are empty.
+ * declaration, makes the vocabulary the contract, so both lists are empty;
+ * `undefined`, which the type leaves out, is answered as `null` is.
  *
  * It reports and refuses nothing: which list a host refuses a publish on, if
  * either, is the host's decision.
  */
 export function checkAccepts(chart: Chart, declaredEvents: readonly string[] | null): AcceptsCheck {
-  if (declaredEvents === null) return { unreachable: [], undeclared: [] };
+  if (declaredEvents === null || declaredEvents === undefined) {
+    return { unreachable: [], undeclared: [] };
+  }
   const descriptors = vocabulary(chart.machine).map((descriptor) => ({
     descriptor,
     tokens: tokenize(descriptor),

@@ -4,9 +4,11 @@
 // The first block is the reference's own table: its charts and its
 // expectations are taken from `test/statifier/chart_accepts_test.exs` in
 // statifier-ex at v2.10.0, whose twelve tests make fifteen `check_accepts(`
-// calls, and each row names the reference test it is taken from. Where the
-// reference reads one list of an answer, the row states the other list as
-// well. The loan chart is the corpus's
+// calls, and each row names the reference test it is taken from, verbatim.
+// Where one reference test makes more than one of the calls, the row also
+// names the call, and the case's name is the test's with the call added in
+// parentheses. Where the reference reads one list of an answer, the row
+// states the other list as well. The loan chart is the corpus's
 // `library/loan_dispute_returns_to_history.scxml`, read from the vendored
 // copy and never edited, as the reference reads it from its own corpus. The
 // second block holds charts written here for the entry walk's branches the
@@ -14,7 +16,7 @@
 
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { checkAccepts, vocabulary } from "../src/accepts.js";
+import { type AcceptsCheck, checkAccepts, vocabulary } from "../src/accepts.js";
 import { type Chart, compile } from "../src/compiler.js";
 import * as entry from "../src/index.js";
 
@@ -98,8 +100,10 @@ const HISTORY_DEFAULT = `<scxml xmlns="http://www.w3.org/2005/07/scxml" version=
 </scxml>`;
 
 interface Row {
-  /** The reference test the row is taken from, by its name. */
+  /** The reference test the row is taken from, by its name, verbatim. */
   readonly test: string;
+  /** Which of the test's calls, where the test makes more than one. */
+  readonly call?: string;
   readonly chart: Chart;
   readonly declared: readonly string[] | null;
   readonly unreachable: readonly string[];
@@ -133,7 +137,8 @@ const TABLE: readonly Row[] = [
     undeclared: [],
   },
   {
-    test: "a pattern, a trailing dot, a bare prefix and a bare * each match a declared name (the bare *)",
+    test: "a pattern, a trailing dot, a bare prefix and a bare * each match a declared name",
+    call: "the bare *",
     chart: chart(ANY),
     declared: ["branch.closed"],
     unreachable: [],
@@ -168,14 +173,16 @@ const TABLE: readonly Row[] = [
     ],
   },
   {
-    test: "a one-name declaration answers [] when a reachable descriptor matches (copy.returned)",
+    test: "a one-name declaration answers [] when a reachable descriptor matches, [n] when none does",
+    call: "copy.returned",
     chart: chart(MEMBERSHIP),
     declared: ["copy.returned"],
     unreachable: [],
     undeclared: [],
   },
   {
-    test: "a one-name declaration answers [n] when none does (loan.archived)",
+    test: "a one-name declaration answers [] when a reachable descriptor matches, [n] when none does",
+    call: "loan.archived",
     chart: chart(MEMBERSHIP),
     declared: ["loan.archived"],
     unreachable: ["loan.archived"],
@@ -205,7 +212,7 @@ describe("checkAccepts, against the reference's table", () => {
   // `markEntered` call on a target's ancestors dropped; the history default
   // answering nothing in `defaultEntry`.
   for (const row of TABLE) {
-    it(row.test, () => {
+    it(row.call === undefined ? row.test : `${row.test} (${row.call})`, () => {
       expect(checkAccepts(row.chart, row.declared)).toEqual({
         unreachable: row.unreachable,
         undeclared: row.undeclared,
@@ -229,6 +236,19 @@ describe("checkAccepts, against the reference's table", () => {
       "loan.lost",
       "dispute.resolved",
     ]);
+  });
+
+  // `undefined` is outside the type, and a JavaScript caller that passes it,
+  // or leaves the argument out, is answered as `null` is: no declaration.
+  // Sabotage: the guard testing `=== null` alone turns this red (`undeclared`
+  // the whole vocabulary). It was run and reverted.
+  it("answers undefined, outside the type, as it answers null", () => {
+    const loose = checkAccepts as (
+      chart: Chart,
+      declaredEvents?: readonly string[] | null,
+    ) => AcceptsCheck;
+    expect(loose(loan, undefined)).toEqual({ unreachable: [], undeclared: [] });
+    expect(loose(loan)).toEqual({ unreachable: [], undeclared: [] });
   });
 
   // Sabotage: dropping the de-duplication of the declared names turns this
