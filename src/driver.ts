@@ -146,6 +146,15 @@
 // A macrostep that spends its round budget halts the driver as the
 // reference halts its session: further external events are queued and not
 // taken, and pending timers still fire.
+//
+// One driver call spends the same budget twice more, per session, so that a
+// call always returns where the reference's session would keep running:
+// against the failures its processors answer that the call raises, and
+// against the events its sessions take. A session that would raise one
+// failure more than its budget queues that failure on its internal queue
+// unrun, and a session that would take one event more than its budget
+// leaves it queued; either halts the session with the `budget_exhausted`
+// effect. An `infinity` budget bounds neither.
 
 import {
   PDateTime,
@@ -157,6 +166,7 @@ import {
 import { decodeTagged, encodeTagged } from "@riddler/predicator/tagged";
 import { type Chart, type ChartIdentity, compileInvokeContent } from "./compiler.js";
 import {
+  type BudgetExhausted,
   type Done,
   exitInterpreter,
   handleEvent,
@@ -188,7 +198,7 @@ import {
   withDraws,
 } from "./datamodel.js";
 import { stateShapeFailure } from "./driver-shape.js";
-import { type Machine, stateAt } from "./machine.js";
+import { documentOrder, type Machine, stateAt } from "./machine.js";
 
 // ---------------------------------------------------------------------------
 // The public shapes
@@ -320,7 +330,10 @@ export interface State {
   readonly internalQueue: readonly QueuedEvent[];
   /** The registered types holding a delayed send, by send id. */
   readonly heldSends: Readonly<Record<string, readonly string[]>>;
-  /** Set when a macrostep spent its round budget: external events then wait. */
+  /**
+   * Set when a macrostep spent its round budget, or a call its count of
+   * raised failures or taken events: external events then wait.
+   */
   readonly halted: "budget_exhausted" | null;
   /** Set once the chart has stopped. */
   readonly done: DoneRecord | null;
@@ -466,7 +479,10 @@ export interface StartOptions extends DriveOptions {
   readonly sessionId: string;
   /** The datamodel's initial values, under the system variables. */
   readonly datamodel?: Readonly<Record<string, Value>>;
-  /** The rounds one macrostep may spend; 10000 when absent. */
+  /**
+   * The rounds one macrostep may spend, and the failures a session raises
+   * and the events it takes in one call; 10000 when absent.
+   */
   readonly maxMacrostepRounds?: RoundBudget;
 }
 
@@ -787,6 +803,10 @@ interface Live {
    * the parent, which has already retired the invocation.
    */
   cancelled: boolean;
+  /** The events this session has taken in this call. */
+  taken: number;
+  /** The failures its processors answered that this session has raised in this call. */
+  raised: number;
   /**
    * The processors this session hands registered sends to: the host's, and a
    * child's too when the call passes `inheritSendTypes`; none otherwise.
@@ -905,6 +925,8 @@ function launch(spec: Launch, register?: (live: Live) => void): Live {
     invocations: new Map(),
     mailbox: [],
     cancelled: false,
+    taken: 0,
+    raised: 0,
     processors: spec.processors,
     inherit: spec.inherit,
     out: spec.out,
@@ -986,9 +1008,15 @@ function nextDue(
 
 // Takes the external queue one event per macrostep, while the chart runs and
 // no macrostep has spent its budget; once it is empty, takes the mailbox one
-// entry at a time, each run to completion before the next.
+// entry at a time, each run to completion before the next. An event the
+// session would take past its round budget in this call is left queued, and
+// the session halts.
 function drain(live: Live): void {
   while (live.halted === null && live.core.running) {
+    if (takesNext(live) && !within(live.taken + 1, live.core.maxMacrostepRounds)) {
+      perform(live, [budgetExhausted(live)]);
+      return;
+    }
     const [event, ...rest] = live.externalQueue;
     if (event !== undefined) {
       live.externalQueue = rest;
@@ -1002,10 +1030,39 @@ function drain(live: Live): void {
   }
 }
 
+// Whether the drain's next entry is an event to take: one on the external
+// queue, or a mailbox entry carrying one.
+function takesNext(live: Live): boolean {
+  const [mail] = live.mailbox;
+  return live.externalQueue.length > 0 || (mail !== undefined && mail.kind !== "completed");
+}
+
+// Whether a count is within a round budget: always, for `infinity`.
+function within(count: number, budget: RoundBudget): boolean {
+  return budget === "infinity" || count <= budget;
+}
+
+// The spent-budget effect for this session as it stands, as a macrostep
+// that spends its rounds answers it.
+function budgetExhausted(live: Live): BudgetExhausted {
+  const { configuration, maxMacrostepRounds, internalQueue, macrostep, microstep, round } =
+    live.core;
+  return {
+    kind: "budget_exhausted",
+    configuration: documentOrder(configuration),
+    budget: maxMacrostepRounds,
+    pendingInternalEvents: [...internalQueue],
+    macrostep,
+    microstep,
+    round,
+  };
+}
+
 // One external event, one macrostep, under the routes last declared: an
 // event the chart queued for itself declares nothing new, as the reference's
 // drain does not.
 function take(live: Live, event: Event): void {
+  live.taken += 1;
   const outcome = handleEvent(live.core, event);
   if (!outcome.ok) return;
   live.core = outcome.state;
@@ -1111,7 +1168,9 @@ function registered(live: Live, send: Send | SendDelayed): boolean {
 // delivery would carry, and, when delayed, held under its send id. A
 // failure the processor answered is raised here, at the send's place in the
 // run, as the reference raises the failure its processor plans in
-// `deliver/3`: ahead of anything the run has yet to take.
+// `deliver/3`: ahead of anything the run has yet to take. A failure past the
+// session's round budget in this call joins the internal queue unrun, and
+// the session halts.
 function handOff(live: Live, send: Send | SendDelayed): readonly InterpreterEffect[] {
   const type = send.type as string;
   if (send.kind === "send_delayed") {
@@ -1123,7 +1182,11 @@ function handOff(live: Live, send: Send | SendDelayed): readonly InterpreterEffe
     deliveredEvent(send, live.sessionId),
     { sessionId: live.sessionId },
   );
-  return failed(answered) ? sendFailure(live, send) : [];
+  if (!failed(answered)) return [];
+  live.raised += 1;
+  return within(live.raised, live.core.maxMacrostepRounds)
+    ? sendFailure(live, send)
+    : spentFailure(live, send);
 }
 
 // A `<cancel>`: every pending timer under the id goes, and each processor
@@ -1336,11 +1399,30 @@ function failSend(live: Live, send: SendOrigin): void {
 // reference's `failed_send/3` and the Basic HTTP processor's `deliver/3`
 // plan both write it; answers the effects the chart's run left.
 function sendFailure(live: Live, send: SendOrigin): readonly InterpreterEffect[] {
-  const origin: Origin = { kind: "content", cIndex: send.cIndex, owner: send.owner };
-  return deliverInternal(live, "platform", "error.communication", origin, {
+  return deliverInternal(live, "platform", "error.communication", failureOrigin(send), {
     data: Undefined,
     sendid: send.sendId,
   });
+}
+
+// The failed send's `error.communication` on the internal queue with the
+// chart not run: the session halts, answering the spent-budget effect the
+// first time it does.
+function spentFailure(live: Live, send: SendOrigin): readonly InterpreterEffect[] {
+  if (!live.core.running) return [];
+  stamp(live);
+  const event = internalEvent(live, "platform", "error.communication", failureOrigin(send), {
+    data: Undefined,
+    sendid: send.sendId,
+  });
+  live.core = { ...live.core, internalQueue: [...live.core.internalQueue, event] };
+  if (live.halted !== null) return [];
+  live.halted = "budget_exhausted";
+  return [budgetExhausted(live)];
+}
+
+function failureOrigin(send: SendOrigin): Origin {
+  return { kind: "content", cIndex: send.cIndex, owner: send.owner };
 }
 
 // A send to something this driver cannot reach: `error.communication` on the
@@ -1364,20 +1446,31 @@ function deliverInternal(
 ): readonly InterpreterEffect[] {
   if (!live.core.running) return [];
   stamp(live);
-  const { macrostep, microstep, round } = live.core;
-  const event: Event = {
-    name: typeof name === "string" ? name : "",
-    type,
-    data: fields.data,
-    cause: { origin, macrostep, microstep, round },
-    ...(fields.sendid === undefined ? {} : { sendid: fields.sendid }),
-  };
+  const event = internalEvent(live, type, name, origin, fields);
   const stepped = mainEventLoop({
     ...live.core,
     internalQueue: [...live.core.internalQueue, event],
   });
   live.core = stepped.state;
   return stepped.effects;
+}
+
+// An event for the internal queue, stamped with the counters as they stand.
+function internalEvent(
+  live: Live,
+  type: "internal" | "platform",
+  name: Value,
+  origin: Origin,
+  fields: { readonly data: Value; readonly sendid: string | undefined },
+): Event {
+  const { macrostep, microstep, round } = live.core;
+  return {
+    name: typeof name === "string" ? name : "",
+    type,
+    data: fields.data,
+    cause: { origin, macrostep, microstep, round },
+    ...(fields.sendid === undefined ? {} : { sendid: fields.sendid }),
+  };
 }
 
 function contentOrigin(send: Send | SendDelayed): Origin {
@@ -2016,6 +2109,8 @@ function decodeState(decoder: Decoder, chart: Chart, state: State, place: Place)
     invocations: new Map(),
     mailbox: state.mailbox.map((mail, i) => decodeMail(decoder, mail, `${at}mailbox[${i}]`)),
     cancelled: false,
+    taken: 0,
+    raised: 0,
     processors: place.processors,
     inherit: place.inherit,
     out: place.out,
