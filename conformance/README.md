@@ -255,7 +255,11 @@ corpus, runs every suite on a standalone Hermes VM and on Node, and compares
 the two reports case by case: the outcome and the reason of every case, and
 any case one side reports and the other does not. It excludes no case, and it
 exits non-zero on any difference. It is not a gate stage; the script's header
-says what fills the tool directory.
+says what fills the tool directory. With `--record <file>` it also writes the
+run's result as a JSON record, and refuses to when the inputs it measures
+differ from the commit it would name. `engine-proof.json`, beside this file, is
+the record of the last result below, and `test/readme.test.ts` holds that
+result and the README's Engines paragraph to it.
 
 **The result, 2026-10-01.** Run at commit `15980e9` on `main`, with the corpus
 at `v2.10.0`, on the VM's release 0.12.0, bytecode version 89:
@@ -298,6 +302,20 @@ installed, on the same VM, release 0.12.0, bytecode version 89:
 Every suite agreed row for row, fails included: the same three w3c cases
 fail on Node and on the VM with the same reason, and the three statifier
 cases that state a position pass on both.
+
+**The result, 2026-10-04, recorded.** Run again the same day at commit
+`3589315` on `main`, once the change that moved the corpus had merged, with
+`@riddler/predicator` 0.5.0 installed, the corpus at `v2.11.0`, on the same
+VM, release 0.12.0, bytecode version 89, and written to `engine-proof.json`
+with `--record`:
+
+| Suite | Rows on Node | Rows on the VM | Differences |
+|---|---|---|---|
+| `scion` | 119 | 119 | 0 |
+| `w3c` | 168 | 168 | 0 |
+| `statifier` | 34 | 34 | 0 |
+
+Every suite agreed row for row, fails included.
 
 **What it covers.** The standalone VM is an older release than the engine
 current React Native ships. It refuses the `class` keyword, so its bundle is
