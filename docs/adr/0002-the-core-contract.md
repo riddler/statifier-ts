@@ -2401,3 +2401,78 @@ interface HostEvent {
   readonly origintype?: string; // _event.origintype; undefined when absent
 }
 ```
+
+## Note: the call list, the failure shape and the order of the refusals (2026-10-04)
+
+This Note settles passages of the failed-send Amendment, and of two
+records beside it, that read inexactly against `main` at `0cdc768`, and
+decides one thing, the failure check, without changing an answer. It adds no member to a public type, so it
+is a Note rather than an Amendment. It carries no Status line and removes no
+line.
+
+**The call list.** The failed-send Amendment's sentence that "The driver has
+six calls" "now holds with `reportSendFailed` beside them" reads as if the
+count stood at six. It does not: the Decision's six calls stand as the
+operator ruled them, and the Amendment adds a seventh beside them. On `main`
+at `0cdc768` the driver's calls are `compile` in `src/compiler.ts` and
+`start`, `step`, `advance`, `reportSendFailed`, `configuration` and `isDone`
+in `src/driver.ts`, each exported from `src/index.ts`; `reportSendFailed`
+moves the chart and takes it as `start`, `step` and `advance` do. The
+accepts check Amendment's sentence that "The driver has six calls" "holds
+unchanged" means it adds no call: `checkAccepts` takes no state. Read with
+this Note, the count after the failed-send Amendment is seven. No later
+record on `main` at `0cdc768` adds a driver call.
+
+**The failure shape.** `failed` in `src/driver.ts` reads what a processor's
+`deliver` answered as a failure when it is an object whose `kind` is
+`"failure"`, and checks nothing else, so an object of that kind outside
+`DeliveryFailure`, with no `reason` or with a `reason` that is not a string,
+fails the send too. That stays, decided by the conductor under a standing
+consent, 2026-10-04, and no answer changes. `DeliveryFailure` shares its
+shape, `{ kind: "failure", reason }`, with the HTTP transport's `HttpFailure`
+in `src/http-transport.ts` on purpose: one value spells a miss at both of
+the package's delivery seams, so an `HttpFailure` a processor answers fails
+the send, and `basicHttp` in `src/basichttp/processor.ts` answers a send with
+no target with an object of the shape it builds when its transport throws,
+a reason beside the kind. The driver never reads `reason`, and the chart is
+not handed it (the failed-send Amendment's table), so a check of it would
+refuse only answers the chart could not tell from a `DeliveryFailure`, and
+would change what such an answer does today.
+
+**The order of the refusals.** The failed-send Amendment lists the refusals
+a call answers but not which one answers when two apply. A call answers the
+first that applies, in this order:
+
+| Order | Refusal | Checked by | Calls that answer it |
+|---|---|---|---|
+| 1 | `not_a_send` | `isSendOrigin`, in `reportSendFailed` before the state is opened | `reportSendFailed` |
+| 1 | `invalid_duration` | `advance`, before the state is opened | `advance` |
+| 2 | `malformed_state` with `bad_shape` | `stateShapeFailure`, first in `open` | `step`, `advance`, `reportSendFailed` |
+| 3 | `chart_mismatch` | `sameIdentity`, in `open` | `step`, `advance`, `reportSendFailed` |
+| 4 | `malformed_state` with any other detail | `decodeState`, in `open` | `step`, `advance`, `reportSendFailed` |
+| 5 | `not_running` | `step` and `reportSendFailed`, once the state is open | `step`, `reportSendFailed` |
+| 6 | `unencodable_value` | `drive`, once a run's state is written | `start`, `step`, `advance`, `reportSendFailed` |
+
+Each function named is in `src/driver.ts`, except `stateShapeFailure`, which
+is in `src/driver-shape.ts` (internal). The two rows at 1 belong to
+different calls, so they never meet. The tests under "the refusals, where
+two apply" in `test/driver-failed-send.test.ts` pin each step of the order
+where two refusals apply to one call.
+
+**A chart whose macrostep spent its budget takes a report.** The failed-send
+Amendment's sentence that such a chart "is still running, so a report
+reaches it" is pinned by the test "still takes a report, and its external
+events still wait" in the same file: the internal event the spent
+macrostep left queued and the reported failure both run, the chart moves,
+and the state's `halted` still reads `"budget_exhausted"` with the external event
+waiting. A session halted by the bounded-call Note's count runs nothing more
+in the call that halted it, as that Note says.
+
+**A refused call and the processors.** The in-run failure Amendment's
+paragraph "A refused call still hands a processor nothing" is read with the
+exception its own later paragraph names: a call refused because a run made
+again after a failure left a value the state cannot write has already made
+the processor calls that came before the failure. The change that adds this
+Note says so in the header comment of `src/driver.ts`, in the doc comment of
+`SendProcessor` and in the comment on `drive`, which also says that under a
+finite round budget the runs end, as the bounded-call Note records.

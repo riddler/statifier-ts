@@ -124,7 +124,10 @@
 // state is written, in the order the run made the calls: a call refused
 // because a value cannot be written as tagged-value text, a host event's
 // data or a starting datamodel value among them, calls no processor, so a
-// host that retries it hands nothing twice.
+// host that retries it hands nothing twice. The one exception is a run made
+// again after a failure, below: when that run leaves a value the state
+// cannot write, the call is refused after the processor calls made before
+// the failure, and a host that retries it hands those again.
 //
 // A failed send. A host reports a send it was handed and could not deliver
 // through `reportSendFailed`, at any later time, with the send's id, content
@@ -381,7 +384,10 @@ export interface ProcessorContext {
 /**
  * A host's processor for one registered send type. The driver calls its
  * `deliver` and `cancel` once the call's state is written, in the order the
- * run made the calls; a refused call calls neither.
+ * run made the calls; a call refused before its state is first written
+ * calls neither. A call refused because a run made again after a failure
+ * left a value the state cannot write has already made the calls that came
+ * before the failure.
  */
 export interface SendProcessor {
   /**
@@ -1699,17 +1705,24 @@ type Ran = { readonly ok: true; readonly live: Live; readonly out: DriveEffect[]
 
 // A driver call: its run, made over the host's processors with their calls
 // held, and its answer. The calls the run held are made only once its state
-// is written, in the order the run made them: a refused call hands a
-// processor nothing, so a host that retries it hands nothing twice. A
-// delivery that answers a failure belongs to the run at the send's place,
-// so the calls after it, which a run without the failure made, are not made;
-// the run is made again from the call's own arguments, every call it makes
-// up to the failure answered from the ledger rather than made twice and the
-// failure raised where the send was handed, and the calls it holds past them
-// are made the same way. The run is the same up to the failure each time,
-// since it reads only the call's arguments, the processors' answers and the
-// clock and random draws its expressions make, which every run of the call
-// reads from one record, so each send is handed to its processor once.
+// is written, in the order the run made them: a call its first run leaves
+// refused hands a processor nothing, so a host that retries it hands nothing
+// twice. A delivery that answers a failure belongs to the run at the send's
+// place, so the calls after it, which a run without the failure made, are not
+// made; the run is made again from the call's own arguments, every call it
+// makes up to the failure answered from the ledger rather than made twice and
+// the failure raised where the send was handed, and the calls it holds past
+// them are made the same way. The run is the same up to the failure each
+// time, since it reads only the call's arguments, the processors' answers and
+// the clock and random draws its expressions make, which every run of the
+// call reads from one record, so each send is handed to its processor once. A
+// run made again may itself leave a value the state cannot write; the call is
+// then refused after the calls made before the failure, and a host that
+// retries it hands those again. Under a finite round budget the runs end: a
+// failure past a session's budget joins its internal queue unrun and halts
+// the session (`spentFailure`), so a chart that sends again on every failure
+// is not run over it within the call. Under an `infinity` budget nothing
+// bounds them.
 function drive(processors: SendProcessors, run: (processors: SendProcessors) => Ran): DriveResult {
   const answered: boolean[] = [];
   const entries = new Map<string, Readonly<Record<string, Value>>>();

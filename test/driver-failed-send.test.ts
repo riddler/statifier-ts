@@ -12,6 +12,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { type Chart, compile } from "../src/compiler.js";
 import type { Send, SendDelayed } from "../src/core/send.js";
 import {
+  advance,
   type DeliveryFailure,
   type DriveEffect,
   type DriveOptions,
@@ -22,6 +23,7 @@ import {
   start,
   step,
 } from "../src/driver.js";
+import type { HttpFailure } from "../src/http-transport.js";
 
 const SCXML = 'xmlns="http://www.w3.org/2005/07/scxml" version="1.0"';
 
@@ -285,6 +287,18 @@ describe("a processor's deliver answering a failure", () => {
     }
   });
 
+  // The failure shape is the transport's on purpose, and the driver reads
+  // its kind alone: the reason is never handed to the chart. Sabotage:
+  // reading a failure only when its reason is a string turns this red on
+  // the answer that carries none.
+  it("reads the transport's failure, or any object whose kind is failure, as a failure", () => {
+    const missed: HttpFailure = { kind: "failure", reason: "connection refused" };
+    for (const answered of [missed, { kind: "failure" }, { kind: "failure", reason: 503 }]) {
+      const host = desk((send) => (send.event === "hold.ready" ? answered : undefined));
+      expect(notifying(host).state.configuration, JSON.stringify(answered)).toEqual(["calling"]);
+    }
+  });
+
   // A processor that throws is the host's exception, and propagates
   // unchanged: the driver does not read it as a failure. Sabotage: catching
   // the throw and failing the send turns this red.
@@ -480,5 +494,182 @@ describe("a run made again after a failure, reading the clock or a random draw",
     expect(handed).toHaveLength(1);
     expect(reported).toEqual(handed);
     expect(started.state.configuration).toEqual(["notice_failed"]);
+  });
+});
+
+describe("the refusals, where two apply", () => {
+  // Each call answers the first refusal in this order: the call's own
+  // argument (`not_a_send`, `invalid_duration`), the state's shape, the
+  // chart's identity, the state's decode, a stopped chart, and a value the
+  // state cannot write.
+  const other = chartOf(`<scxml ${SCXML} name="desk"><state id="open"/></scxml>`);
+  const shapeless = {} as unknown as State;
+
+  function stopped(host: Desk): { readonly before: Moved; readonly after: State } {
+    const before = notifying(host);
+    const after = ok(step(HOLD, before.state, { name: "patron.collected" }, host.options)).state;
+    expect(after.done).not.toBeNull();
+    return { before, after };
+  }
+
+  // Sabotage: opening the state before the send is checked turns this red:
+  // the stopped chart answers not_running and the others their own refusal.
+  it("answers not_a_send before anything about the state", () => {
+    const host = desk();
+    const { after } = stopped(host);
+    const notASend = { send: { sendId: 7 } } as unknown as Parameters<typeof reportSendFailed>[2];
+    for (const [chart, state] of [
+      [HOLD, after],
+      [HOLD, shapeless],
+      [other, after],
+    ] as const) {
+      expect(reportSendFailed(chart, state, notASend, host.options)).toEqual({
+        ok: false,
+        reason: "not_a_send",
+      });
+    }
+  });
+
+  // Sabotage: checking the duration after the state is opened turns this
+  // red: the shapeless state answers malformed_state.
+  it("answers invalid_duration before anything about the state", () => {
+    const host = desk();
+    const { before } = stopped(host);
+    expect(advance(HOLD, shapeless, -1)).toEqual({ ok: false, reason: "invalid_duration" });
+    expect(advance(other, before.state, Number.NaN)).toEqual({
+      ok: false,
+      reason: "invalid_duration",
+    });
+  });
+
+  // The state below carries the hold's identity, whole, and a configuration
+  // of the wrong type. Sabotage: judging the chart's identity before the
+  // state's shape turns this red: the other chart answers chart_mismatch.
+  it("answers a state's bad shape before a chart mismatch", () => {
+    const host = desk();
+    const { before } = stopped(host);
+    const notice = sent(host, "hold.ready");
+    const unshaped = { ...before.state, configuration: 7 } as unknown as State;
+    const badShape = {
+      ok: false,
+      reason: "malformed_state",
+      detail: { kind: "bad_shape", field: "configuration" },
+    };
+    expect(step(other, unshaped, { name: "copy.available" })).toEqual(badShape);
+    expect(advance(other, unshaped, 10)).toEqual(badShape);
+    expect(reportSendFailed(other, unshaped, { send: notice })).toEqual(badShape);
+    expect(step(other, before.state, { name: "copy.available" })).toEqual({
+      ok: false,
+      reason: "chart_mismatch",
+    });
+  });
+
+  // Sabotage: decoding the state before its chart's identity is judged
+  // turns this red: the other chart answers malformed_state.
+  it("answers a chart mismatch before a state that does not decode", () => {
+    const host = desk();
+    const { before } = stopped(host);
+    const notice = sent(host, "hold.ready");
+    const unknown = { ...before.state, configuration: ["stacks"] };
+    const mismatch = { ok: false, reason: "chart_mismatch" };
+    expect(step(other, unknown, { name: "copy.available" })).toEqual(mismatch);
+    expect(advance(other, unknown, 10)).toEqual(mismatch);
+    expect(reportSendFailed(other, unknown, { send: notice })).toEqual(mismatch);
+    expect(step(HOLD, unknown, { name: "copy.available" })).toEqual({
+      ok: false,
+      reason: "malformed_state",
+      detail: { kind: "unknown_state", name: "stacks" },
+    });
+  });
+
+  // Sabotage: checking that the chart runs before the state is decoded
+  // turns this red: the stopped state answers not_running.
+  it("answers a state that does not decode before a stopped chart", () => {
+    const host = desk();
+    const { after } = stopped(host);
+    const notice = sent(host, "hold.ready");
+    const undecodable = { ...after, datamodel: { ...after.datamodel, shelf: "{" } };
+    const malformed = {
+      ok: false,
+      reason: "malformed_state",
+      detail: { kind: "undecodable_value", field: "datamodel.shelf" },
+    };
+    expect(step(HOLD, undecodable, { name: "copy.available" })).toEqual(malformed);
+    expect(reportSendFailed(HOLD, undecodable, { send: notice })).toEqual(malformed);
+    expect(step(HOLD, after, { name: "copy.available" })).toEqual({
+      ok: false,
+      reason: "not_running",
+    });
+  });
+
+  // Sabotage: writing the state before the running check turns this red:
+  // the stopped chart's step answers unencodable_value.
+  it("answers a stopped chart before a value the state cannot write", () => {
+    const host = desk();
+    const { before, after } = stopped(host);
+    const unwritable = { name: "copy.available", data: { $type: "date" } };
+    expect(step(HOLD, before.state, unwritable, host.options)).toEqual({
+      ok: false,
+      reason: "unencodable_value",
+    });
+    expect(step(HOLD, after, unwritable, host.options)).toEqual({
+      ok: false,
+      reason: "not_running",
+    });
+  });
+});
+
+describe("a chart whose macrostep spent its round budget", () => {
+  // The branch checks the shelf as it starts notifying, one internal event
+  // a check; under a budget of three rounds, the macrostep that enters
+  // `notifying` spends it with one check left on the internal queue.
+  const BUSY = chartOf(`<scxml ${SCXML} initial="awaiting_copy" name="busy_hold">
+  <state id="awaiting_copy"><transition event="copy.available" target="notifying"/></state>
+  <state id="notifying">
+    <onentry>
+      <send id="notice" type="library:notice" target="patron:ada" event="hold.ready"/>
+      <raise event="shelf.check"/>
+      <raise event="shelf.check"/>
+      <raise event="shelf.check"/>
+      <raise event="shelf.check"/>
+    </onentry>
+    <transition event="shelf.check"/>
+    <transition event="error.communication" target="notice_failed">
+      <log label="sendid" expr="_event.sendid"/>
+    </transition>
+    <transition event="patron.collected" target="collected"/>
+  </state>
+  <state id="notice_failed"/>
+  <final id="collected"/>
+</scxml>`);
+
+  // Sabotage: running a report's failure only for a session that is not
+  // halted (deliverInternal reading the halt rather than this call's spent
+  // count) turns this red: the chart stays in notifying.
+  it("still takes a report, and its external events still wait", () => {
+    const host = desk();
+    const started = ok(
+      start(BUSY, { sessionId: "hold-ada", maxMacrostepRounds: 3, ...host.options }),
+    );
+    const spent = ok(step(BUSY, started.state, { name: "copy.available" }, host.options));
+    expect(spent.effects.map((effect) => effect.kind)).toContain("budget_exhausted");
+    expect(spent.state.halted).toBe("budget_exhausted");
+    expect(spent.state.configuration).toEqual(["notifying"]);
+    expect(spent.state.internalQueue.map((event) => event.name)).toEqual(["shelf.check"]);
+    const waiting = ok(step(BUSY, spent.state, { name: "patron.collected" }, host.options));
+    expect(waiting.state.externalQueue.map((event) => event.name)).toEqual(["patron.collected"]);
+    const reported = ok(
+      reportSendFailed(
+        BUSY,
+        viaJson(waiting.state),
+        { send: sent(host, "hold.ready") },
+        host.options,
+      ),
+    );
+    expect(logged(reported.effects)).toEqual([["sendid", "notice"]]);
+    expect(reported.state.configuration).toEqual(["notice_failed"]);
+    expect(reported.state.internalQueue).toEqual([]);
+    expect(reported.state.halted).toBe("budget_exhausted");
+    expect(reported.state.externalQueue.map((event) => event.name)).toEqual(["patron.collected"]);
   });
 });
