@@ -630,3 +630,47 @@ that the committed registry is past its first entry, so it is in the state the
 paragraph's second half describes: `conformance/registry.json` carries entries
 and claims at `a69a307`, and `test/conformance/registry.test.ts` pins that it
 has entries. Nothing in decision 12 is withdrawn.
+
+## Note: the exchange with the loopback front is bounded (2026-10-04)
+
+This Note names the limit the Amendment "the Basic HTTP cases are driven
+through a loopback front" (2026-10-01) left out, and says what a case past it
+answers. It carries no Status line and removes no line.
+
+**The limit.** One exchange with the wire - the loop that lets every delivery
+handed so far settle and hands what came back to the driver, repeating until
+a settle brings nothing back - takes at most `MAX_EXCHANGE_ROUNDS` rounds that
+bring something back, 100 (`MAX_EXCHANGE_ROUNDS` in
+`test/conformance/statifier.ts`). A round past it that still brings something
+back fails the case with `EXCHANGE_NOT_SETTLED` (same file), "the exchange
+with the loopback front did not settle within 100 rounds", which `exchange`
+there answers, after the step that led to it (`step N (event "...")`) when the
+exchange follows a step; the case fails, and the run goes on to the next case.
+
+**Why a limit.** A request over the loopback takes no virtual time, as the
+paragraph "The drive order, against the reference's" says, so a chart that
+sends to itself through the processor on every delivery brings something
+back on every round, and the clock never reaches a timer that could end it.
+Before the limit such a chart held the run, and so the gate and the engine
+proof, rather than failing its case. The driver's own bound on one call
+(`maxMacrostepRounds` in `src/driver.ts`) does not reach it: each delivery is
+its own driver call, and the loop runs between calls.
+
+**The difference from the reference.** The reference's harness reads a
+configuration on a real clock: its wait ends once the configuration is the
+expected one, or once the session is settled on two polls running, and else at
+its deadline, 4000 ms (`@configuration_deadline_ms` and `poll/5` in
+`lib/mix/statifier/corpus/host_case.ex` at `v2.10.0`, `c8894ae`), so it can
+pass such a chart when the configuration it rests in is the expected one.
+Here such a case fails at the limit. None of the vendored cases is such a
+chart: in a run of the cases that name the processor, observed with the
+exchange instrumented, no exchange took more than two rounds.
+
+**`w3c/test201`'s cause is held by a test.** Its cause, given in prose by the
+copy's `RATCHET.md` ("The host object") and by `conformance/README.md`, is
+now an entry of `KNOWN_CAUSES` in `test/conformance/reports.ts`, printed after
+the run's reason on the case's line in the list of cases neither registry
+claims, which `pnpm conformance` prints, and the "w3c/test201" block in
+`test/conformance/runner.test.ts` observes it again: the case fails, passes
+once its own `timeout` send is delayed, and fails again once the processor's
+send is also taken out.

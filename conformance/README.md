@@ -127,7 +127,11 @@ answers 404, a method other than POST 405, a request that forms no event
 400; and it does not deduplicate, as the reference's front does not. A claim
 of such a case rests on that loopback: it proves the processor's and the
 core's event I/O logic, not a network round trip (ADR-0003's Amendment "the
-Basic HTTP cases are driven through a loopback front"). A case naming a
+Basic HTTP cases are driven through a loopback front"). A request over the
+loopback takes no virtual time, so one exchange with the front is bounded:
+past `MAX_EXCHANGE_ROUNDS` rounds that each bring something back, 100 today
+(`test/conformance/statifier.ts`), the case fails with the reason that the
+exchange did not settle, rather than holding the run. A case naming a
 processor outside the closed set fails before it is driven, with the reason
 that it names an Event I/O Processor this runner does not register, followed
 by the processor's URI; the copy's `RATCHET.md` says an implementation that
@@ -278,8 +282,8 @@ gap list is read off the reference's registry, so without this second list
 those cases would go unnamed. Where the run's reason says only where a case
 failed and the cause has been found by reading the case, a line in either list
 ends with that cause (`KNOWN_CAUSES` in `test/conformance/reports.ts`), and a
-test observes each cause again, so one that stops holding fails the gate. No
-case carries such a cause today.
+test observes each cause again, so one that stops holding fails the gate. One
+case carries such a cause: `w3c/test201`, below.
 
 This package's registry claims every scion case and the w3c and statifier
 cases a run observed to pass; the claims `w3c-mandatory`, `w3c-optional` and
@@ -293,7 +297,7 @@ w3c suite falls in two groups, and neither holds a case the reference claims:
   the session's own external queue, which no delivery over HTTP does (the
   copy's `RATCHET.md`, "The host object"); it is driven through the loopback
   front (under "Run" above) and fails here on the configuration it rests in,
-  for that cause;
+  for that cause, which both lists print after the run's reason;
 - `w3c/test330` and `w3c/test552`, which the reference's registry does not
   list, and which fail here on the configuration the chart rests in.
 

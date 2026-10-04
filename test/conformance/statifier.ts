@@ -70,6 +70,11 @@
 // its session while its harness polls. An event delivered through the front
 // is so taken at the virtual time its send was made, ahead of any timer the
 // clock has yet to reach; a request over the loopback takes no virtual time.
+// So a chart that sends to itself through the processor on every delivery
+// would never let an exchange end: the exchange is bounded at
+// `MAX_EXCHANGE_ROUNDS` rounds, and a case past the bound fails with
+// `EXCHANGE_NOT_SETTLED` rather than holding the run. The reference's
+// harness ends such a chart at its real deadline instead.
 // No feature check is made for a host case, as the reference's harness makes
 // none.
 //
@@ -234,6 +239,20 @@ export function hostFor(
 
 type Observed = State | { readonly reason: string };
 
+/**
+ * The most rounds one exchange with the wire takes: a round is one settle of
+ * every delivery handed so far and the arrivals it brings back, each handed
+ * to the driver. A request over the loopback takes no virtual time, so a
+ * chart that sends to itself through the processor on every delivery brings
+ * something back on every round, and the clock never reaches a timer that
+ * would end it. A run of the vendored cases that name a processor took at
+ * most two rounds in any one exchange.
+ */
+export const MAX_EXCHANGE_ROUNDS = 100;
+
+/** The reason a case fails with when one exchange passes `MAX_EXCHANGE_ROUNDS`. */
+export const EXCHANGE_NOT_SETTLED = `the exchange with the loopback front did not settle within ${MAX_EXCHANGE_ROUNDS} rounds`;
+
 // Reports each send the host marked failed and has not reported, in the
 // order it was handed. A report refused because the chart has stopped is
 // dropped, as the reference's session ignores a report to a finished sender.
@@ -256,7 +275,10 @@ function reportFailed(chart: Chart, state: State, host: Host): Observed {
 // `reportSendFailed`, as the reference's processor reports it to its session.
 // Either refused because the chart has stopped is dropped, as the reference's
 // stopped session takes neither; any other refusal fails the case. Repeats
-// until a settle brings nothing back. With no wire, nothing is exchanged.
+// until a settle brings nothing back, for at most `MAX_EXCHANGE_ROUNDS`
+// rounds that bring something back; a further round that brings something
+// back fails the case with `EXCHANGE_NOT_SETTLED`. With no wire, nothing is
+// exchanged.
 async function exchange(
   chart: Chart,
   state: State,
@@ -265,10 +287,11 @@ async function exchange(
 ): Promise<Observed> {
   if (wire === null) return state;
   let current = state;
-  for (;;) {
+  for (let round = 1; ; round++) {
     await wire.settle();
     const arrivals = wire.take();
     if (arrivals.length === 0) return current;
+    if (round > MAX_EXCHANGE_ROUNDS) return { reason: EXCHANGE_NOT_SETTLED };
     for (const arrival of arrivals) {
       const answered =
         arrival.kind === "event"
