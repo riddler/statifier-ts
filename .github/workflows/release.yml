@@ -1,0 +1,185 @@
+name: Release
+
+# Publishes this package to npm when a version tag is pushed, and only when
+# three things hold at the tagged commit: it is on the default branch, the
+# tag names the version package.json states there, and the full quality gate
+# is green there. Nothing else triggers it - no branch push, no pull request,
+# no manual dispatch. A failed run publishes nothing and the tag stays where
+# it is. The one manual act is re-running a run whose publish step failed on
+# a registry or network error, from the run's page in the Actions tab.
+#
+# npm trusted publishing: npm exchanges this run's OIDC identity for a
+# short-lived publish credential, so no token exists anywhere - not in this
+# file, not in the repository's secrets - and npm attaches provenance to the
+# published version on its own.
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+# contents: read for the checkout; id-token: write lets the publish step ask
+# GitHub for the OIDC token npm trusts. Every other permission is none.
+permissions:
+  contents: read
+  id-token: write
+
+# One run per tag, and a run in progress is never cancelled: a publish cut
+# off part way is worse than one that finishes.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Verify, gate and publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+
+    steps:
+      # Full history: the ancestry check below walks it. (ci.yml checks out
+      # shallow, which its gate allows; this job needs the history.)
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # The default branch is read from the push event itself, never written
+      # here, so a renamed default branch needs no edit to this file.
+      - name: Fetch the default branch
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+          test -n "$DEFAULT_BRANCH" || { echo "::error::the push event names no default branch" >&2; exit 1; }
+          git fetch --no-tags origin "+refs/heads/${DEFAULT_BRANCH}:refs/remotes/origin/${DEFAULT_BRANCH}"
+
+      - name: Check the tagged commit is on the default branch
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+          commit="$(git rev-parse 'HEAD^{commit}')"
+          if ! git merge-base --is-ancestor "$commit" "origin/${DEFAULT_BRANCH}"; then
+            echo "::error::${GITHUB_REF_NAME} is on ${commit}, which is not on ${DEFAULT_BRANCH}; nothing is published" >&2
+            exit 1
+          fi
+          echo "${GITHUB_REF_NAME} is on ${commit}, which is on ${DEFAULT_BRANCH}"
+
+      - name: Check the tag names the version in package.json
+        run: |
+          set -euo pipefail
+          tag_version="${GITHUB_REF_NAME#v}"
+          file_version="$(jq -er '.version' package.json)"
+          if [ "$tag_version" != "$file_version" ]; then
+            echo "::error::${GITHUB_REF_NAME} names ${tag_version} but package.json at the tagged commit says ${file_version}; nothing is published" >&2
+            exit 1
+          fi
+          echo "${GITHUB_REF_NAME} matches package.json version ${file_version}"
+
+      # A version npm already shows is reported, never published again (npm
+      # would refuse a reused version anyway). This also answers a re-run of a
+      # run that did publish.
+      - name: Check npm does not already show this version
+        env:
+          NPM_PACKAGE: "@riddler/statifier"
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          status="$(curl -sS -o /dev/null -w '%{http_code}' "https://registry.npmjs.org/${NPM_PACKAGE}/${version}")"
+          case "$status" in
+            404) echo "${NPM_PACKAGE} ${version} is not on npm yet" ;;
+            200) echo "::error::${NPM_PACKAGE} ${version} is already on npm; reported, not published again" >&2; exit 1 ;;
+            *) echo "::error::the npm registry answered ${status} for ${NPM_PACKAGE} ${version}; nothing is published" >&2; exit 1 ;;
+          esac
+
+      # --- copied from ci.yml: the toolchain, the cache, the dependencies and
+      # the full quality gate, exactly as CI runs them.
+
+      # The toolchain comes from mise.toml, provisioned by mise itself, so CI
+      # runs the gate through the same `mise exec --` command an agent runs
+      # locally (.claude/wurk.json gate.full), on the node and pnpm pinned
+      # there. A node or pnpm version written into this file would drift the
+      # first time mise.toml moves. The action installs mise at the version
+      # below, runs `mise install` against mise.toml, and caches the tools.
+      - uses: jdx/mise-action@v4
+        with:
+          version: 2026.8.2
+
+      # The pnpm store is the whole dependency cache. The key is derived from
+      # pnpm-lock.yaml, which is the whole pin: every dependency here is a
+      # public npm package, so nothing authenticates to anything and the
+      # default GITHUB_TOKEN with the read-only `contents` permission above is
+      # all this job needs.
+      - name: Resolve the toolchain and the pnpm store path
+        id: store
+        run: |
+          set -euo pipefail
+          echo "node=$(mise exec -- node --version)" >> "$GITHUB_OUTPUT"
+          echo "path=$(mise exec -- pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache the pnpm store
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.store.outputs.path }}
+          key: pnpm-${{ runner.os }}-node${{ steps.store.outputs.node }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            pnpm-${{ runner.os }}-node${{ steps.store.outputs.node }}-
+
+      - name: Install dependencies
+        run: mise exec -- pnpm install --frozen-lockfile
+
+      # The gate is the whole job: every stage of package.json's `gate`
+      # script, which lists them in one place so this comment does not.
+      #
+      # Same reasoning as the toolchain step, applied to the gate itself: the
+      # command is read out of .claude/wurk.json rather than written here, so
+      # the gate CI runs and the gate an agent must have green before
+      # committing are one definition with one place to change it. It is read
+      # and executed inside the step rather than interpolated into `run:`, so
+      # a repository file never reaches the shell as expression text.
+      - name: Full quality gate
+        run: |
+          set -euo pipefail
+          mapfile -t cmd < <(jq -er '.gate.full[]' .claude/wurk.json)
+          test "${#cmd[@]}" -gt 0 || { echo "gate.full is empty" >&2; exit 1; }
+          echo "gate command (.claude/wurk.json gate.full): ${cmd[*]}"
+          "${cmd[@]}"
+
+      # --- end of the copy from ci.yml.
+
+      # Trusted publishing needs npm 11.5.1 or later on node 22.14.0 or later.
+      # The node mise.toml pins already carries such an npm; npm is upgraded
+      # here only if it ever does not, and the floor is checked either way.
+      # npm runs under `mise exec --` so it and the publish guard use the node
+      # mise.toml pins.
+      - name: Check npm and node meet the trusted-publishing floor
+        run: |
+          set -euo pipefail
+          at_least() { printf '%s\n%s\n' "$1" "$2" | sort -V -C; }
+          node_floor="22.14.0"
+          npm_floor="11.5.1"
+          node_have="$(mise exec -- node --version)"
+          node_have="${node_have#v}"
+          at_least "$node_floor" "$node_have" || { echo "::error::node ${node_have} is below ${node_floor}" >&2; exit 1; }
+          npm_have="$(mise exec -- npm --version)"
+          if ! at_least "$npm_floor" "$npm_have"; then
+            mise exec -- npm install -g npm@latest
+            npm_have="$(mise exec -- npm --version)"
+          fi
+          at_least "$npm_floor" "$npm_have" || { echo "::error::npm ${npm_have} is below ${npm_floor}" >&2; exit 1; }
+          echo "node ${node_have}, npm ${npm_have}"
+
+      # No token: npm authenticates through this run's OIDC identity and adds
+      # provenance itself. `prepack` runs scripts/publish-guard.mjs first,
+      # which rebuilds the output from the tree and refuses a bad tarball
+      # before anything is uploaded.
+      - name: Publish to npm
+        run: mise exec -- npm publish
+
+      - name: Print the published version's address
+        env:
+          NPM_PACKAGE: "@riddler/statifier"
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          echo "https://www.npmjs.com/package/${NPM_PACKAGE}/v/${version}"
