@@ -304,11 +304,15 @@ describe("the README's numbers", () => {
 });
 
 describe("the README's claims", () => {
-  // Sabotage: the position proof called a parity claim turns this red.
-  it("calls the position proof a self-consistency claim", () => {
+  // Sabotage: the position proof called a parity claim, or the parity claim
+  // left unbounded, turns this red. Each was run and reverted.
+  it("calls the position proof a self-consistency claim, and bounds the parity claim to the cases that state a position", () => {
     const position = prose(section("Position export and import"));
     expect(position).toContain("is a self-consistency claim");
-    expect(position).toContain("nothing here claims parity with it");
+    expect(position).toContain(
+      "Parity with the reference's export is claimed for those cases and no further.",
+    );
+    expect(position).not.toContain("which the reference does not emit yet");
   });
 
   // Sabotage: `position` dropped from the gate script turns this red.

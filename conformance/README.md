@@ -138,8 +138,9 @@ by the processor's URI; the copy's `RATCHET.md` says an implementation that
 does not run a processor the case names leaves the case unclaimed.
 
 The reference's runner routes a statifier case by whether it carries a `host`
-object (`run_case/1` in `lib/mix/statifier/corpus/runner.ex` at `v2.9.0`).
-A case with none is driven as a scion case is. A case with one is driven as
+object (`run_case/1` in `lib/mix/statifier/corpus/runner.ex` at `v2.9.0`),
+or, from `v2.11.0`, a step that states a position (below). A case with
+neither is driven as a scion case is. A case with either is driven as
 the reference's host-case harness drives it (`Mix.Statifier.Corpus.HostCase`
 in `lib/mix/statifier/corpus/host_case.ex`): the runner registers each of the
 case's `send_types` with one processor of its own, passed to the driver
@@ -169,6 +170,30 @@ has its chart's accepts check compared before it is driven, as the
 reference's harness compares it (`accepts/2` in `host_case.ex` at `v2.10.0`):
 the two lists `checkAccepts` answers must be exactly the expected ones, order
 included, and either key without the other fails the case.
+
+A statifier case's step may carry an `expect_position`: the position the
+chart holds once that step's configuration agrees, in the string-id
+vocabulary, with the members an implementation need not share left out (the
+copy's `schema/case.json`). The reference's runner hands such a case to its
+host-case harness with or without a `host` object, as a host that registers
+nothing, and compares the step's position there
+(`Mix.Statifier.Corpus.PositionExpectation` in
+`lib/mix/statifier/corpus/position_expectation.ex` at `v2.11.0`); the runner
+here does the same. Once the step's configuration agrees, the state's
+position is exported with the package's own `exportPosition` and rendered as
+the reference renders its export (`renderPosition` in
+`test/conformance/statifier.ts`): `configuration`, `entered_states`,
+`states_to_invoke` and each `history_values` list sorted; each active
+invocation as its `state` and `index`, sorted, without its id; `running` as
+it is; and the datamodel without `_event`, `_ioprocessors`, `_name` and
+`_sessionid`, each value in its JSON form, a variable with no value as
+`null`. A datamodel value with no JSON form - a date, a datetime or a
+duration - fails the step, naming the variable, as the reference refuses it,
+and so does a position the export refuses. The step agrees only when the
+rendering is exactly its `expect_position`, every list in order; a
+disagreement names each member that differs. A case that states a position
+on any step and whose document has a state without an id fails before it is
+driven, as the reference's harness fails it.
 
 **Ratchet.** `pnpm ratchet` reads only the reports the last run wrote. It
 refuses, writing nothing, when a report is of another corpus or is not a run
@@ -216,9 +241,11 @@ position's own configuration there.
 
 **This is a self-consistency claim.** It shows the package agreeing with
 itself, nothing lost on the way out and back; it does not show that the
-export matches the reference's, and nothing here claims parity with the
-reference's export. That needs corpus cases that assert the exported position
-after a step, which the reference does not emit yet.
+export matches the reference's. That is shown case by case where the corpus
+states it: from `v2.11.0` the statifier suite carries cases that state the
+exported position after a step, and the runner compares the package's export
+with each (under "Run" above). Parity with the reference's export is claimed
+for those cases and no further.
 
 ## The engine proof
 
@@ -256,6 +283,21 @@ the writes to nested locations and the `datamodel_change` answered for an
 
 Every suite agreed row for row again, fails included: the same three w3c
 cases fail on Node and on the VM with the same reason.
+
+**The result, 2026-10-04.** Run over the corpus at `v2.11.0`, with the change
+that moved the corpus to that tag and compares a step's stated position
+applied to commit `df87224` on `main`, with `@riddler/predicator` 0.5.0
+installed, on the same VM, release 0.12.0, bytecode version 89:
+
+| Suite | Rows on Node | Rows on the VM | Differences |
+|---|---|---|---|
+| `scion` | 119 | 119 | 0 |
+| `w3c` | 168 | 168 | 0 |
+| `statifier` | 34 | 34 | 0 |
+
+Every suite agreed row for row, fails included: the same three w3c cases
+fail on Node and on the VM with the same reason, and the three statifier
+cases that state a position pass on both.
 
 **What it covers.** The standalone VM is an older release than the engine
 current React Native ships. It refuses the `class` keyword, so its bundle is
@@ -319,3 +361,11 @@ driver's `reportSendFailed` and passes it on its configurations and its sends.
 The ten cases under `statifier/diff/`, the diff cases, are claimed: the run
 drives each as the reference's runner does and passes it on its
 configurations and its sends.
+
+The three cases that state a position,
+`statifier/library/loan_position_counts_renewals`,
+`statifier/library/loan_position_records_history` and
+`statifier/library/patron_position_in_every_region`, are claimed: the run
+compares the package's export with the position each states after every step
+that states one, and passes each on those positions, its configurations and,
+where it carries a host object, its sends.

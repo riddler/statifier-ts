@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<scxml xmlns="http://www.w3.org/2005/07/scxml" version="1.0" datamodel="predicator" initial="patron">
+    <datamodel>
+        <data id="patron_id" expr="'p-1'"/>
+    </datamodel>
+
+    <parallel id="patron">
+        <state id="standing" initial="good">
+            <state id="good">
+                <transition event="patron.blocked" target="blocked"/>
+            </state>
+            <state id="blocked">
+                <transition event="patron.reinstated" target="good"/>
+            </state>
+        </state>
+
+        <state id="fines" initial="none">
+            <state id="none">
+                <transition event="fine.assessed" target="owed"/>
+            </state>
+            <state id="owed">
+                <transition event="fine.paid" target="none"/>
+            </state>
+        </state>
+
+        <state id="desk" initial="waiting">
+            <transition event="loan.requested" type="internal" cond="In('good') and not In('owed')" target="checkout_allowed"/>
+            <transition event="loan.requested" type="internal" target="checkout_refused"/>
+
+            <state id="waiting"/>
+            <state id="checkout_allowed"/>
+            <state id="checkout_refused"/>
+        </state>
+    </parallel>
+</scxml>

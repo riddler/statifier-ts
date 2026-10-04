@@ -27,8 +27,9 @@
 //
 // The claim is the package agreeing with itself: nothing is lost on the way
 // out and back. It says nothing about whether the export matches the
-// reference's; that needs corpus cases that assert the exported position,
-// which the reference does not emit yet.
+// reference's; that is the statifier runner's comparison of the position a
+// corpus step states (`comparePosition` in `test/conformance/statifier.ts`),
+// for the cases that state one.
 //
 // Like the runner, this reaches nothing outside the language.
 

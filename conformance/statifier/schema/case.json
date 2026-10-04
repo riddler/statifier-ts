@@ -67,6 +67,73 @@
             "type": "array",
             "items": { "type": "string", "minLength": 1 },
             "uniqueItems": true
+          },
+          "expect_position": {
+            "type": "object",
+            "description": "Optional, on a statifier case only (ADR-0076): the position the chart holds once this step's configuration agrees, as the string-id export of it, with the fields an implementation need not share left out. Every member is required. A case that carries one on any step has an id on every state of its document. Each array of state ids is sorted ascending, and the runner compares every member exactly, order included.",
+            "properties": {
+              "configuration": {
+                "type": "array",
+                "description": "Every active state's id, the compound and parallel ancestors of the active leaves included and the <scxml> root left out.",
+                "items": { "type": "string", "minLength": 1 },
+                "uniqueItems": true
+              },
+              "entered_states": {
+                "type": "array",
+                "description": "The id of every state entered at least once since initialization, the root left out.",
+                "items": { "type": "string", "minLength": 1 },
+                "uniqueItems": true
+              },
+              "states_to_invoke": {
+                "type": "array",
+                "description": "The ids of the states entered since the last invoke pass whose invocations have not yet been started.",
+                "items": { "type": "string", "minLength": 1 },
+                "uniqueItems": true
+              },
+              "history_values": {
+                "type": "object",
+                "description": "Each history state that has recorded a value, by id, with the ids it recorded as an array sorted ascending; a history state that has recorded nothing has no member."
+              },
+              "active_invocations": {
+                "type": "array",
+                "description": "One item per active invocation, sorted by state and then by index. The invocation's id is not stated.",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "state": {
+                      "type": "string",
+                      "description": "The id of the state whose <invoke> started the invocation.",
+                      "minLength": 1
+                    },
+                    "index": {
+                      "type": "integer",
+                      "description": "The <invoke>'s ordinal among that state's own <invoke> children, counting from 0 in document order.",
+                      "minimum": 0
+                    }
+                  },
+                  "required": ["state", "index"],
+                  "additionalProperties": false
+                }
+              },
+              "running": {
+                "type": "boolean",
+                "description": "Whether the interpreter is still running: false once the chart has reached a top-level final state."
+              },
+              "datamodel": {
+                "type": "object",
+                "description": "Every datamodel variable by name, with its value as JSON, the system variables _event, _ioprocessors, _name and _sessionid left out. A variable with no value is null."
+              }
+            },
+            "required": [
+              "configuration",
+              "entered_states",
+              "states_to_invoke",
+              "history_values",
+              "active_invocations",
+              "running",
+              "datamodel"
+            ],
+            "additionalProperties": false
           }
         },
         "required": ["event", "configuration"],
@@ -499,7 +566,8 @@
         "properties": {
           "id": { "pattern": "^scion/" },
           "conformance": { "const": null },
-          "upstream": { "properties": { "license": { "const": "Apache-2.0" } } }
+          "upstream": { "properties": { "license": { "const": "Apache-2.0" } } },
+          "steps": { "items": { "properties": { "expect_position": false } } }
         },
         "required": ["upstream"],
         "not": { "required": ["host"] }
@@ -512,6 +580,7 @@
           "id": { "pattern": "^w3c/" },
           "conformance": { "enum": ["mandatory", "optional"] },
           "upstream": { "properties": { "license": { "const": "BSD-3-Clause-W3C" } } },
+          "steps": { "items": { "properties": { "expect_position": false } } },
           "host": {
             "properties": { "event_io_processors": true },
             "required": ["event_io_processors"],

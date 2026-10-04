@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<scxml xmlns="http://www.w3.org/2005/07/scxml" version="1.0" datamodel="predicator" initial="active">
+    <datamodel>
+        <data id="renewals" expr="0"/>
+        <data id="max_renewals" expr="2"/>
+        <data id="holds_pending" expr="false"/>
+        <data id="patron_standing" expr="'good'"/>
+        <data id="copy_id" expr="'c-1'"/>
+    </datamodel>
+
+    <state id="active" initial="on_loan">
+        <history id="h" type="shallow">
+            <transition target="on_loan"/>
+        </history>
+
+        <state id="on_loan">
+            <onentry>
+                <send type="library:timer" target="loan" event="loan.due" id="due" delay="21d"/>
+                <send type="library:timer" target="loan" event="loan.due_soon" id="due_soon" delay="18d"/>
+            </onentry>
+            <transition event="loan.renew" target="on_loan" type="external" cond="renewals &lt; max_renewals and not holds_pending and patron_standing == 'good'">
+                <cancel sendid="due"/>
+                <cancel sendid="due_soon"/>
+                <assign location="renewals" expr="renewals + 1"/>
+            </transition>
+            <transition event="loan.due_soon" target="due_soon"/>
+            <transition event="loan.due" target="overdue"/>
+        </state>
+
+        <state id="due_soon">
+            <transition event="loan.due" target="overdue"/>
+        </state>
+
+        <state id="overdue">
+            <onentry>
+                <send type="library:timer" target="loan" event="loan.lost" id="lost" delay="28d"/>
+            </onentry>
+            <transition event="loan.lost" target="lost"/>
+        </state>
+
+        <transition event="copy.returned" target="returned"/>
+        <transition event="copy.disputed" target="held_for_review"/>
+    </state>
+
+    <state id="held_for_review">
+        <transition event="dispute.resolved" target="h"/>
+    </state>
+
+    <final id="returned">
+        <onentry>
+            <send type="library:route" target="hold_queue" event="copy.available">
+                <param name="copy_id" expr="copy_id"/>
+            </send>
+        </onentry>
+    </final>
+
+    <final id="lost"/>
+</scxml>

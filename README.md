@@ -446,9 +446,11 @@ every later step. A point the export cannot carry, such as one with a timer
 pending, is counted with its reason rather than compared, and the stage
 prints those counts. This shows the package agreeing with itself, nothing
 lost on the way out and back. It does not show that the export matches the
-reference's, and nothing here claims parity with it: that needs corpus cases
-that assert the exported position after a step, which the reference does not
-emit yet.
+reference's. That is shown case by case where the corpus states it: from tag
+`v2.11.0` the statifier suite carries cases that state the exported position
+after a step, and the runner compares this package's export with each one
+(under Conformance below). Parity with the reference's export is claimed for
+those cases and no further.
 
 ## The Basic HTTP processor
 
@@ -481,15 +483,15 @@ turns an inbound POST into the event its front passes to `step`.
 
 The conformance corpus is the reference's, and it is the spec: a case this
 package answers differently from the corpus is this package's bug. The corpus
-is copied byte for byte from the reference at tag `v2.10.0`, recorded in the
+is copied byte for byte from the reference at tag `v2.11.0`, recorded in the
 provenance file `conformance/statifier.vendored.json`, and never edited by
 hand. Its registry, `conformance/registry.json`, lists the cases this package
 claims to pass - written only by a run that observed the pass, and never
 narrowed.
 
-**The claim:** this package makes four claims, with 315 entries in its
+**The claim:** this package makes four claims, with 318 entries in its
 registry: `scion` with 119 entries out of the suite's 119 cases, `statifier`
-with 31 entries out of the suite's 31 cases, `w3c-mandatory` with 152 entries
+with 34 entries out of the suite's 34 cases, `w3c-mandatory` with 152 entries
 out of the w3c suite's 154 mandatory cases, and `w3c-optional` with 13 entries
 out of its 14 optional cases. A claim is exactly its entries: a case with no
 entry is one this package does not claim to pass.
@@ -519,7 +521,12 @@ reported through `reportSendFailed`, as the reference's harness reports it.
 A case that declares the events its chart accepts has the chart checked
 against that declaration by `checkAccepts` before it is driven, as the
 reference's harness checks it, and agrees only when both lists the check
-answers are the ones it expects.
+answers are the ones it expects. A statifier case whose step states the
+exported position the chart holds after it is driven the same way, with or
+without a host object, as the reference's runner drives it: once that step's
+configuration agrees, the package's `exportPosition` is rendered as the
+reference renders its own export, and the case agrees only when the rendering
+is exactly the position the step states.
 
 ```bash
 pnpm conformance      # run the corpus and print the gap list
@@ -541,13 +548,15 @@ lint, a gate stage, checks `src/` for those constructs and passes.
 That is a check on the text. A check on a run - the conformance corpus driven
 through this package on the JavaScript engine React Native uses, and diffed
 against a run on the server runtime - is what `scripts/hermes-conformance.mjs`
-does. The engine proof was last run on 2026-10-02, at commit `5560a8c` on
-`main`, after the nested-location writes and with `@riddler/predicator` 0.5.0
-installed, on the standalone Hermes VM, release 0.12.0, bytecode version 89:
-every suite agreed row for row with the same run on Node, with zero
-differences - scion 119 rows, w3c 168 and statifier 31, every case of the
-vendored corpus, none left out. Its first run, on 2026-10-01 at commit
-`15980e9`, also found zero differences.
+does. The engine proof was last run on 2026-10-04, over the corpus at
+`v2.11.0`, with the change that moved the corpus to that tag applied to
+commit `df87224` on `main` and with `@riddler/predicator` 0.5.0 installed, on
+the standalone Hermes VM, release 0.12.0, bytecode version 89: every suite
+agreed row for row with the same run on Node, with zero differences - scion
+119 rows, w3c 168 and statifier 34, every case of the vendored corpus, none
+left out. Its earlier runs, on 2026-10-01 at commit `15980e9` and on
+2026-10-02 at commit `5560a8c`, with the corpus at `v2.10.0`, also found
+zero differences. It runs again at the head of the next release.
 
 What the proof covers is narrower than "React Native". The standalone VM is
 an older release than the engine current React Native ships, so the bundle it

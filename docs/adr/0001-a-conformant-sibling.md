@@ -282,3 +282,21 @@ at `8a2e210`, and each is named by a later dated record on `main`:
   `src/driver.ts`), recorded by ADR-0002's Amendment "a failure `deliver`
   answers is raised within the run that handed the send", of 2026-10-01.
   Nothing under `src/` reads a clock of its own.
+
+## Note: the corpus now states positions (2026-10-04)
+
+This Note records that the condition the paragraph "The position claim is
+self-consistency" waits on has been met. It carries no Status line and
+removes no line.
+
+That paragraph says: "Until the reference's corpus carries cases that assert
+an exported position, the claim this package makes for position export and
+import is that a position exported and imported into a fresh compiled chart
+continues to the same configurations." The reference's corpus at `v2.11.0`
+(`bbc4c0e`) carries three statifier cases that state the exported position
+after their steps, and the copy here is at that tag. The runner compares the
+package's export with each stated position, as ADR-0003's Note "a step's
+stated position is compared" (2026-10-04) records. So the package now claims
+parity with the reference's export for those three cases, and for no other
+position; the round trip `scripts/position-check.mjs` runs over the scion
+suite is still a self-consistency claim beside it.

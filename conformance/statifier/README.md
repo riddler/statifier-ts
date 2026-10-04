@@ -142,7 +142,8 @@ renamed to `ready_for_pickup` with a mapping (mapped) and without one
 (breaking). A case may also carry `expect_compatible_at`, what
 `Statifier.Position.compatible_at?/3` answers (ADR-0072 decision 4) at the
 position its steps leave the chart in: `Statifier.Position.export/1` holds
-atoms, sets and tuples, so the case states no position, and every such
+atoms, sets and tuples, so the case does not state that position (a step's
+`expect_position`, below, is where a case states one), and every such
 hold case's steps put `p-1`'s hold in `awaiting_pickup` with its pickup timer
 handed to the host. The predicate answers true when only `idle` is edited (a
 breaking pair harmless at this position), false when a transition of
@@ -194,3 +195,44 @@ An item with no `outcome` claims nothing about the send beyond its being
 handed: the host records it and does nothing else with it, and a cancel
 naming it is not compared. A case agrees only when the sends handed are
 exactly its `expect_sends`, outcomes included.
+
+## What a step's position claims
+
+A `statifier` case's step may also carry an `expect_position`
+([ADR-0076](../docs/adr/0076-corpus-steps-may-state-the-exported-position.md)):
+the position the chart holds once that step's configuration agrees, as
+`Statifier.Position.export/1` gives it, written in JSON. It has seven
+members, and `schema/case.json` requires all of them:
+
+- `configuration`: every active state's id, the compound and parallel
+  ancestors of the active leaves included and the `<scxml>` root left
+  out;
+- `entered_states`: every state entered at least once;
+- `states_to_invoke`: the states whose invocations wait for the invoke
+  pass: empty after a step that leaves the chart running, and after the
+  step that ends the chart, the states entered since the last invoke pass
+  and not exited by a transition since: no invoke pass runs once the chart
+  has stopped, and exiting the chart removes none of them;
+- `history_values`: each history state that has recorded a value, by
+  id, with the ids it recorded;
+- `active_invocations`: each running invocation as the id of the state
+  that owns its `<invoke>` and the `<invoke>`'s index among that state's
+  own, without the invocation's id;
+- `running`: false once the chart has reached a top-level final state;
+- `datamodel`: every variable with its value, `_event`, `_ioprocessors`,
+  `_name` and `_sessionid` left out, an unset value written `null`.
+
+Every array of state ids is sorted, and the runner compares each member
+exactly. The export's counters, the chart's identity, its status, its
+step stamps and its options are not stated, because another
+implementation need not produce the same values for them. A case that
+states a position on any step gives every state in its document an id,
+and the runner refuses one that does not. A `scion` or `w3c` case never
+carries the member.
+
+Three library cases carry it: `patron_position_in_every_region` after a
+fine and a checkout request, with the parallel `patron` state and its
+three regions in the configuration; `loan_position_records_history`
+after a dispute and its resolution, with `due_soon` recorded under the
+history `h`; and `loan_position_counts_renewals` after each of two
+renewals, with `renewals` at 1 and then 2.

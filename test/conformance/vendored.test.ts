@@ -18,9 +18,9 @@ const manifest = loadManifest();
 
 // The tag the copy was taken at and what it pins. A refresh to another tag
 // rewrites the provenance record, and this test with it, in the same change.
-const TAG = "v2.10.0";
-const SHA = "c8894aea8b5b000215ea9597ca11de0dd0d89aea";
-const CORPUS_HASH = "sha256:127a498eb4b44976bf6b1fe8d39d2c7412a4d31b63c991f2d54dd8a525e4eb1c";
+const TAG = "v2.11.0";
+const SHA = "bbc4c0ee23255b40ba74a724f3b63499bcd91df4";
+const CORPUS_HASH = "sha256:0477273e8ce0b9305683f32c7d2e8aa47f324f4d8f0529737e22da8ba3b41aba";
 
 describe("the provenance record", () => {
   it("is the one line the recipe writes: repo, tag, sha, corpus_hash", () => {
@@ -61,7 +61,7 @@ describe("the vendored copy", () => {
     expect(manifest.suites.map((entry) => [entry.suite, entry.file, entry.case_count])).toEqual([
       ["scion", "corpus/scion.json", 119],
       ["w3c", "corpus/w3c.json", 168],
-      ["statifier", "corpus/statifier.json", 31],
+      ["statifier", "corpus/statifier.json", 34],
     ]);
     const hash = createHash("sha256");
     for (const entry of manifest.suites) {
