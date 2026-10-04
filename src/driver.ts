@@ -496,6 +496,12 @@ export interface StartOptions extends DriveOptions {
 export interface HostEvent {
   readonly name: string;
   readonly data?: Value;
+  /**
+   * The type of the processor the event came in through, which the chart
+   * reads as `_event.origintype`; undefined there when absent or not a
+   * string. `decodeRequest` sets the Basic HTTP processor's URI.
+   */
+  readonly origintype?: string;
 }
 
 /**
@@ -637,7 +643,12 @@ export function step(
     if (!opened.ok) return opened;
     const live = opened.live;
     if (!live.core.running) return { ok: false, reason: "not_running" };
-    live.externalQueue.push({ name: event.name, type: "external", data: event.data ?? Undefined });
+    live.externalQueue.push({
+      name: event.name,
+      type: "external",
+      data: event.data ?? Undefined,
+      ...(typeof event.origintype === "string" ? { origintype: event.origintype } : {}),
+    });
     stamp(live);
     drain(live);
     return { ok: true, live, out };

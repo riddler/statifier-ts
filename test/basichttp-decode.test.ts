@@ -4,9 +4,17 @@
 
 import { float, Undefined } from "@riddler/predicator";
 import { describe, expect, it } from "vitest";
-import { decodeRequest, type InboundRequest } from "../src/basichttp/index.js";
+import {
+  BASIC_HTTP_EVENT_PROCESSOR,
+  decodeRequest,
+  type InboundRequest,
+} from "../src/basichttp/index.js";
+import { compile } from "../src/compiler.js";
+import { type DriveEffect, type DriveResult, type HostEvent, start, step } from "../src/driver.js";
 
 const FORM = "application/x-www-form-urlencoded";
+
+const URI = BASIC_HTTP_EVENT_PROCESSOR;
 
 const posted: InboundRequest = {
   method: "POST",
@@ -21,7 +29,7 @@ describe("an inbound request", () => {
   it("becomes the event its _scxmleventname names, its other parameters the data", () => {
     expect(decodeRequest(posted)).toEqual({
       ok: true,
-      event: { name: "hold.ready", data: { copy: "book-17", renewals: 2 } },
+      event: { name: "hold.ready", origintype: URI, data: { copy: "book-17", renewals: 2 } },
     });
   });
 
@@ -31,14 +39,18 @@ describe("an inbound request", () => {
     const decoded = decodeRequest({ ...posted, query: "_scxmleventname=loan.renewed&branch=7" });
     expect(decoded).toEqual({
       ok: true,
-      event: { name: "loan.renewed", data: { branch: 7, copy: "book-17", renewals: 2 } },
+      event: {
+        name: "loan.renewed",
+        origintype: URI,
+        data: { branch: 7, copy: "book-17", renewals: 2 },
+      },
     });
   });
 
   it("is named HTTP and its method when it carries no name, with no data when it has none", () => {
     expect(decodeRequest({ ...posted, method: "post", body: "" })).toEqual({
       ok: true,
-      event: { name: "HTTP.POST", data: Undefined },
+      event: { name: "HTTP.POST", origintype: URI, data: Undefined },
     });
   });
 
@@ -46,7 +58,11 @@ describe("an inbound request", () => {
     const decoded = decodeRequest({ ...posted, body: "fine=0.5&fine=1.5&patron=ada+lovelace" });
     expect(decoded).toEqual({
       ok: true,
-      event: { name: "HTTP.POST", data: { fine: float(1.5), patron: "ada lovelace" } },
+      event: {
+        name: "HTTP.POST",
+        origintype: URI,
+        data: { fine: float(1.5), patron: "ada lovelace" },
+      },
     });
   });
 
@@ -59,10 +75,13 @@ describe("an inbound request", () => {
       body: "  the copy   is in  ",
       query: "_scxmleventname=hold.ready&branch=7",
     });
-    expect(decoded).toEqual({ ok: true, event: { name: "hold.ready", data: "the copy is in" } });
+    expect(decoded).toEqual({
+      ok: true,
+      event: { name: "hold.ready", origintype: URI, data: "the copy is in" },
+    });
     expect(decodeRequest({ ...posted, contentType: null, body: "[1, 2]" })).toEqual({
       ok: true,
-      event: { name: "HTTP.POST", data: [1, 2] },
+      event: { name: "HTTP.POST", origintype: URI, data: [1, 2] },
     });
   });
 
@@ -122,5 +141,52 @@ describe("a request that forms no event", () => {
       decodeRequest(posted),
     );
     expect(decodeRequest({ ...posted, sendKey: null })).toEqual(decodeRequest(posted));
+  });
+});
+
+describe("a decoded event as the chart reads it", () => {
+  const SCXML = 'xmlns="http://www.w3.org/2005/07/scxml" version="1.0" datamodel="predicator"';
+  const compiled = compile(`<scxml ${SCXML} initial="awaiting_copy" name="hold">
+    <state id="awaiting_copy">
+      <transition event="hold.ready" target="notified">
+        <log label="origintype" expr="_event.origintype"/>
+        <log label="copy" expr="_event.data.copy"/>
+      </transition>
+    </state>
+    <final id="notified"/>
+  </scxml>`);
+  if (!compiled.ok) throw new Error(`fixture does not compile: ${JSON.stringify(compiled.errors)}`);
+  const chart = compiled.chart;
+
+  function logged(result: DriveResult): Record<string, unknown> {
+    if (!result.ok) throw new Error(`refused: ${result.reason}`);
+    return Object.fromEntries(
+      result.effects.flatMap((effect: DriveEffect) =>
+        effect.kind === "log" ? [[effect.label ?? "", effect.value]] : [],
+      ),
+    );
+  }
+
+  function stepped(event: HostEvent): Record<string, unknown> {
+    const started = start(chart, { sessionId: "branch-7" });
+    if (!started.ok) throw new Error(`refused: ${started.reason}`);
+    return logged(step(chart, started.state, event));
+  }
+
+  // Sabotage: dropping the origintype `decodeRequest` sets, or the one
+  // `step` queues, turns this red.
+  it("reads _event.origintype as the processor URI, as the reference's decoder sets it", () => {
+    const decoded = decodeRequest(posted);
+    if (!decoded.ok) throw new Error(`refused: ${decoded.reason}`);
+    expect(stepped(decoded.event)).toEqual({ origintype: URI, copy: "book-17" });
+  });
+
+  // Sabotage: queuing a default origintype for a host event that names none
+  // turns this red.
+  it("reads _event.origintype as undefined for a host event that names none", () => {
+    expect(stepped({ name: "hold.ready", data: { copy: "book-17" } })).toEqual({
+      origintype: Undefined,
+      copy: "book-17",
+    });
   });
 });

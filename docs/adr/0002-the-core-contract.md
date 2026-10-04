@@ -2344,3 +2344,46 @@ entry per turn of the session's message loop, with no count. A host's
 `send_event/2` there casts, so no call a host makes waits on either loop.
 The bound is this package's, since every call here takes what its chart
 queues itself before it returns.
+
+## Note: an inbound event's origintype, and a held send of a stopped session (2026-10-04)
+
+The Basic HTTP processor Amendment's table "Further divergences from the
+reference, each declared" has two rows this Note answers. Both answers were
+decided by the conductor under a standing consent, 2026-10-03: carry
+`origintype` as the reference does, and add no host call for the held sends.
+
+**An inbound event's `origintype`.** The row "An inbound event's
+`origintype`" reads, on `main` at `f2195ad`, that it is "not carried: `step`
+takes a host event's name and data only". The reference's decoder sets the
+processor's URI: `decode/1` in `lib/statifier/send/basic_http.ex` at
+statifier-ex `v2.11.0` (`bbc4c0e`), as at `v2.10.0` (`c8894ae`). The change
+that adds this Note carries it:
+
+- `HostEvent` in `src/driver.ts` gains one optional member, `origintype?:
+  string`, so the Typespecs line `interface HostEvent { name: string; data?:
+  Value }` reads with it;
+- `step` in `src/driver.ts` queues it on the external event when it is a
+  string, and the chart reads it as `_event.origintype`;
+- `decodeRequest` in `src/basichttp/decode.ts` sets it to
+  `BASIC_HTTP_EVENT_PROCESSOR`.
+
+A host event that names no `origintype`, or names one that is not a string,
+reads `_event.origintype` as undefined, as every host event did before. The
+changed answer is the decoded event's: it carries the field, and a chart that
+reads `_event.origintype` on it reads the processor's URI where it read
+undefined. No refusal is added. ADR-0003's loopback Amendment says under
+"Limits" that "The event `decodeRequest` answers carries no `origintype`";
+that sentence is superseded by the same change, and no vendored case the
+loopback drives reads the field, so no claim in `conformance/registry.json`
+moves.
+
+**A delayed send held for a stopped session.** The row "A delayed send"
+stands: the processor holds a delayed send on the global timer and posts it
+when the timer fires, where the reference posts only while the session is
+running, and the dead letter is the host's. A send held for a session that
+has stopped since is posted when its timer fires; a miss reaches the host's
+`report`, and `reportSendFailed` refuses a report against the stopped state
+with `not_running`. What comes of that post is the host's dead letter. No
+host call clears a stopped session's held timers: the driver has none, and
+`basicHttp` answers only the processor and its send types. The processor's
+`cancel` drops one held send, by its send id, when a `<cancel>` names it.
