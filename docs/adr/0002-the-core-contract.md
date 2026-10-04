@@ -2518,3 +2518,54 @@ keeps the registered type's entry. A send of that type then raises
 `sendTypes` drop a type. The test "hands the child nothing and reports none
 of its effects, and its entry stays" in `test/driver-child-inherits.test.ts`
 pins it. The rule stays the host's to keep; the driver does not check it.
+
+## Note: the Basic HTTP processor's table counts, four more divergences, and a held send after a restart (2026-10-04)
+
+This Note completes the Amendment "the Basic HTTP processor", read against
+`main` at `3589315` and against the reference at statifier-ex `v2.11.0`
+(`bbc4c0e`), without changing an answer. It adds no member to a public type,
+so it is a Note rather than an Amendment. It carries no Status line and
+removes no line. That no wire answer changes here, and that a held send is
+recorded rather than re-armed, were decided by the conductor under a standing
+consent, 2026-10-03.
+
+**The counts.** The Amendment's table "The wire shape, decision by decision"
+has 13 rows: one for decision 2, one for decision 3, six for decision 4, one
+for decision 5, one for decision 6, one for decision 8 point d, and two for
+the reference's Amendment of 2026-09-30. Its table "Further divergences from
+the reference, each declared" has 7 rows. The Amendment "an inbound event's
+origintype, and a held send of a stopped session" (2026-10-04) above reverses
+one of them, the row "An inbound event's `origintype`", so 6 stand. The table
+below adds 4, so 10 divergences are declared.
+
+**Four more divergences.** Each row reads the reference at `v2.11.0`:
+
+| Case | Reference at `v2.11.0` | This package | Basis |
+|---|---|---|---|
+| A map of more than 32 entries as a send's data | its form parameters follow the event name in the order its runtime lists the map's keys, which is code point order up to 32 keys and hash order past that | code point order at every size (`requestFor` in `src/basichttp/processor.ts`) | the hash order is the reference runtime's own and not one another runtime reproduces; the wire-shape table's "small map" is a map of up to 32 keys, where both orders agree |
+| A list or a map as a parameter value, or a list as a `<content>` body | JSON text when every value inside has a JSON form, else the whole value's `inspect/1` text (its ADR-0075 Amendment of 2026-10-02, which reverses the `inspect/1` form the divergence table's row reads at `v2.10.0`) | predicator's tagged-value text, as that row says (`encodeValue` in `src/basichttp/encoding.ts`); both are JSON-shaped for plain values, but they are not held to the same bytes, and they differ where the value holds `undefined` (JSON `null` there, a tagged object here), a map whose members stand in another order than the reference runtime lists them in, or a date, a datetime or a duration (the whole value's `inspect/1` text there) | following the reference's rule changes what such a send posts, a changed wire answer this Note does not make; it is a later change's |
+| A date or a datetime as a send's data | raises while the send is planned: its `post/2` in `lib/statifier/send/basic_http.ex` reads any map as form pairs, a date's struct included, and its runtime cannot enumerate one | the body, as `text/plain`, in predicator's tagged-value text, with the event name in the target's query string (`requestFor`) | errors are values, and the send is answered as any other value that is not a map |
+| A duration as a send's data | form-encoded, one parameter per unit field: predicator-ex answers a duration as a map of its unit fields (`Predicator.Duration` at `v9.4.2`) | the body, as `text/plain`, in predicator's tagged-value text, with the event name in the target's query string (`requestFor`) | a duration is not a map here (`isMap` in `src/basichttp/encoding.ts` reads predicator's type name), so it takes the rung every other value that is not a map takes |
+
+The date, datetime and duration rows are read from the reference's code at
+the tag and from its runtime's own behaviour, not from a run of the
+reference's build.
+
+**A delayed send at the reference's `v2.11.0`.** The row "A delayed send"
+reads the reference at `v2.10.0`. At `v2.11.0` the reference's timer also
+discards the send when its session halts (done, cancelled or its budget
+spent), not only when it stops; the row's "This package" and "Basis" columns
+stand as written.
+
+**A held send after a restart.** The processor holds each delayed send in
+the memory of the value `basicHttp` answered (`basicHttp` in
+`src/basichttp/processor.ts`), not in the state. A host that restarts and
+builds a new processor loses every send the old one held: it is never
+posted, and nothing is reported. The state the host resumes still lists the
+send under `heldSends` (`State` in `src/driver.ts`), which records a delayed
+send handed to a processor until a `<cancel>` names it, and is not cleared
+when the processor posts; a later `<cancel>` of it reaches the new
+processor's `cancel`, which finds nothing to clear. The reference's timer is
+a process of its runtime, so its held sends end with that runtime the same
+way. Re-arming the held sends from the state is not taken; it would be an
+addition, a later change's.
