@@ -617,6 +617,85 @@ describe("a child inside the JSON state", () => {
     });
   });
 
+  // A library loan that invokes a renewal, whose chart invokes a hold check:
+  // the three levels a refusal below the first child is named through.
+  const RENEWAL = chartOf(`<scxml ${SCXML} initial="loan">
+    <state id="loan">
+      <invoke id="renewal" type="scxml">
+        <content>
+          <scxml version="1.0" initial="review">
+            <state id="review">
+              <invoke id="hold-check" type="scxml">
+                <content>
+                  <scxml version="1.0" initial="checking"><state id="checking"/></scxml>
+                </content>
+              </invoke>
+            </state>
+          </scxml>
+        </content>
+      </invoke>
+      <transition event="return" target="returned"/>
+    </state>
+    <final id="returned"/>
+  </scxml>`);
+
+  // Sabotage: naming a record's path without the prefix of the state that
+  // holds it (`invocations[${i}]` for `${at}invocations[${i}]` in
+  // decodeState) turns this red: the field names the grandchild as a direct
+  // child.
+  it("refuses a grandchild whose invokedAs is not its invocation's id", () => {
+    const { state } = ok(start(RENEWAL, { sessionId: "desk-1" }));
+    const [renewal] = state.invocations;
+    if (renewal?.state === undefined || renewal.state === null) throw new Error("no renewal");
+    const [holdCheck] = renewal.state.invocations;
+    if (holdCheck?.state === undefined || holdCheck.state === null) {
+      throw new Error("no hold check");
+    }
+    for (const invokedAs of ["checking", null]) {
+      const edited = {
+        ...state,
+        invocations: [
+          {
+            ...renewal,
+            state: {
+              ...renewal.state,
+              invocations: [{ ...holdCheck, state: { ...holdCheck.state, invokedAs } }],
+            },
+          },
+        ],
+      };
+      expect(step(RENEWAL, edited, { name: "return" })).toEqual({
+        ok: false,
+        reason: "malformed_state",
+        detail: {
+          kind: "bad_shape",
+          field: "invocations[0].state.invocations[0].state.invokedAs",
+        },
+      });
+    }
+  });
+
+  // Sabotage: naming a duplicate record's field without its state's prefix
+  // (`invocations[${i}].invokeId` in decodeState) turns this red.
+  it("refuses two grandchild invocation records with one id", () => {
+    const { state } = ok(start(RENEWAL, { sessionId: "desk-1" }));
+    const [renewal] = state.invocations;
+    if (renewal?.state === undefined || renewal.state === null) throw new Error("no renewal");
+    const [holdCheck] = renewal.state.invocations;
+    if (holdCheck === undefined) throw new Error("no hold check");
+    const edited = {
+      ...state,
+      invocations: [
+        { ...renewal, state: { ...renewal.state, invocations: [holdCheck, holdCheck] } },
+      ],
+    };
+    expect(step(RENEWAL, edited, { name: "return" })).toEqual({
+      ok: false,
+      reason: "malformed_state",
+      detail: { kind: "bad_shape", field: "invocations[0].state.invocations[1].invokeId" },
+    });
+  });
+
   // Sabotage: writing the invocations into the exported position turns this
   // red.
   it("leaves the child out of a position, so an import starts with none", () => {
