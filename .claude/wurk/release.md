@@ -194,26 +194,17 @@ there; the lines above the refusal name which property failed.
 
 This step touches no file and so is absent from the table below.
 
-### The publish line, the operator's
+### The publish line, the release workflow's
 
-The publish is the operator's step and never an agent's (`CLAUDE.md`'s
-authority table). It is run from the repository's checkout on `main` once the
-prep is merged and its tag pushed, in this order:
+An agent or a session never runs `npm publish`: the release workflow
+(`.github/workflows/release.yml`) publishes on the tag push `CLAUDE.md`'s
+release-prep row already allows, and a failed workflow is re-run from its
+Actions page, never worked round by a local publish.
 
-```bash
-git pull
-mise exec -- pnpm install --frozen-lockfile
-mise exec -- npm publish
-```
-
-The pull brings the checkout to `main`, whose head is the tagged commit when
-nothing has merged since the prep; `git describe --tags --exact-match` names
-the tag when it is. The install matches the installed dependencies to that
-tree's lockfile, because the guard's rebuild uses what is installed: a
-checkout pulled but not reinstalled builds against the dependencies of the
-tree it was last installed for. And `npm publish` runs under `mise exec --`,
-so npm and the guard it runs use the node `mise.toml` pins rather than
-whatever node the shell's PATH holds, which may be newer than the pin.
+The workflow does what a publish from a checkout needs for the guard above:
+it installs with `--frozen-lockfile` against the tagged tree's lockfile before
+anything builds, and it runs `npm publish` under `mise exec --`, so npm and the
+guard use the node `mise.toml` pins.
 
 ## The files a release commit touches
 
@@ -239,6 +230,6 @@ plan or their own words), and nothing more. What follows it is set by
 The prep is pushed, opened and merged under the rows for those steps. Once the
 prep is merged to `origin/main`, the conductor or the session that owns the
 release bead tags that merged commit with the new version and pushes the tag;
-the tag never comes before the prep is on `origin/main`. The publish
-(`npm publish`) and the release itself stay the operator's, in every campaign
-and outside every campaign, and no consent or relay delegates them.
+the tag never comes before the prep is on `origin/main`. The release
+workflow publishes on that tag push, and no agent or session runs
+`npm publish` (the publish line above).

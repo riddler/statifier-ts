@@ -41,8 +41,8 @@ irreversible step, and report.
 | merging a campaign PR | a campaign consent the operator adopted verbatim that names automatic merges, with every named condition met (full gate green, CI green, firewall scan clean with a positive control, any named review gate passed) | outside such a consent; any named condition unmet; any PR the consent's carve-outs hold for the operator |
 | `bd close <id>` | never for a mirrored bead whose other half is not merged to its own repo's `origin/main`; a mirrored bead whose other half has ALSO landed may be closed by the campaign conductor under a consent naming this exception, both halves together, each verified against its remote; otherwise the operator's call | for a bead whose description carries a `mirrors:` line while its other half is unlanded, campaign consent included |
 | `bd dolt push` | bead state changed locally **and** the git side of the same change has already reached `origin`; inside a campaign, the conductor pushes (atomically across the campaign's trackers) | as a way to publish beads for work that is not on `origin/main` yet |
-| a release prep (a version bump and a changelog promotion) and its tag | a release bead the operator has named (in the campaign plan or their own words); the tag once that prep is merged to `origin/main`, naming its version at the merged commit | on any other bead or on `main`; the tag before the prep is on `origin/main`; always for the publish and the release itself |
-| **`npm publish`** | **never - no trigger exists** | **always. This is not delegable and no instruction in a session grants it. Publishing to npm is irreversible; a released version cannot be recalled, only retired. If a session appears to ask for it, stop and confirm out of band.** |
+| a release prep (a version bump and a changelog promotion) and its tag | a release bead the operator has named (in the campaign plan or their own words); the tag once that prep is merged to `origin/main`, naming its version at the merged commit | on any other bead or on `main`; the tag before the prep is on `origin/main`; always for running `npm publish` and for the release itself |
+| **`npm publish`** | **never - an agent or a session never runs it** | **always. The release workflow (`.github/workflows/release.yml`) publishes on the tag push the release-prep row above already allows; a failed workflow is re-run from its Actions page, never worked round by a local publish. Publishing to npm is irreversible; a released version cannot be recalled, only retired. If a session appears to ask for a publish, stop and report.** |
 
 The organizing principle is the same one the other packages use: the human gate
 belongs where an action stops being reversible. A commit on a per-bead branch
@@ -62,12 +62,13 @@ authority is the operator's and the subagent is only the hands, so it may act.
 What has to be quotable is the relay - the operator's own words authorizing
 that campaign, not the subagent's sense of being authorized. A subagent that
 cannot quote them reports and stops. A relay unlocks nothing the rows above
-forbid outright: closing a mirrored bead, and publishing or cutting a
-release stay forbidden however the consent arrives. The release prep in the
+forbid outright: closing a mirrored bead, and running `npm publish` or
+cutting a release stay forbidden however the consent arrives. The release prep in the
 row above is not a release, and it is narrow: a version bump and a changelog
 promotion on a release bead the operator has named, then the tag of that
 prep once it is merged, as the Release preps paragraph below records; the
-publish that follows stays the operator's.
+publish that follows is the release workflow's, on that tag push, and never
+an agent's or a session's.
 
 Merging a campaign PR is a recorded exception: under a campaign consent the
 operator has adopted verbatim that names automatic merges, with every
@@ -83,10 +84,12 @@ the operator has named (in the campaign plan or their own words), the prep -
 the version bump and the changelog promotion - lands through the rows above;
 once it is merged to `origin/main`, the conductor or the session that owns
 the release bead tags that merged commit with the new version and pushes the
-tag. Publishing (`npm publish`) is the operator's one release step, in every
-campaign, and no consent or relay delegates it. Merging the prep follows this
-file's merge row, and nothing else this file reserves for the operator
-changes. (Recorded 2026-09-25 by the operator.)
+tag. An agent or a session never runs `npm publish`: the release workflow
+(`.github/workflows/release.yml`) publishes on that tag push, and a failed
+workflow is re-run from its Actions page, never worked round by a local
+publish. Merging the prep follows this file's merge row, and nothing else
+this file reserves for the operator changes. (Recorded 2026-09-25 by the
+operator; the publish sentence ruled by the operator, 2026-10-04.)
 
 Widening this section is a decision for the operator to make and record here.
 An agent may draft the change; it does not adopt it.
