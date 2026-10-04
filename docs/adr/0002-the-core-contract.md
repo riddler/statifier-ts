@@ -2345,23 +2345,27 @@ entry per turn of the session's message loop, with no count. A host's
 The bound is this package's, since every call here takes what its chart
 queues itself before it returns.
 
-## Note: an inbound event's origintype, and a held send of a stopped session (2026-10-04)
+## Amendment: an inbound event's origintype, and a held send of a stopped session (2026-10-04)
+
+Status: proposed (2026-10-04)
 
 The Basic HTTP processor Amendment's table "Further divergences from the
-reference, each declared" has two rows this Note answers. Both answers were
-decided by the conductor under a standing consent, 2026-10-03: carry
+reference, each declared" has two rows this Amendment answers. Both answers
+were decided by the conductor under a standing consent, 2026-10-03: carry
 `origintype` as the reference does, and add no host call for the held sends.
+It is an Amendment, not a Note, because it adds a member to a public type,
+`HostEvent`.
 
 **An inbound event's `origintype`.** The row "An inbound event's
 `origintype`" reads, on `main` at `f2195ad`, that it is "not carried: `step`
 takes a host event's name and data only". The reference's decoder sets the
 processor's URI: `decode/1` in `lib/statifier/send/basic_http.ex` at
-statifier-ex `v2.11.0` (`bbc4c0e`), as at `v2.10.0` (`c8894ae`). The change
-that adds this Note carries it:
+statifier-ex `v2.11.0` (`bbc4c0e`), as at `v2.10.0` (`c8894ae`). This
+Amendment reverses that row, and the change that adds it carries the field:
 
 - `HostEvent` in `src/driver.ts` gains one optional member, `origintype?:
   string`, so the Typespecs line `interface HostEvent { name: string; data?:
-  Value }` reads with it;
+  Value }` reads with it, as the Typespecs below give it;
 - `step` in `src/driver.ts` queues it on the external event when it is a
   string, and the chart reads it as `_event.origintype`;
 - `decodeRequest` in `src/basichttp/decode.ts` sets it to
@@ -2387,3 +2391,13 @@ with `not_running`. What comes of that post is the host's dead letter. No
 host call clears a stopped session's held timers: the driver has none, and
 `basicHttp` answers only the processor and its send types. The processor's
 `cancel` drops one held send, by its send id, when a `<cancel>` names it.
+
+Typespecs:
+
+```ts
+interface HostEvent {
+  readonly name: string;
+  readonly data?: Value;
+  readonly origintype?: string; // _event.origintype; undefined when absent
+}
+```
