@@ -28,7 +28,7 @@ checked against the scripts `package.json` declares rather than run.
 Install it from the npm registry:
 
 ```bash
-pnpm add @riddler/statifier@^0.2.0
+pnpm add @riddler/statifier@^0.3.0
 ```
 
 The package has **one runtime dependency**,

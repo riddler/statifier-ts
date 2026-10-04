@@ -20,6 +20,31 @@ Nothing is written under this heading. Unreleased work is the fragments in
 `changelog.d/`; a release prep assembles them into a version section below this
 one.
 
+## [0.3.0] 2026-10-04
+
+A minor release that bounds one driver call, answers an undefined declaration
+list as a null one, sets an inbound event's `origintype` as the reference does,
+and holds the package to the reference's conformance corpus at `v2.11.0`. What
+a host now meets: a driver call in which a session raises more delivery
+failures, or takes more events its undelayed sends queued, than its
+`maxMacrostepRounds` now halts that session with `budget_exhausted` and
+returns, where it never returned; `checkAccepts` answers an `undefined`
+declaration as it answers `null`; `HostEvent` takes an optional `origintype`,
+and an event `decodeRequest` answers carries the Basic HTTP processor's URI
+there; and the `statifier` claim covers the three cases `v2.11.0` adds, each
+held to the exported position it states.
+
+### Added
+
+- `HostEvent` takes an optional `origintype`, which `step` queues on the event and the chart reads as `_event.origintype`; a host event without one reads it as undefined, as before.
+
+### Changed
+
+- A driver call in which a session raises more delivery failures its processors answered, or takes more events its undelayed sends queued (to itself, or from a child through `#_parent`), than its `maxMacrostepRounds` now halts that session with `budget_exhausted`: the state reads `halted: "budget_exhausted"`, the call answers a `budget_exhausted` effect with `ok: true`, the failure past the budget waits unrun on the internal queue or the event past it stays queued, and the session runs nothing more in that call. An event a timer fires is never counted, however many fire in one `advance`, and an `"infinity"` budget counts nothing.
+- An event `decodeRequest` answers carries `origintype` set to the Basic HTTP processor's URI, as the reference's decoder sets it, so a chart that reads `_event.origintype` on an inbound Basic HTTP event reads that URI where it read undefined.
+- `checkAccepts` answers an `undefined` declaration, or a call that leaves the argument out, as it answers `null`: no declaration, both lists empty, where it answered like an empty list. The type already leaves `undefined` out, so only a caller outside it sees the change.
+- The package is held to the reference's conformance corpus at `v2.11.0` (it was `v2.10.0`), and claims the three statifier cases that tag adds, each stating the exported position after its steps; the runner now compares the package's `exportPosition` with every stated position, so a consumer relying on the `statifier` claim can read it as parity with the reference's export on the members a stated position carries, for those three cases and no other position.
+
 ## [0.2.0] 2026-10-02
 
 A minor release that writes nested locations. An `<assign>`, a
