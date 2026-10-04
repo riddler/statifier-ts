@@ -319,7 +319,8 @@ Every suite agreed row for row, fails included.
 
 **The result, 2026-10-04, at the release head.** Run again the same day at
 commit `6af16f3` on `main`, the head of a release with every change but its
-version bump, with `@riddler/predicator` 0.5.0 installed, the corpus at
+release prep (the version bump, the changelog promotion and the install pin),
+with `@riddler/predicator` 0.5.0 installed, the corpus at
 `v2.11.0`, on the same VM, release 0.12.0, bytecode version 89, and written
 to `engine-proof.json` with `--record`:
 
