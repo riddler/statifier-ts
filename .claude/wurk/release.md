@@ -43,6 +43,23 @@ the moment the next release lands. Nothing here needs editing at a release, and
 a release commit does not touch this file - the table at the end lists every
 file it does touch, and this is not one of them.
 
+## Before the prep: reinstall when the lockfile moved
+
+Cut the prep on a tree whose installed dependencies match its lockfile. After
+pulling `main` into the checkout or worktree the prep is cut in, compare
+`pnpm-lock.yaml` with the one the last install read; when it moved, reinstall
+before anything else runs:
+
+```bash
+mise exec -- pnpm install --frozen-lockfile
+```
+
+The gate, the build and the publish guard all run on what is installed, not
+on what the lockfile names, so a tree pulled but not reinstalled is checked
+against an earlier tree's dependencies. `--frozen-lockfile` installs exactly
+what the lockfile names and refuses rather than rewriting it; a release commit
+never touches `pnpm-lock.yaml` (the table at the end).
+
 ## Why the recipe names no changelog
 
 A `changelog` step renames a `## [Unreleased]` heading in one file to
@@ -176,6 +193,27 @@ anything. If the guard refuses, the output is wrong and the release stops
 there; the lines above the refusal name which property failed.
 
 This step touches no file and so is absent from the table below.
+
+### The publish line, the operator's
+
+The publish is the operator's step and never an agent's (`CLAUDE.md`'s
+authority table). It is run from the repository's checkout on `main` once the
+prep is merged and its tag pushed, in this order:
+
+```bash
+git pull
+mise exec -- pnpm install --frozen-lockfile
+mise exec -- npm publish
+```
+
+The pull brings the checkout to `main`, whose head is the tagged commit when
+nothing has merged since the prep; `git describe --tags --exact-match` names
+the tag when it is. The install matches the installed dependencies to that
+tree's lockfile, because the guard's rebuild uses what is installed: a
+checkout pulled but not reinstalled builds against the dependencies of the
+tree it was last installed for. And `npm publish` runs under `mise exec --`,
+so npm and the guard it runs use the node `mise.toml` pins rather than
+whatever node the shell's PATH holds, which may be newer than the pin.
 
 ## The files a release commit touches
 
