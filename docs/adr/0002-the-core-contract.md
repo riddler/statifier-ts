@@ -2205,3 +2205,50 @@ undeclared root still answer as the gate's registry stage claims.
   three and says what holds, and each holds as that Note says at `b091164`
   and at `c8894ae`. That Note's sentence "that Amendment's Status line does
   not move" described the Note alone; this acceptance moves it.
+
+## Note: the Determinism paragraph for a chart that reads the clock or draws (2026-10-04)
+
+This Note decides nothing new. It restates the Decision's Determinism
+paragraph as it holds on `main` at `a69a307` for a chart whose expressions
+read the clock or the random source, and reads the paragraph's first bullet
+beside the draws a driver call pins. It carries no Status line and removes no
+line. The Note "the acceptance of this record and its Amendments" (2026-10-02)
+above already lists that bullet and the paragraph's opening sentence among the
+sentences later records name, and cites the in-run failure Amendment and the
+Basic HTTP processor Amendment for them; this Note does not repeat that, and
+says what the paragraph reads as.
+
+**The paragraph, restated.** For a chart whose expressions read neither the
+clock (`Date.now()` or a relative date) nor the random source
+(`Math.random()`), the opening sentence holds as written: the same chart, the
+same options and the same calls answer the same states and the same effects on
+every engine. For a chart whose expressions read either, a driver call answers
+the same states and effects given, beside those, the same clock readings and
+the same random draws in the same order. A driver call takes each reading or
+draw once, the first time a run of that call reaches it, and every run of the
+call made again reads the same ones (`drive` and `recordedDraws` in
+`src/driver.ts`). Two separate driver calls read and draw afresh, and no
+member of `DriveOptions` or `StartOptions` in `src/driver.ts` supplies a
+reading or a draw, so a host that repeats a call over such a chart may be
+answered differently. The Consequences sentence "the same chart answers the
+same way on a server, in a browser and on a device" is read with the same
+scope. This Note reads no other bullet of the paragraph.
+
+**The first bullet, beside the pinned draws.** The readings and draws come
+from `@riddler/predicator`, not from this package: `systemInstant` and
+`systemRandom` in `src/driver.ts` ask predicator to evaluate `Date.now()` and
+`Math.random()` with nothing pinned, so it answers from its own clock and
+random source, and `withDraws` and `drawOptions` in `src/datamodel.ts` hand
+the recorded ones to every evaluation a run of the call makes, as predicator's
+`now` and `random` options. So the bullet holds of this package's own code,
+read narrowly: a search of `src/` at `a69a307` for `Date.now`, `new Date`,
+`Math.random`, `performance.` and `crypto.` finds `Date.now()` and
+`Math.random()` only as the source text those two functions hand predicator,
+in their error messages and in the doc comment on `Draws`, and nothing else.
+It does not hold of what a driver call reads: a call over a chart whose
+expressions read the clock or the random source reads both, through
+predicator, once per reading or draw, pinned for that call's runs. The
+bullet's second sentence holds for the driver's own delayed sends, which
+`advance` fires as the virtual clock moves by the `ms` a host passes it; the
+Basic HTTP entry point's held delayed send is the exception that acceptance
+Note names.
