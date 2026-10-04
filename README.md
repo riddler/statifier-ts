@@ -558,9 +558,10 @@ That is a check on the text. A check on a run - the conformance corpus driven
 through this package on the JavaScript engine React Native uses, and diffed
 against a run on the server runtime - is what `scripts/hermes-conformance.mjs`
 does. The engine proof was last run on 2026-10-04, at commit `6af16f3` on
-`main`, the head of a release with every change but its version bump, over
-the corpus at `v2.11.0`, with `@riddler/predicator` 0.5.0 installed, on the
-standalone Hermes VM, release 0.12.0, bytecode version 89:
+`main`, the head of a release with every change but its release prep (the
+version bump, the changelog promotion and the install pin), over the corpus
+at `v2.11.0`, with `@riddler/predicator` 0.5.0 installed, on the standalone
+Hermes VM, release 0.12.0, bytecode version 89:
 every suite agreed row for row with the same run on Node, with zero
 differences - scion 119 rows, w3c 168 and statifier 34, every case of the
 vendored corpus, none left out. These are the values that run recorded in
