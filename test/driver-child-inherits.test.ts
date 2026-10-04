@@ -324,6 +324,54 @@ describe("inheritObservers", () => {
   });
 });
 
+describe("a later call that drops the inheritance a child started with", () => {
+  // Both options must stay the same for a session's whole life. When a later
+  // call breaks that, the call decides what the child reaches, and the
+  // child's `_ioprocessors`, written as it started, keeps the entry: the two
+  // then disagree, as a host session's do when its `sendTypes` change.
+  //
+  // Sabotage: handing a child its parent's processors whatever the call asks
+  // turns this red: the doorstep scan is handed. Handing a child its
+  // parent's effect list whatever the call asks turns the child-effect
+  // expectation red. The `_ioprocessors` expectations are not
+  // sabotage-checked: they pin that the entry written at start stays in the
+  // state, read once by a call that registers the type and once by a call
+  // that registers nothing.
+  it("hands the child nothing and reports none of its effects, and its entry stays", () => {
+    const host = scanner();
+    const loaded = ok(
+      start(DEPOT, {
+        sessionId: "depot-1",
+        sendTypes: { "parcel:scan": host.processor },
+        inheritSendTypes: true,
+        inheritObservers: true,
+      }),
+    );
+    expect(host.handed).toEqual([["parcel.loaded", "depot-1.courier"]]);
+    const moved = ok(
+      step(
+        DEPOT,
+        viaJson(loaded.state),
+        { name: "dispatch" },
+        { sendTypes: { "parcel:scan": host.processor } },
+      ),
+    );
+    // The doorstep scan is not handed: the courier registers no send type in
+    // this call. The scan's failure is not a communication error, which would
+    // have sent the courier to `stuck` and told the depot.
+    expect(host.handed).toEqual([["parcel.loaded", "depot-1.courier"]]);
+    expect(childKinds(moved.effects)).toEqual([]);
+    expect(logged(moved.effects)).toEqual([]);
+    const courier = moved.state.invocations[0]?.state;
+    expect(courier?.configuration).toEqual(["doorstep"]);
+    expect(courier?.datamodel._ioprocessors).toContain("parcel:scan");
+    expect(courier?.datamodel._ioprocessors).toContain("hub-for-depot-1.courier");
+    const bare = ok(step(DEPOT, viaJson(loaded.state), { name: "dispatch" }));
+    const unregistered = bare.state.invocations[0]?.state;
+    expect(unregistered?.datamodel._ioprocessors).toContain("hub-for-depot-1.courier");
+  });
+});
+
 // A depot whose courier invokes a sorter; both scan through the host's type.
 const SORTING_DEPOT = chartOf(`<scxml ${SCXML} initial="depot">
   <state id="depot">

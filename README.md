@@ -224,9 +224,9 @@ answer the same states and effects on every engine.
 
 ## The effects
 
-Every effect is plain data whose `kind` is the reference's tag, and every one
-carries the `macrostep`, `microstep` and `round` counters. The core emits
-these:
+Every effect the core emits is plain data whose `kind` is the reference's tag,
+and every one carries the `macrostep`, `microstep` and `round` counters. The
+core emits these:
 
 | `kind` | What the host does with it |
 |---|---|
@@ -253,6 +253,15 @@ A `datamodel_change` for an `idlocation` write comes just before the `send`,
 `send_delayed` or `invoke` effect it belongs to. A `<send>` refused for its
 target, its type or its route answers no effect at all, though its
 `idlocation` write stands, as the reference's does.
+
+One more effect is the driver's own, not the core's: a call answers it only
+when it passes `opts.inheritObservers`, so a host that never passes the option
+never sees it. Its `kind` is not one of the reference's tags, and it carries
+no counters of its own; the effect it wraps carries the child's.
+
+| `kind` | What the host does with it |
+|---|---|
+| `child` | learns an effect an invoked child's run answered: `sessionId` names the child, which is its parent's session id, a dot and the invoke id, and `effect` is the child's effect as its run answered it; a grandchild's comes under its own session id, never nested |
 
 An `<invoke>` of the SCXML type runs in process: the driver compiles its
 `<content>` markup (an in-line `<scxml>` that declares no namespace is read

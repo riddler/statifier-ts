@@ -2476,3 +2476,45 @@ the processor calls that came before the failure. The change that adds this
 Note says so in the header comment of `src/driver.ts`, in the doc comment of
 `SendProcessor` and in the comment on `drive`, which also says that under a
 finite round budget the runs end, as the bounded-call Note records.
+
+## Note: the inheritance Amendment's list of changed functions, and a call that drops the options (2026-10-04)
+
+This Note completes a passage of the Amendment "a child inherits the host's
+send types and observers when a call asks", and records what a call that
+breaks its whole-life rule does, without changing an answer. It adds no
+member to a public type, so it is a Note rather than an Amendment. It
+carries no Status line and removes no line.
+
+**The changed functions.** The Amendment's sentence naming what its change
+"changes" lists `launch`, `invoke`, `perform`, `open`, `decodeInvocation`
+and `decodeState`. The change, `b72d856` on `main`, also changed these in
+`src/driver.ts`, each still so on `main` at `d4f0b92`:
+
+| What | The change |
+|---|---|
+| `start` | passes `launch` what the call's options ask for, through `inheritanceOf`, and a trace flag that starts clear |
+| `start`, `step`, `advance`, `reportSendFailed` and `rewrite` | each collects its effects in a list typed `DriveEffect[]`, where it was typed `InterpreterEffect[]` |
+| `DriveResult` | its `effects` are `readonly DriveEffect[]`, as the Amendment's Typespecs show |
+| `Inheritance` (internal) | added: the two choices a call passes the children of its tree |
+| `Live`, `Launch` and `Place` (internal) | each gains `inherit` and types its `out` as `DriveEffect[]`; `Launch` also gains `trace` |
+| `Ran` (internal) | its `out` is typed `DriveEffect[]` |
+
+The same change also retyped the effect lists the tests read in
+`test/driver.test.ts`, `test/driver-child.test.ts`,
+`test/driver-failed-send.test.ts` and `test/basichttp.test.ts`, and pinned
+the two new type exports in `test/export-surface.test.ts`, beside the tests
+the Amendment names. No later change on `main` at `d4f0b92` makes another
+function read the two options: `inheritanceOf` is read by `start` and
+`open`, and `inheritedBy` by `invoke` and `decodeInvocation`.
+
+**A call that drops the options.** The Amendment's paragraph "Where a host
+sets them" says each option takes the same value for a session's whole life.
+A later call that passes neither, over a child started with both, decides
+what the child reaches in that call: `open` decodes the tree with the
+call's options, so the child is handed no processor and its effects are not
+among the call's effects, while its `_ioprocessors`, written as it started,
+keeps the registered type's entry. A send of that type then raises
+`error.execution` in the child, as a host session's does when its
+`sendTypes` drop a type. The test "hands the child nothing and reports none
+of its effects, and its entry stays" in `test/driver-child-inherits.test.ts`
+pins it. The rule stays the host's to keep; the driver does not check it.
