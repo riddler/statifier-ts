@@ -674,3 +674,54 @@ claims, which `pnpm conformance` prints, and the "w3c/test201" block in
 `test/conformance/runner.test.ts` observes it again: the case fails, passes
 once its own `timeout` send is delayed, and fails again once the processor's
 send is also taken out.
+
+## Note: a step's stated position is compared (2026-10-04)
+
+This Note records that the runner now compares the exported position a
+corpus step states, and what that does to decision 13. It carries no Status
+line and removes no line.
+
+**What moved.** The copy is the reference's `conformance/` at `v2.11.0`
+(`bbc4c0e`), moved there by `pnpm corpus:refresh` and recorded in
+`conformance/statifier.vendored.json`. At that tag the case schema lets a
+statifier step carry an `expect_position` (the copy's `schema/case.json`),
+and the statifier suite carries three cases that state one on their steps,
+each under `statifier/library/`: `loan_position_counts_renewals`,
+`loan_position_records_history` and `patron_position_in_every_region`.
+
+**What the runner does with it.** Once a step's configuration agrees, the
+runner exports the state's position with the package's own `exportPosition`
+(`src/position.ts`) and renders it as the reference renders its own export
+(`renderPosition` in `test/conformance/statifier.ts`, after
+`Mix.Statifier.Corpus.PositionExpectation.render/1` in
+`lib/mix/statifier/corpus/position_expectation.ex` at `v2.11.0`): the seven
+members the schema requires, every list of state ids sorted, each active
+invocation as its state and index without its id, and the datamodel without
+`_event`, `_ioprocessors`, `_name` and `_sessionid`, each value in its JSON
+form. The step agrees only when the rendering is exactly the stated position
+(`comparePosition`, same file). A datamodel value with no JSON form fails the
+step, naming the variable, as the reference refuses it; a case that states a
+position and whose document has a state without an id fails before it is
+driven, as the reference's `named/1` fails it (`unnamedStates`, same file).
+A case that states a position is driven through the host-case drive with or
+without a `host` object (`runStatifierCase`, same file), as the reference's
+`run_case/1` in `lib/mix/statifier/corpus/runner.ex` at `v2.11.0` hands it
+to its host-case harness: the scion runner's drive reads no position between
+its steps. The port is test code only; it adds nothing to the package's
+public surface. Decided by the conductor under a standing consent,
+2026-10-04.
+
+**Decision 13, read with this Note.** Decision 13 says the round trip is a
+self-consistency claim "until the reference emits corpus cases that assert
+the exported position; no text here claims parity with the reference's
+`Statifier.Position.export/1`". The reference now emits such cases. The
+round-trip property is unchanged and is still a self-consistency claim; the
+parity claim is the three cases above, each claimed in
+`conformance/registry.json` by `pnpm ratchet`, and it reaches no further than
+the positions they state.
+
+**A difference from the reference.** The reference matches the decoded JSON
+of a stated position term for term, so an integral float in the chart's
+datamodel and an integer in the stated position disagree there. Here the
+stated position is read as JSON text into JavaScript numbers, so the two
+agree. None of the three cases states a float.

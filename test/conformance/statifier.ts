@@ -78,9 +78,24 @@
 // No feature check is made for a host case, as the reference's harness makes
 // none.
 //
+// A step may carry an `expect_position`, on a statifier case only. Once that
+// step's configuration agrees, the state's position is exported with the
+// package's own `exportPosition` and rendered as the reference renders its
+// export (`Mix.Statifier.Corpus.PositionExpectation.render/1` at v2.11.0),
+// and the step agrees only when the rendering is exactly the step's
+// `expect_position` (`renderPosition` and `comparePosition` below). A case
+// that carries one on any step needs every state of its document to carry an
+// id, and fails before it is started when one has none, as the reference's
+// harness fails it (`named/1`). Such a case is driven here even when it
+// carries no `host` object, as a host that registers nothing, as the
+// reference's runner hands it to its host-case harness
+// (`run_case/1` in `runner.ex` at v2.11.0): the scion runner's drive reads no
+// position between its steps.
+//
 // Like the runner, this reaches nothing outside the language.
 
 import { fromHost, toHost, typeName, type Value } from "@riddler/predicator";
+import { decodeTagged } from "@riddler/predicator/tagged";
 import type { CorpusCase, CorpusStep } from "../../scripts/lib/corpus-rules.d.mts";
 import { checkAccepts } from "../../src/accepts.js";
 import type { Chart } from "../../src/compiler.js";
@@ -98,6 +113,7 @@ import {
   start,
   step,
 } from "../../src/driver.js";
+import { exportPosition } from "../../src/position.js";
 import {
   EVENT_IO_PROCESSORS,
   type EventIoProcessors,
@@ -399,6 +415,178 @@ export function compareSends(
   return `expected the sends handed to the host ${canonical(expected)}, got ${canonical(handed)}`;
 }
 
+/** A value in the form a JSON text decodes to. */
+export type Json = null | boolean | number | string | readonly Json[] | { [key: string]: Json };
+
+/** A position rendered as the reference renders it for a step's `expect_position`. */
+export interface RenderedPosition {
+  readonly configuration: readonly string[];
+  readonly entered_states: readonly string[];
+  readonly states_to_invoke: readonly string[];
+  readonly history_values: Readonly<Record<string, readonly string[]>>;
+  readonly active_invocations: readonly { readonly state: string; readonly index: number }[];
+  readonly running: boolean;
+  readonly datamodel: Readonly<Record<string, Json>>;
+}
+
+/** What `renderPosition` answers: the rendering, or why the position cannot be rendered. */
+export type RenderResult =
+  | { readonly ok: true; readonly rendering: RenderedPosition }
+  | { readonly ok: false; readonly reason: string };
+
+// The system variables the rendering leaves out, as the reference's leaves
+// them out.
+const LEFT_OUT_VARIABLES: ReadonlySet<string> = new Set([
+  "_event",
+  "_ioprocessors",
+  "_name",
+  "_sessionid",
+]);
+
+function byCodeUnit(a: string, b: string): number {
+  if (a < b) return -1;
+  return a > b ? 1 : 0;
+}
+
+// A datamodel value's JSON form, as the reference writes it: undefined as
+// null, a string, a number, a boolean and null as they are, a list as an
+// array and a map as an object, member by member. Any other value - a date,
+// a datetime, a duration, or a list or map holding one - has none, and is
+// answered as undefined.
+function jsonOf(value: Value): Json | undefined {
+  switch (typeName(value)) {
+    case "undefined":
+    case "null":
+      return null;
+    case "string":
+    case "boolean":
+      return value as string | boolean;
+    case "integer":
+    case "float":
+      return Number(value);
+    case "list": {
+      const items: Json[] = [];
+      for (const item of value as Value[]) {
+        const json = jsonOf(item);
+        if (json === undefined) return undefined;
+        items.push(json);
+      }
+      return items;
+    }
+    case "map": {
+      const members: [string, Json][] = [];
+      const map = value as { readonly [key: string]: Value };
+      for (const key of Object.keys(map).sort(byCodeUnit)) {
+        const json = jsonOf(map[key] as Value);
+        if (json === undefined) return undefined;
+        members.push([key, json]);
+      }
+      return Object.fromEntries(members);
+    }
+    default:
+      return undefined;
+  }
+}
+
+/**
+ * A driver state's exported position rendered as the reference renders its
+ * own (`PositionExpectation.render/1` at v2.11.0): the seven members a step's
+ * `expect_position` states, every list of state ids sorted, each active
+ * invocation as its state and its `<invoke>`'s index without its id, and the
+ * datamodel without `_event`, `_ioprocessors`, `_name` and `_sessionid`, each
+ * value in its JSON form. A position the export refuses, and a datamodel
+ * value with no JSON form, are answered as the reason, naming the export's
+ * reason or the variable.
+ */
+export function renderPosition(state: State): RenderResult {
+  const exported = exportPosition(state);
+  if (!exported.ok) {
+    return { ok: false, reason: `the export refused the position: ${exported.reason}` };
+  }
+  const { position } = exported;
+  const datamodel: [string, Json][] = [];
+  for (const name of Object.keys(position.datamodel).sort(byCodeUnit)) {
+    if (LEFT_OUT_VARIABLES.has(name)) continue;
+    const decoded = decodeTagged(position.datamodel[name] as string);
+    if (!decoded.ok) {
+      return { ok: false, reason: `the datamodel's ${name} does not decode: ${decoded.reason}` };
+    }
+    const json = jsonOf(decoded.value);
+    if (json === undefined) {
+      return {
+        ok: false,
+        reason: `the datamodel's ${name} holds a ${typeName(decoded.value)} value, which has no JSON form here`,
+      };
+    }
+    datamodel.push([name, json]);
+  }
+  const ids = (set: readonly string[]): string[] => [...set].sort(byCodeUnit);
+  return {
+    ok: true,
+    rendering: {
+      configuration: ids(position.configuration),
+      entered_states: ids(position.enteredStates),
+      states_to_invoke: ids(position.statesToInvoke),
+      history_values: Object.fromEntries(
+        Object.entries(position.historyValues).map(([history, set]) => [history, ids(set)]),
+      ),
+      active_invocations: position.activeInvocations
+        .map((invocation) => ({ state: invocation.state, index: invocation.invokeIndex }))
+        .sort((a, b) => byCodeUnit(a.state, b.state) || a.index - b.index),
+      running: position.running,
+      datamodel: Object.fromEntries(datamodel),
+    },
+  };
+}
+
+/**
+ * The comparison of a step's `expect_position` with the state the step left
+ * (`PositionExpectation.compare/3` at v2.11.0): null when the rendering is
+ * exactly the expected value, order of every list included; else the reason,
+ * naming the step by its one-based number and its event's name and each
+ * member that differs with both values, or why the position cannot be
+ * rendered.
+ */
+export function comparePosition(
+  expected: unknown,
+  state: State,
+  number: number,
+  event: string,
+): string | null {
+  const label = `after step ${number} (${event}), expect_position`;
+  const rendered = renderPosition(state);
+  if (!rendered.ok) return `${label} cannot be compared: ${rendered.reason}`;
+  const actual = rendered.rendering as unknown as Readonly<Record<string, unknown>>;
+  if (canonical(expected) === canonical(actual)) return null;
+  const wanted = (
+    expected !== null && typeof expected === "object" && !Array.isArray(expected) ? expected : {}
+  ) as Readonly<Record<string, unknown>>;
+  const encode = (value: unknown): string => (value === undefined ? "nothing" : canonical(value));
+  const differing = [...new Set([...Object.keys(wanted), ...Object.keys(actual)])]
+    .sort(byCodeUnit)
+    .filter((key) => canonical(wanted[key]) !== canonical(actual[key]))
+    .map((key) => `${key}: expected ${encode(wanted[key])}, but got ${encode(actual[key])}`)
+    .join("; ");
+  return `${label} differs: ${differing === "" ? `expected ${canonical(expected)}` : differing}`;
+}
+
+/** Whether any of a case's steps carries an `expect_position`. */
+export function expectsPosition(testCase: CorpusCase): boolean {
+  return testCase.steps.some((corpusStep) => Object.hasOwn(corpusStep, "expect_position"));
+}
+
+/**
+ * Null when every state of `chart` but the root carries an id, else the
+ * reason, naming the count of states without one (`PositionExpectation.named/1`
+ * at v2.11.0): a case that expects a position needs every state named,
+ * because the export refuses a position holding a state it cannot name.
+ */
+export function unnamedStates(chart: Chart): string | null {
+  const unnamed = chart.machine.states.slice(1).filter((state) => state.id === null).length;
+  if (unnamed === 0) return null;
+  return `a case that expects a position needs every state to carry an id, and ${unnamed} state(s) of this document have none`;
+}
+
 // A step's event, carrying the step's data as its payload when it gives one.
 function eventOf(event: CorpusStep["event"]): HostEvent | { reason: string } {
   if (!Object.hasOwn(event, "data")) return { name: event.name };
@@ -413,11 +601,14 @@ function strings(value: unknown): string[] {
 
 /**
  * Runs one host case, in the reference's order (`run/2` in `host_case.ex` at
- * v2.10.0): the source compiled, the accepts check compared, the Event I/O
- * Processors the host names registered with a loopback front, then the drive;
- * a pass, or a fail naming what disagreed. No feature check is made: the
- * reference's host-case harness makes none. `registered` is the closed set
- * of processors a case may name, the runner's unless a caller names another.
+ * v2.11.0): the source compiled, the accepts check compared, every state
+ * checked for an id when a step expects a position, the Event I/O Processors
+ * the host names registered with a loopback front, then the drive, each
+ * step's position compared once its configuration agrees when the step
+ * expects one; a pass, or a fail naming what disagreed. No feature check is
+ * made: the reference's host-case harness makes none. `registered` is the
+ * closed set of processors a case may name, the runner's unless a caller
+ * names another.
  */
 export async function runHostCase(
   testCase: CorpusCase,
@@ -429,6 +620,8 @@ export async function runHostCase(
   const { chart } = compiled;
   const accepts = compareAccepts(chart, spec);
   if (accepts !== null) return { result: "fail", reason: accepts };
+  const unnamed = expectsPosition(testCase) ? unnamedStates(chart) : null;
+  if (unnamed !== null) return { result: "fail", reason: unnamed };
 
   const unregistered = processorsNotRegistered(testCase, registered);
   if (unregistered.length > 0) {
@@ -466,7 +659,8 @@ export async function runHostCase(
   );
   if (initial !== null) return { result: "fail", reason: initial };
 
-  for (const [index, { event, configuration }] of testCase.steps.entries()) {
+  for (const [index, corpusStep] of testCase.steps.entries()) {
+    const { event, configuration } = corpusStep;
     const where = `step ${index + 1} (event ${JSON.stringify(event.name)})`;
     const hostEvent = eventOf(event);
     if ("reason" in hostEvent) return { result: "fail", reason: `${where}: ${hostEvent.reason}` };
@@ -484,6 +678,10 @@ export async function runHostCase(
     state = after;
     const found = compareLeafSets(chart, state, configuration, where);
     if (found !== null) return { result: "fail", reason: found };
+    if (Object.hasOwn(corpusStep, "expect_position")) {
+      const position = comparePosition(corpusStep.expect_position, state, index + 1, event.name);
+      if (position !== null) return { result: "fail", reason: position };
+    }
   }
 
   const sends = compareSends(expected, host.handed);
@@ -492,9 +690,11 @@ export async function runHostCase(
 
 /**
  * Runs one statifier case: through the host-case drive when it carries a
- * `host` object, as the reference's runner routes it, and otherwise through
- * the scion runner's drive.
+ * `host` object or a step carries an `expect_position`, as the reference's
+ * runner routes it, and otherwise through the scion runner's drive.
  */
 export function runStatifierCase(testCase: CorpusCase): CaseOutcome | Promise<CaseOutcome> {
-  return testCase.host === undefined ? runScionCase(testCase) : runHostCase(testCase);
+  return testCase.host === undefined && !expectsPosition(testCase)
+    ? runScionCase(testCase)
+    : runHostCase(testCase);
 }

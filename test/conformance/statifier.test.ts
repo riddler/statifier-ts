@@ -2,8 +2,9 @@
 // case's registered send types handed to the driver and its expected sends
 // compared, a planted wrong expected send failing its case, a send the case
 // marks failed reported through the driver, the accepts case's check
-// compared before it is driven, and the exchange with the loopback front
-// bounded.
+// compared before it is driven, the exchange with the loopback front
+// bounded, and a step's expected position compared with the reference's
+// rendering of the exported one.
 //
 // The cases are the vendored corpus's own; the charts written here are the
 // library loan, a returned copy routed to the branch's hold queue, and a
@@ -13,10 +14,15 @@ import { describe, expect, it } from "vitest";
 import type { CorpusCase } from "../../scripts/lib/corpus.mjs";
 import { loadSuites } from "../../scripts/lib/corpus.mjs";
 import { BASIC_HTTP_EVENT_PROCESSOR } from "../../src/basichttp/index.js";
+import { type Chart, compile } from "../../src/compiler.js";
+import { type State, start } from "../../src/driver.js";
 import {
+  comparePosition,
   compareSends,
   EXCHANGE_NOT_SETTLED,
+  expectsPosition,
   MAX_EXCHANGE_ROUNDS,
+  renderPosition,
   runHostCase,
   runStatifierCase,
   type SendItem,
@@ -422,5 +428,241 @@ describe("the exchange with the loopback front", () => {
       reason: EXCHANGE_NOT_SETTLED,
     });
     expect(await runHostCase(holdCase(2))).toEqual({ result: "pass" });
+  });
+});
+
+// The corpus's position cases, each stating the position after its steps.
+const POSITION_CASES = [
+  "library/loan_position_counts_renewals",
+  "library/loan_position_records_history",
+  "library/patron_position_in_every_region",
+];
+
+// The case with every stated position passed through `change`.
+function withPositions(
+  testCase: CorpusCase,
+  change: (position: Record<string, unknown>) => Record<string, unknown>,
+): CorpusCase {
+  return {
+    ...testCase,
+    steps: testCase.steps.map((corpusStep) =>
+      corpusStep.expect_position === undefined
+        ? corpusStep
+        : {
+            ...corpusStep,
+            expect_position: change({ ...(corpusStep.expect_position as object) }),
+          },
+    ),
+  };
+}
+
+function chartOf(source: string): Chart {
+  const compiled = compile(source);
+  if (!compiled.ok)
+    throw new Error(`the chart did not compile: ${JSON.stringify(compiled.errors)}`);
+  return compiled.chart;
+}
+
+function started(chart: Chart): State {
+  const result = start(chart, { sessionId: "statifier/library/hold_desk" });
+  if (!result.ok) throw new Error(`start was refused: ${result.reason}`);
+  return result.state;
+}
+
+// A hold desk whose datamodel holds a list, a map, a variable with no value
+// and a number, beside the system variables every chart carries.
+const HOLD_DESK = `<scxml xmlns="http://www.w3.org/2005/07/scxml" version="1.0" datamodel="predicator" initial="open">
+  <datamodel>
+    <data id="queue" expr="['p-2', 'p-1']"/>
+    <data id="copy" expr="{id: 'c-4', branch: 'main', holds: ['h-1']}"/>
+    <data id="notice"/>
+    <data id="position" expr="2"/>
+  </datamodel>
+  <state id="open"><transition event="hold.placed" target="held"/></state>
+  <state id="held"/>
+</scxml>`;
+
+// A hold whose datamodel holds a date, a value with no JSON form.
+const HOLD_DUE = `<scxml xmlns="http://www.w3.org/2005/07/scxml" version="1.0" datamodel="predicator" initial="waiting">
+  <datamodel><data id="due_on" expr="#2026-10-21#"/></datamodel>
+  <state id="waiting"><transition event="hold.ready" target="ready"/></state>
+  <state id="ready"/>
+</scxml>`;
+
+function holdDueCase(source: string): CorpusCase {
+  return {
+    id: "statifier/library/hold_due_on",
+    suite: "statifier",
+    spec: "library",
+    conformance: null,
+    description: "",
+    required_features: ["basic_states", "data_elements", "datamodel", "event_transitions"],
+    source,
+    initial_configuration: ["waiting"],
+    steps: [
+      {
+        event: { name: "hold.ready" },
+        configuration: ["ready"],
+        expect_position: {
+          configuration: ["ready"],
+          entered_states: ["ready", "waiting"],
+          states_to_invoke: [],
+          history_values: {},
+          active_invocations: [],
+          running: true,
+          datamodel: {},
+        },
+      },
+    ],
+  };
+}
+
+describe("a step's expected position", () => {
+  it("is stated by the corpus's position cases, and each passes", async () => {
+    for (const id of POSITION_CASES) {
+      const testCase = statifierCase(id);
+      expect(expectsPosition(testCase), id).toBe(true);
+      expect(await runStatifierCase(testCase), id).toEqual({ result: "pass" });
+    }
+  });
+
+  // Sabotage: answering a pass without comparing a step's position turns
+  // this red on every case. It was run and reverted.
+  it("fails each position case whose stated running flag is inverted, naming the step and the member", async () => {
+    for (const id of POSITION_CASES) {
+      const planted = withPositions(statifierCase(id), (position) => ({
+        ...position,
+        running: !position.running,
+      }));
+      const first = statifierCase(id).steps.findIndex((corpusStep) =>
+        Object.hasOwn(corpusStep, "expect_position"),
+      );
+      const event = statifierCase(id).steps[first]?.event.name;
+      expect(await runStatifierCase(planted), id).toEqual({
+        result: "fail",
+        reason: `after step ${first + 1} (${event}), expect_position differs: running: expected false, but got true`,
+      });
+    }
+  });
+
+  // Sabotage: routing a case with no host object to the scion runner's
+  // drive, which reads no position, turns this red. It was run and reverted.
+  it("drives a case with no host object through the host-case drive, so its position is compared", async () => {
+    const testCase = statifierCase("library/patron_position_in_every_region");
+    expect(testCase.host).toBeUndefined();
+    const planted = withPositions(testCase, (position) => ({
+      ...position,
+      datamodel: { patron_id: "p-2" },
+    }));
+    expect(await runStatifierCase(planted)).toEqual({
+      result: "fail",
+      reason:
+        'after step 1 (fine.assessed), expect_position differs: datamodel: expected {"patron_id":"p-2"}, but got {"patron_id":"p-1"}',
+    });
+  });
+
+  it("compares every member exactly: one missing, one extra, or a list out of order", async () => {
+    const testCase = statifierCase("library/patron_position_in_every_region");
+    const missing = withPositions(testCase, ({ running: _running, ...rest }) => rest);
+    expect(await runStatifierCase(missing)).toMatchObject({
+      result: "fail",
+      reason:
+        "after step 1 (fine.assessed), expect_position differs: running: expected nothing, but got true",
+    });
+    const extra = withPositions(testCase, (position) => ({ ...position, round: 0 }));
+    expect(await runStatifierCase(extra)).toMatchObject({
+      result: "fail",
+      reason:
+        "after step 1 (fine.assessed), expect_position differs: round: expected 0, but got nothing",
+    });
+    const reversed = withPositions(testCase, (position) => ({
+      ...position,
+      configuration: [...(position.configuration as string[])].reverse(),
+    }));
+    expect(await runStatifierCase(reversed)).toMatchObject({
+      result: "fail",
+      reason: expect.stringMatching(
+        /^after step 1 \(fine\.assessed\), expect_position differs: configuration: expected \["waiting",.*\], but got \["desk",.*\]$/,
+      ),
+    });
+  });
+
+  // Sabotage: dropping the id check, so the export's own refusal answers
+  // after the drive, turns this red. It was run and reverted.
+  it("fails a case whose document has a state without an id before it is driven, as the reference does", async () => {
+    const unnamed = HOLD_DUE.replace('<state id="ready"/>', '<state id="ready"><state/></state>');
+    expect(await runStatifierCase(holdDueCase(unnamed))).toEqual({
+      result: "fail",
+      reason:
+        "a case that expects a position needs every state to carry an id, and 1 state(s) of this document have none",
+    });
+  });
+
+  // Sabotage: rendering a value with no JSON form through `toHost`, as an
+  // object, turns this red. It was run and reverted.
+  it("refuses a datamodel value with no JSON form, naming the variable, rather than comparing it", async () => {
+    expect(await runStatifierCase(holdDueCase(HOLD_DUE))).toEqual({
+      result: "fail",
+      reason:
+        "after step 1 (hold.ready), expect_position cannot be compared: the datamodel's due_on holds a date value, which has no JSON form here",
+    });
+  });
+});
+
+describe("the rendering of a position", () => {
+  // Sabotage: keeping `_sessionid` in the rendered datamodel turns this red.
+  // It was run and reverted.
+  it("leaves out the system variables and writes each value in its JSON form", () => {
+    const rendered = renderPosition(started(chartOf(HOLD_DESK)));
+    expect(rendered).toEqual({
+      ok: true,
+      rendering: {
+        configuration: ["open"],
+        entered_states: ["open"],
+        states_to_invoke: [],
+        history_values: {},
+        active_invocations: [],
+        running: true,
+        datamodel: {
+          copy: { branch: "main", holds: ["h-1"], id: "c-4" },
+          notice: null,
+          position: 2,
+          queue: ["p-2", "p-1"],
+        },
+      },
+    });
+  });
+
+  // Sabotage: keeping the invocations in the order the state holds them
+  // turns this red. It was run and reverted.
+  it("writes each active invocation as its state and index, sorted, without its id", () => {
+    const state: State = {
+      ...started(chartOf(HOLD_DESK)),
+      activeInvocations: [
+        { state: "open", invokeIndex: 1, invokeId: "open.inv_2" },
+        { state: "held", invokeIndex: 0, invokeId: "held.inv_3" },
+        { state: "open", invokeIndex: 0, invokeId: "open.inv_1" },
+      ],
+    };
+    const rendered = renderPosition(state);
+    expect(rendered.ok && rendered.rendering.active_invocations).toEqual([
+      { state: "held", index: 0 },
+      { state: "open", index: 0 },
+      { state: "open", index: 1 },
+    ]);
+  });
+
+  it("answers the export's refusal as the reason, and the comparison names the step", () => {
+    const state: State = {
+      ...started(chartOf(HOLD_DESK)),
+      internalQueue: [{ name: "hold.placed" }] as unknown as State["internalQueue"],
+    };
+    expect(renderPosition(state)).toEqual({
+      ok: false,
+      reason: "the export refused the position: internal_queue_not_empty",
+    });
+    expect(comparePosition({}, state, 2, "hold.placed")).toBe(
+      "after step 2 (hold.placed), expect_position cannot be compared: the export refused the position: internal_queue_not_empty",
+    );
   });
 });

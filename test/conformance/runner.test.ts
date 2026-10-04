@@ -119,7 +119,7 @@ describe("the runner over the vendored corpus", () => {
   // this red on the passes. It was run and reverted.
   it("drives every statifier case, and every case it claims passes", async () => {
     const report = await runSuite(suiteNamed("statifier"), manifest.corpus_hash);
-    expect(report.results).toHaveLength(31);
+    expect(report.results).toHaveLength(34);
     const passed = new Set(
       report.results.filter((result) => result.result === "pass").map((result) => result.case_id),
     );

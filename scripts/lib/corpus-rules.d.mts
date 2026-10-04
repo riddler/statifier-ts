@@ -6,10 +6,15 @@
 export type SuiteName = "scion" | "w3c" | "statifier";
 export type ClaimName = "scion" | "statifier" | "w3c-mandatory" | "w3c-optional";
 
-/** One step of a case: the event sent and the active leaf ids expected after it. */
+/**
+ * One step of a case: the event sent, the active leaf ids expected after it,
+ * and, on a statifier case only, the exported position expected once those
+ * agree.
+ */
 export interface CorpusStep {
   readonly event: { readonly name: string; readonly data?: unknown };
   readonly configuration: readonly string[];
+  readonly expect_position?: unknown;
 }
 
 /** One corpus case, in the shape the reference's `schema/case.json` defines. */

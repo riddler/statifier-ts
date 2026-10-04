@@ -1,0 +1,128 @@
+{
+  "description": "Two renewals are taken from zero, and the position after each states the datamodel the configuration cannot: renewals is 1 after the first and 2 after the second, beside max_renewals, holds_pending, patron_standing and copy_id as the checkout set them. Each renewal re-enters on_loan, so both timers are sent again.",
+  "initial_configuration": [
+    "on_loan"
+  ],
+  "steps": [
+    {
+      "event": {
+        "name": "loan.renew"
+      },
+      "configuration": [
+        "on_loan"
+      ],
+      "expect_position": {
+        "configuration": [
+          "active",
+          "on_loan"
+        ],
+        "entered_states": [
+          "active",
+          "on_loan"
+        ],
+        "states_to_invoke": [],
+        "history_values": {},
+        "active_invocations": [],
+        "running": true,
+        "datamodel": {
+          "copy_id": "c-1",
+          "holds_pending": false,
+          "max_renewals": 2,
+          "patron_standing": "good",
+          "renewals": 1
+        }
+      }
+    },
+    {
+      "event": {
+        "name": "loan.renew"
+      },
+      "configuration": [
+        "on_loan"
+      ],
+      "expect_position": {
+        "configuration": [
+          "active",
+          "on_loan"
+        ],
+        "entered_states": [
+          "active",
+          "on_loan"
+        ],
+        "states_to_invoke": [],
+        "history_values": {},
+        "active_invocations": [],
+        "running": true,
+        "datamodel": {
+          "copy_id": "c-1",
+          "holds_pending": false,
+          "max_renewals": 2,
+          "patron_standing": "good",
+          "renewals": 2
+        }
+      }
+    }
+  ],
+  "host": {
+    "send_types": [
+      "library:timer",
+      "library:route"
+    ],
+    "expect_sends": [
+      {
+        "type": "library:timer",
+        "target": "loan",
+        "event": {
+          "name": "loan.due"
+        },
+        "delay_ms": 1814400000,
+        "send_id": "due"
+      },
+      {
+        "type": "library:timer",
+        "target": "loan",
+        "event": {
+          "name": "loan.due_soon"
+        },
+        "delay_ms": 1555200000,
+        "send_id": "due_soon"
+      },
+      {
+        "type": "library:timer",
+        "target": "loan",
+        "event": {
+          "name": "loan.due"
+        },
+        "delay_ms": 1814400000,
+        "send_id": "due"
+      },
+      {
+        "type": "library:timer",
+        "target": "loan",
+        "event": {
+          "name": "loan.due_soon"
+        },
+        "delay_ms": 1555200000,
+        "send_id": "due_soon"
+      },
+      {
+        "type": "library:timer",
+        "target": "loan",
+        "event": {
+          "name": "loan.due"
+        },
+        "delay_ms": 1814400000,
+        "send_id": "due"
+      },
+      {
+        "type": "library:timer",
+        "target": "loan",
+        "event": {
+          "name": "loan.due_soon"
+        },
+        "delay_ms": 1555200000,
+        "send_id": "due_soon"
+      }
+    ]
+  }
+}

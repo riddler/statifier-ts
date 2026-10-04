@@ -1,0 +1,87 @@
+{
+  "description": "Patron p-1 is assessed a fine and then asks for a checkout, and the position after each step names every region of the parallel patron state: the configuration holds patron, standing, fines and desk beside their active children, and none stays in entered_states after the fines region leaves it. The desk refuses the checkout because p-1 now owes, and patron_id, the chart's one variable, is unchanged.",
+  "initial_configuration": [
+    "good",
+    "none",
+    "waiting"
+  ],
+  "steps": [
+    {
+      "event": {
+        "name": "fine.assessed"
+      },
+      "configuration": [
+        "good",
+        "owed",
+        "waiting"
+      ],
+      "expect_position": {
+        "configuration": [
+          "desk",
+          "fines",
+          "good",
+          "owed",
+          "patron",
+          "standing",
+          "waiting"
+        ],
+        "entered_states": [
+          "desk",
+          "fines",
+          "good",
+          "none",
+          "owed",
+          "patron",
+          "standing",
+          "waiting"
+        ],
+        "states_to_invoke": [],
+        "history_values": {},
+        "active_invocations": [],
+        "running": true,
+        "datamodel": {
+          "patron_id": "p-1"
+        }
+      }
+    },
+    {
+      "event": {
+        "name": "loan.requested"
+      },
+      "configuration": [
+        "good",
+        "owed",
+        "checkout_refused"
+      ],
+      "expect_position": {
+        "configuration": [
+          "checkout_refused",
+          "desk",
+          "fines",
+          "good",
+          "owed",
+          "patron",
+          "standing"
+        ],
+        "entered_states": [
+          "checkout_refused",
+          "desk",
+          "fines",
+          "good",
+          "none",
+          "owed",
+          "patron",
+          "standing",
+          "waiting"
+        ],
+        "states_to_invoke": [],
+        "history_values": {},
+        "active_invocations": [],
+        "running": true,
+        "datamodel": {
+          "patron_id": "p-1"
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,111 @@
+{
+  "description": "The loan reaches due_soon, a dispute takes it out of active, and the resolution returns it through the shallow history h. The position after the dispute holds h's recorded value, due_soon, while held_for_review is the only active state; the position after the resolution has due_soon and active again, h still recording due_soon, and the loan's variables as the checkout set them.",
+  "initial_configuration": [
+    "on_loan"
+  ],
+  "steps": [
+    {
+      "event": {
+        "name": "loan.due_soon"
+      },
+      "configuration": [
+        "due_soon"
+      ]
+    },
+    {
+      "event": {
+        "name": "copy.disputed"
+      },
+      "configuration": [
+        "held_for_review"
+      ],
+      "expect_position": {
+        "configuration": [
+          "held_for_review"
+        ],
+        "entered_states": [
+          "active",
+          "due_soon",
+          "held_for_review",
+          "on_loan"
+        ],
+        "states_to_invoke": [],
+        "history_values": {
+          "h": [
+            "due_soon"
+          ]
+        },
+        "active_invocations": [],
+        "running": true,
+        "datamodel": {
+          "copy_id": "c-1",
+          "holds_pending": false,
+          "max_renewals": 2,
+          "patron_standing": "good",
+          "renewals": 0
+        }
+      }
+    },
+    {
+      "event": {
+        "name": "dispute.resolved"
+      },
+      "configuration": [
+        "due_soon"
+      ],
+      "expect_position": {
+        "configuration": [
+          "active",
+          "due_soon"
+        ],
+        "entered_states": [
+          "active",
+          "due_soon",
+          "held_for_review",
+          "on_loan"
+        ],
+        "states_to_invoke": [],
+        "history_values": {
+          "h": [
+            "due_soon"
+          ]
+        },
+        "active_invocations": [],
+        "running": true,
+        "datamodel": {
+          "copy_id": "c-1",
+          "holds_pending": false,
+          "max_renewals": 2,
+          "patron_standing": "good",
+          "renewals": 0
+        }
+      }
+    }
+  ],
+  "host": {
+    "send_types": [
+      "library:timer",
+      "library:route"
+    ],
+    "expect_sends": [
+      {
+        "type": "library:timer",
+        "target": "loan",
+        "event": {
+          "name": "loan.due"
+        },
+        "delay_ms": 1814400000,
+        "send_id": "due"
+      },
+      {
+        "type": "library:timer",
+        "target": "loan",
+        "event": {
+          "name": "loan.due_soon"
+        },
+        "delay_ms": 1555200000,
+        "send_id": "due_soon"
+      }
+    ]
+  }
+}

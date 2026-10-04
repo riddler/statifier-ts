@@ -158,6 +158,8 @@ nothing more (ADR-0070 decision 2; [`schema/case.json`](schema/case.json)):
 - `steps`: the events sent in order, each with the active leaf state ids
   expected after that event is processed.
 
+A `statifier` case's step may also carry an `expect_position`, below.
+
 A configuration is compared as a set of state ids. A case asserts no trace:
 not the order states were entered or exited, not the internal events raised
 on the way, not the executable content that ran. Two implementations that
@@ -244,6 +246,24 @@ is untouched by the edit to `to_source` under decision 4. A case carrying
 them agrees only when, besides its configurations and sends, the class and
 the reasons are exactly `expect_diff`'s, order included, and the answer is
 `expect_compatible_at`.
+
+## A step's `expect_position`
+
+A `statifier` case's step may carry `expect_position`
+([ADR-0076](../docs/adr/0076-corpus-steps-may-state-the-exported-position.md)),
+the position the chart holds once that step's configuration agrees. A
+`scion` or `w3c` case never carries it. Its seven members, all required,
+are `configuration` (every active state, ancestors included, the root
+left out), `entered_states`, `states_to_invoke`, `history_values`,
+`active_invocations` (each as `state` and `index`, without the
+invocation's id), `running` and `datamodel` (every variable but `_event`,
+`_ioprocessors`, `_name` and `_sessionid`, an unset value written
+`null`); `schema/case.json` states each shape. Every array of state ids
+is sorted. A runner honours it by reading its own position after the
+step and writing it in that form; the step agrees only when every member
+is exactly the expectation's. Every state of a case that carries it has
+an id. An implementation that does not export positions leaves such a
+case out of its registry, as it leaves any case it cannot pass.
 
 ## The check
 
