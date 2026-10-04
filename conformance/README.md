@@ -317,6 +317,21 @@ with `--record`:
 
 Every suite agreed row for row, fails included.
 
+**The result, 2026-10-04, at the release head.** Run again the same day at
+commit `6af16f3` on `main`, the head of a release with every change but its
+version bump, with `@riddler/predicator` 0.5.0 installed, the corpus at
+`v2.11.0`, on the same VM, release 0.12.0, bytecode version 89, and written
+to `engine-proof.json` with `--record`:
+
+| Suite | Rows on Node | Rows on the VM | Differences |
+|---|---|---|---|
+| `scion` | 119 | 119 | 0 |
+| `w3c` | 168 | 168 | 0 |
+| `statifier` | 34 | 34 | 0 |
+
+Every suite agreed row for row, fails included: the same three w3c cases
+fail on Node and on the VM with the same reason.
+
 **What it covers.** The standalone VM is an older release than the engine
 current React Native ships. It refuses the `class` keyword, so its bundle is
 put through a class transform, and it refuses an `async` function, so its
