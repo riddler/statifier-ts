@@ -61,8 +61,9 @@ describe("a program's tagged halt context", () => {
 
   // Sabotage: dropping the guard's throw in decodedContext (answering
   // whatever decoded) turns the list expectations red: the list's indexes
-  // merge as roots. Removing only the guard's `Array.isArray(value)` clause
-  // leaves this test green: the plain-map test refuses a list as well.
+  // merge as roots. The plain-map test is what refuses a list, so dropping
+  // it (`!isPlainMap(value)`) turns the list expectations red as well: an
+  // array's prototype is not a plain map's.
   it("throws on a list, on the successful arm and on the failing arm", () => {
     forged.answer = { ok: true, context: tagged(["c-1", "c-2"]) };
     expect(run).toThrow(GUARD);
