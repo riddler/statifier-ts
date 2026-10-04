@@ -598,3 +598,35 @@ last sentence of that Note's first paragraph names that ruling and its
 reversal, claiming the cases as the reference's runner does, ruled by the
 operator, 2026-10-01; that sentence stands. This Note reads no other line of
 that Note.
+
+## Note: the removed notPorted and decision 12 past the first entry (2026-10-04)
+
+This Note decides nothing new. It names two sentences of earlier Notes that
+read inexactly against `main` at `a69a307`, and says what holds. It carries no
+Status line and removes no line.
+
+**`notPorted` no longer exists.** The Note "the diff cases are driven"
+(2026-10-01) says "`notPorted` in `test/conformance/statifier.ts` no longer
+names the four keys". That held when it was written: at the commit that added
+that Note, `notPorted` named only the accepts keys. The change that added the
+Note "the accepts case is driven" (2026-10-01), `b4fde15`, then removed
+`notPorted` altogether, so no function in `test/conformance/statifier.ts`
+fails a case for its host keys before it is driven. What that sentence says of
+a diff case holds at `a69a307` without the function: `runHostCase` there
+drives a case whose host carries a diff pair like any other host case and
+reads none of the four keys, as the paragraph on a diff pair in the comment at
+the head of that file says.
+
+**Decision 12 still holds as written.** The Note "the acceptance of this
+record and its Amendments" (2026-10-02) says "Decision 12's state before a
+first entry no longer applies: the registry has entries and four claims."
+Decision 12's paragraph is conditional: it says what the registry check does
+until the ratchet writes a first entry, and what binds from the first entry
+on. The first half is not spent: it is still in the code at `a69a307`, where
+`registryFindings` in `scripts/lib/corpus-rules.mjs` answers whether a claim
+is made, and `scripts/registry-check.mjs` says that no claim is made when none
+is and reports the entries that pass when one is. What that sentence means is
+that the committed registry is past its first entry, so it is in the state the
+paragraph's second half describes: `conformance/registry.json` carries entries
+and claims at `a69a307`, and `test/conformance/registry.test.ts` pins that it
+has entries. Nothing in decision 12 is withdrawn.
