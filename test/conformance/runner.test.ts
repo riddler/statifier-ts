@@ -292,6 +292,11 @@ describe("the known causes", () => {
     ]);
   });
 
+  // It checks one case per entry in KNOWN_CAUSES, so it asserts something
+  // only while the table holds an entry: it holds w3c/test201 today, and a
+  // table emptied of every cause would leave this test passing with no
+  // assertion made.
+  //
   // Sabotage: keying the cause to a case the run passes turns this red. It
   // was run and reverted.
   it("name only cases the run fails", async () => {
