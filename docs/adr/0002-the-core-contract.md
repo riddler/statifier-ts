@@ -2272,9 +2272,13 @@ fires. That the value is the existing spent-budget halt rather than a
 refusal was decided by the conductor under a standing consent, 2026-10-03.
 No member is added to `DriveRefusal` or to any other public type, so this is
 a Note rather than an Amendment. The change that adds this Note changes
-`handOff`, `drain`, `take`, `route`, `fire`, `deliverInternal` and
-`spentFailure` in `src/driver.ts`, adds `spends`, `halt`, `enqueueSelf`,
-`within` and `budgetExhausted` there, and adds the tests in
+`drain`, `handOff`, `performOne`, `route`, `fire`, `sendFailure` and
+`deliverInternal` in `src/driver.ts`; gives the driver's internal `Live`
+the per-call fields `taken`, `counted`, `spent` and `raised`, which
+`launch` and `decodeState` set; adds `spends`, `halt`, `within`,
+`budgetExhausted`, `enqueueSelf`, `spentFailure`, `failureOrigin` and
+`internalEvent` there; rewords the documentation of `State.halted` and
+`StartOptions.maxMacrostepRounds`; and adds the tests in
 `test/driver-bounded-call.test.ts`.
 
 **What is counted.** Each session of the call counts, within that call and
