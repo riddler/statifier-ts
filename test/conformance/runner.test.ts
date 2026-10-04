@@ -13,6 +13,7 @@ import { eventValue } from "../../src/datamodel.js";
 import { gapLines, KNOWN_CAUSES, unclaimedByEither, unclaimedByEitherLines } from "./reports.js";
 import { type RunCase, runCorpusCase, runSuite, suiteNotDriven } from "./runner.js";
 import { runScionCase } from "./scion.js";
+import { runHostCase } from "./statifier.js";
 import { featuresNotRun } from "./w3c.js";
 
 const manifest = loadManifest();
@@ -267,7 +268,7 @@ describe("the gap list", () => {
 });
 
 describe("the known causes", () => {
-  // No case carries a known cause today, so this names one of its own and
+  // This names a cause of its own, for a case the table does not key, and
   // reads it through the same clause the known causes are printed by.
   //
   // Sabotage: dropping the cause from the clause turns this red. It was run
@@ -331,10 +332,52 @@ describe("w3c/test329", () => {
   });
 });
 
+describe("w3c/test201", () => {
+  // The case fails for the cause the known causes print: its onentry hands
+  // event1 to the Basic HTTP processor, addressed to its own location, and
+  // then sends timeout with no delay, which goes on the session's own
+  // external queue in that step, so timeout is taken before the delivery
+  // comes back and the wildcard transition carries the chart to fail. Once
+  // that one send of timeout is delayed, the delivery is taken first and the
+  // case passes; with the processor's send also taken out, the delayed
+  // timeout alone carries it to fail, so that pass rests on the delivery.
+  //
+  // Sabotage: dropping an undelayed send's event for the session itself
+  // rather than queueing it, so timeout never reaches the queue, turns this
+  // red: the case then passes. So does keying the known cause to another
+  // case. Each was run and reverted.
+  it("fails at its timeout: the session's own undelayed send is taken before the delivery", async () => {
+    const testCase = suiteNamed("w3c").cases.find((candidate) => candidate.id === "w3c/test201");
+    if (testCase === undefined) throw new Error("no w3c/test201 in the vendored corpus");
+    expect(KNOWN_CAUSES.get(testCase.id)).toEqual(
+      expect.stringMatching(/^its onentry sends event1 /),
+    );
+    expect(await runHostCase(testCase)).toEqual({
+      result: "fail",
+      reason: "the initial configuration: expected active leaf states [pass], got [fail]",
+    });
+    const timeout = '<send event="timeout" />';
+    expect(testCase.source).toContain(timeout);
+    const delayed = {
+      ...testCase,
+      source: testCase.source.replace(timeout, '<send event="timeout" delay="1s" />'),
+    };
+    expect(await runHostCase(delayed)).toEqual({ result: "pass" });
+    const delivery =
+      /<send type="http:\/\/www\.w3\.org\/TR\/scxml\/#BasicHTTPEventProcessor"[^>]*\/>/;
+    expect(testCase.source).toMatch(delivery);
+    const undelivered = { ...delayed, source: delayed.source.replace(delivery, "") };
+    expect(await runHostCase(undelivered)).toEqual({
+      result: "fail",
+      reason: "the initial configuration: expected active leaf states [pass], got [fail]",
+    });
+  });
+});
+
 describe("the cases neither registry claims", () => {
   // Sabotage: keeping the claimed cases instead of dropping them turns this
   // red. It was run and reverted.
-  it("are the three w3c cases the reference leaves unclaimed, each with the run's reason", async () => {
+  it("are the three w3c cases the reference leaves unclaimed, each with the run's reason and any known cause", async () => {
     const neither = unclaimedByEither(loadReferenceRegistry(), loadRegistry(), suites, ["w3c"]);
     expect(neither).toEqual([
       { case_id: "w3c/test201", suite: "w3c" },
@@ -348,8 +391,10 @@ describe("the cases neither registry claims", () => {
       if (result === undefined || result.result !== "fail") {
         throw new Error(`${entry.case_id} did not fail`);
       }
+      const cause = KNOWN_CAUSES.get(entry.case_id);
+      const known = cause === undefined ? "" : `; the cause: ${cause}`;
       expect(lines[index]).toBe(
-        `${entry.case_id}: the reference's registry does not claim it either; this run failed it: ${result.reason}`,
+        `${entry.case_id}: the reference's registry does not claim it either; this run failed it: ${result.reason}${known}`,
       );
     }
   });

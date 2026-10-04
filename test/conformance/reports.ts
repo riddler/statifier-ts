@@ -77,9 +77,15 @@ export function writeReports(reports: readonly SuiteReport[], dir: string = REPO
  * case id. A cause is printed after the run's reason, and only when the run
  * failed the case. Each is held by a test that observes it again ("the known
  * causes" in `test/conformance/runner.test.ts`), so a cause that stops holding
- * turns the gate red rather than staying printed. No case carries one today.
+ * turns the gate red rather than staying printed. One case carries one:
+ * w3c/test201, observed again by the "w3c/test201" block there.
  */
-export const KNOWN_CAUSES: ReadonlyMap<string, string> = new Map<string, string>();
+export const KNOWN_CAUSES: ReadonlyMap<string, string> = new Map<string, string>([
+  [
+    "w3c/test201",
+    "its onentry sends event1 to its own location through the Basic HTTP processor, then sends timeout with no delay, which goes on the session's own external queue in that same step; the delivery comes from outside the session and so arrives after timeout, and the wildcard transition takes timeout to fail; the case expects the delivery to arrive first, which no delivery over HTTP does, and the reference's registry does not claim it either",
+  ],
+]);
 
 /**
  * What a run found for one case, as a clause a gap line ends with: the reason

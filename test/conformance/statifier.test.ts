@@ -1,16 +1,26 @@
 // The statifier case runner: a plain case driven as a scion case is, a host
 // case's registered send types handed to the driver and its expected sends
 // compared, a planted wrong expected send failing its case, a send the case
-// marks failed reported through the driver, and the accepts case's check
-// compared before it is driven.
+// marks failed reported through the driver, the accepts case's check
+// compared before it is driven, and the exchange with the loopback front
+// bounded.
 //
-// The cases are the vendored corpus's own; the one chart written here is the
-// library loan: a returned copy routed to the branch's hold queue.
+// The cases are the vendored corpus's own; the charts written here are the
+// library loan, a returned copy routed to the branch's hold queue, and a
+// hold that checks its place in the queue through the Basic HTTP processor.
 
 import { describe, expect, it } from "vitest";
 import type { CorpusCase } from "../../scripts/lib/corpus.mjs";
 import { loadSuites } from "../../scripts/lib/corpus.mjs";
-import { compareSends, runHostCase, runStatifierCase, type SendItem } from "./statifier.js";
+import { BASIC_HTTP_EVENT_PROCESSOR } from "../../src/basichttp/index.js";
+import {
+  compareSends,
+  EXCHANGE_NOT_SETTLED,
+  MAX_EXCHANGE_ROUNDS,
+  runHostCase,
+  runStatifierCase,
+  type SendItem,
+} from "./statifier.js";
 
 const statifier = loadSuites().find((suite) => suite.suite === "statifier");
 
@@ -346,5 +356,71 @@ describe("the comparison of the handed sends", () => {
     expect(compareSends([ROUTED, reordered], [ROUTED])).toMatch(
       /^expected the sends handed to the host /,
     );
+  });
+});
+
+// A hold that checks its place in the queue by sending itself `hold.checked`
+// through the Basic HTTP processor, once on entry and again on every check
+// it takes until it has made `checks` of them; with `checks` null it never
+// stops. Each check comes back on its own round of the exchange.
+function holdCase(checks: number | null): CorpusCase {
+  const again = checks === null ? "" : ` cond="checks &lt; ${checks}"`;
+  const source = `<scxml xmlns="http://www.w3.org/2005/07/scxml" version="1.0" datamodel="predicator" initial="waiting">
+  <datamodel>
+    <data id="checks" expr="0"/>
+  </datamodel>
+  <state id="waiting">
+    <onentry>
+      <assign location="checks" expr="checks + 1"/>
+      <send event="hold.checked" type="basichttp" targetexpr="_ioprocessors['basichttp']['location']"/>
+    </onentry>
+    <transition event="hold.checked"${again} target="waiting"/>
+    <transition event="hold.checked" target="ready"/>
+  </state>
+  <state id="ready"/>
+</scxml>`;
+  return {
+    id: "statifier/library/hold_checks_its_place",
+    suite: "statifier",
+    spec: "library",
+    conformance: null,
+    description: "",
+    required_features: ["basic_states", "event_transitions", "send_elements"],
+    source,
+    initial_configuration: [checks === null ? "waiting" : "ready"],
+    steps: [],
+    host: { event_io_processors: [BASIC_HTTP_EVENT_PROCESSOR] },
+  };
+}
+
+describe("the exchange with the loopback front", () => {
+  // Sabotage: halving the bound turns this red. It was run and reverted.
+  it("names its bound in the reason a case past it fails with", () => {
+    expect(MAX_EXCHANGE_ROUNDS).toBe(100);
+    expect(EXCHANGE_NOT_SETTLED).toBe(
+      "the exchange with the loopback front did not settle within 100 rounds",
+    );
+  });
+
+  // Without the bound this test never answers: the exchange runs on the job
+  // queue alone, so no timer, the test's own timeout included, can end it.
+  // The test below is the one a dropped bound turns red on an assertion.
+  it("fails a chart that sends to itself through the processor on every delivery, rather than holding the run", async () => {
+    expect(await runHostCase(holdCase(null))).toEqual({
+      result: "fail",
+      reason: EXCHANGE_NOT_SETTLED,
+    });
+  });
+
+  // Sabotage: dropping the bound turns this red on the fail, and failing the
+  // round that reaches the bound rather than the one past it turns it red on
+  // the pass. Each was run and reverted.
+  it("hands on every round up to the bound, and fails the first round past it", async () => {
+    expect(await runHostCase(holdCase(MAX_EXCHANGE_ROUNDS))).toEqual({ result: "pass" });
+    expect(await runHostCase(holdCase(MAX_EXCHANGE_ROUNDS + 1))).toEqual({
+      result: "fail",
+      reason: EXCHANGE_NOT_SETTLED,
+    });
+    expect(await runHostCase(holdCase(2))).toEqual({ result: "pass" });
   });
 });
