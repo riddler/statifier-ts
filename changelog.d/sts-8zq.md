@@ -1,3 +1,0 @@
-### Changed
-
-- A driver call in which a session raises more delivery failures its processors answered, or takes more events its undelayed sends queued (to itself, or from a child through `#_parent`), than its `maxMacrostepRounds` now halts that session with `budget_exhausted`: the state reads `halted: "budget_exhausted"`, the call answers a `budget_exhausted` effect with `ok: true`, the failure past the budget waits unrun on the internal queue or the event past it stays queued, and the session runs nothing more in that call. An event a timer fires is never counted, however many fire in one `advance`, and an `"infinity"` budget counts nothing.
