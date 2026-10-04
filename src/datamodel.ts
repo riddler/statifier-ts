@@ -836,7 +836,7 @@ interface ProgramHalt {
 /** A halt context predicator wrote as tagged text, decoded into the domain. */
 function decodedContext(text: string): { readonly [root: string]: Value } {
   const value = decodedValue(text);
-  if (typeof value !== "object" || value === null || Array.isArray(value) || !isPlainMap(value)) {
+  if (typeof value !== "object" || value === null || !isPlainMap(value)) {
     throw new Error("predicator answered a tagged context that is not a map");
   }
   return value as { readonly [root: string]: Value };
