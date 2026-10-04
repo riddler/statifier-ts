@@ -2252,3 +2252,62 @@ bullet's second sentence holds for the driver's own delayed sends, which
 `advance` fires as the virtual clock moves by the `ms` a host passes it; the
 Basic HTTP entry point's held delayed send is the exception that acceptance
 Note names.
+
+## Note: one driver call is bounded by the round budget (2026-10-04)
+
+The Amendment "a failure `deliver` answers is raised within the run that
+handed the send" left one case open, in its paragraph "A chart that sends
+again on every failure": a chart that answers each failure by sending again
+to a processor that fails it again never returns from the driver call, and
+"whether to bound the loop, and how the refusal would read, stays open". The
+same holds on `main` at `a69a307` for a chart that sends itself an event on
+every event it takes: `drain` in `src/driver.ts` takes the external queue,
+then the mailbox, until both are empty, with no count. The call is bounded, ruled by the operator,
+2026-10-03: the bound reuses the round budget the driver already applies,
+`maxMacrostepRounds`, with no new option and no new budget value, and the call
+returns with a value, never a throw. That the value is the existing
+spent-budget halt rather than a refusal was decided by the conductor under a
+standing consent, 2026-10-03. No member is added to `DriveRefusal` or to any
+other public type, so this is a Note rather than an Amendment. The change
+that adds this Note changes `handOff`, `drain` and `take` in
+`src/driver.ts`, adds `spentFailure`, `takesNext`, `within` and
+`budgetExhausted` there, and adds the tests in
+`test/driver-bounded-call.test.ts`.
+
+**What is counted.** Each session of the call counts, within that call and
+against its own `maxMacrostepRounds`, two things:
+
+| Counted | Where | Past the budget |
+|---|---|---|
+| each failure a processor's `deliver` answered that the session raises | `handOff` | the failure's `error.communication` joins the internal queue and the chart is not run over it (`spentFailure`) |
+| each event the session takes, from its external queue or its mailbox | `drain` | the event stays where it is queued |
+
+Either way the session halts as a macrostep that spends its rounds halts it:
+the state's `halted` reads `"budget_exhausted"` and the call answers a
+`budget_exhausted` effect (`BudgetExhausted` in `src/core/interpreter.ts`)
+carrying the session's configuration, its budget, its internal queue as
+`pendingInternalEvents` (the unrun failure among them) and its counters, built
+by `budgetExhausted`. The call answers `ok: true`. A failure a host reports
+through `reportSendFailed` is not counted. A budget of `"infinity"` bounds
+neither count, and a call under it over such a chart still does not return.
+
+**What the halt leaves.** A session that halts this way stays halted, as one
+halted by a spent macrostep does: later external events wait and pending
+timers still fire. The bounded call over a chart that sends again on every
+failure makes its run once for each failure it meets plus once, as the
+Amendment says, so its cost grows with the square of the budget, and under
+the default budget of 10000 it returns only slowly.
+
+**The Amendment's sentences.** Its sentence that "each send the call's final
+run hands is handed to its processor once" holds for a bounded call: the
+call reaches its final run, the one that queues the failure past the budget,
+and a halted call hands what that run handed, each send once. Its paragraph
+"A chart that sends again on every failure" is read as amended by this Note:
+the call is bounded. Its reading of the reference stands: at statifier-ex
+`v2.11.0` (`bbc4c0e`), as at `v2.10.0` (`c8894ae`), `drain_deferred/1` in
+`lib/statifier/session.ex` applies no budget across the raises, and
+`handle_continue/2`'s `:drain` clause there takes one inbox entry per turn of
+the session's message loop, with no count. A host's `send_event/2` there
+casts, so no call a host makes waits on either loop. The bound is this
+package's, since every call here takes what its chart queues itself
+before it returns.

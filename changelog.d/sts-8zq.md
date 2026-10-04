@@ -1,0 +1,3 @@
+### Changed
+
+- A driver call over a chart that sends again on every failure its processor answers, or that sends itself an event without end, now returns once it spends the session's `maxMacrostepRounds`, where it never returned: the call answers the state with `halted: "budget_exhausted"` and a `budget_exhausted` effect, the failure past the budget left unrun on the internal queue or the event past it left on the external queue. A session raises at most `maxMacrostepRounds` such failures and takes at most that many events in one call; an `"infinity"` budget leaves the call unbounded, as before.
