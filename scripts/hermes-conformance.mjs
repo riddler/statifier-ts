@@ -1,7 +1,7 @@
 // Runs every suite of the conformance corpus under a standalone Hermes VM and
 // diffs the reports against a run of the same corpus under Node.
 //
-//   node scripts/hermes-conformance.mjs --tools <dir> [--out <dir>]
+//   node scripts/hermes-conformance.mjs --tools <dir> [--out <dir>] [--record <file>]
 //
 // WHAT THIS IS EVIDENCE OF. The README says this package's source assumes no
 // host environment, so it runs unchanged on a server runtime, in a browser and
@@ -60,6 +60,19 @@
 // the same directory on the machine running the gate; this script is the stage
 // such a step would call, and whether one exists is a separate decision.
 //
+// THE RECORD A RUN LEAVES. With `--record <file>` the run writes what it
+// found as a small JSON record: the local date, the commit the measured
+// inputs were read at, the corpus tag and hash, the installed predicator
+// version, the VM's release and bytecode version, and each suite's rows on
+// both engines with the differences between them. `conformance/engine-proof.json`
+// is the record of the run the READMEs state, and `test/readme.test.ts`
+// compares their dated values with it, so a later run that writes a new
+// record turns the gate red until the READMEs say what it found. The record
+// names a commit, so the run refuses to write one when the measured inputs -
+// `src/`, `test/conformance/`, the vendored corpus, `package.json` and the
+// lockfile - differ from that commit. This script and the READMEs are not
+// measured inputs.
+//
 // HOW TO FILL A TOOL DIRECTORY. The VM comes from the command-line release
 // archive published for this platform by the engine's own project, unpacked in
 // that directory so that `hermes` sits at its top; there is no package manager
@@ -73,7 +86,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { join, relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { loadManifest, loadSuites } from "./lib/corpus.mjs";
+import { loadManifest, loadProvenance, loadSuites } from "./lib/corpus.mjs";
 
 const repoRoot = fileURLToPath(new URL("../", import.meta.url));
 
@@ -92,18 +105,19 @@ const HOST_MODULE_PATTERN =
 function usage(problem) {
   process.stderr.write(`${problem}\n\n`);
   process.stderr.write("usage: node scripts/hermes-conformance.mjs --tools <dir>");
-  process.stderr.write(" [--out <dir>]\n");
+  process.stderr.write(" [--out <dir>] [--record <file>]\n");
   process.stderr.write("  --tools  a directory holding the VM and the bundling tools,\n");
   process.stderr.write("           or set STATIFIER_HERMES_TOOLS instead\n");
+  process.stderr.write("  --record write the run's result as a JSON record to this file\n");
   process.exit(2);
 }
 
 function readArguments(argv) {
-  const parsed = { tools: process.env.STATIFIER_HERMES_TOOLS ?? null, out: null };
+  const parsed = { tools: process.env.STATIFIER_HERMES_TOOLS ?? null, out: null, record: null };
   for (let index = 0; index < argv.length; index += 1) {
     const flag = argv[index];
     const value = argv[index + 1];
-    if (flag === "--tools" || flag === "--out") {
+    if (flag === "--tools" || flag === "--out" || flag === "--record") {
       if (value === undefined) usage(`${flag} wants a value`);
       parsed[flag.slice(2)] = value;
       index += 1;
@@ -289,11 +303,61 @@ function reportDifferences(node, vm) {
   return differences;
 }
 
+/** The paths whose content a run measures, and so the paths a record's commit vouches for. */
+const MEASURED_INPUTS = [
+  "src",
+  "test/conformance",
+  "conformance/statifier",
+  "conformance/statifier.vendored.json",
+  "package.json",
+  "pnpm-lock.yaml",
+];
+
+/**
+ * The commit a record names, or a refusal: the short SHA of HEAD, when no
+ * measured input differs from it.
+ */
+function recordedCommit() {
+  const git = (args) => execFileSync("git", args, { cwd: repoRoot, encoding: "utf8" }).trim();
+  const changed = git(["status", "--porcelain", "--", ...MEASURED_INPUTS]);
+  if (changed !== "") {
+    process.stderr.write(
+      `a record names a commit, and these measured inputs differ from HEAD:\n${changed}\n`,
+    );
+    process.exit(2);
+  }
+  return git(["rev-parse", "--short", "HEAD"]);
+}
+
+/** The VM's release and bytecode version, read off what `--version` printed. */
+function vmVersion(text) {
+  const release = /Hermes release version:\s*(\S+)/.exec(text)?.[1];
+  const bytecode = /HBC bytecode version:\s*(\d+)/.exec(text)?.[1];
+  if (release === undefined || bytecode === undefined) {
+    throw new Error("the VM's --version names no release or no bytecode version");
+  }
+  return { release, bytecode: Number(bytecode) };
+}
+
+/** The local date, as the READMEs date a run. */
+function localDate() {
+  const now = new Date();
+  const pad = (value) => String(value).padStart(2, "0");
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+}
+
+/** The predicator version installed, which the run bundled. */
+function installedPredicator() {
+  const file = join(repoRoot, "node_modules", "@riddler", "predicator", "package.json");
+  return JSON.parse(readFileSync(file, "utf8")).version;
+}
+
 async function main() {
   const parsed = readArguments(process.argv.slice(2));
   const tools = resolveTools(parsed.tools);
   const manifest = loadManifest();
   const outDir = parsed.out === null ? join(repoRoot, "tmp", "hermes") : resolve(parsed.out);
+  const commit = parsed.record === null ? null : recordedCommit();
 
   const suites = loadSuites(undefined, manifest);
   const corpus = { corpus_hash: manifest.corpus_hash, suites };
@@ -332,6 +396,7 @@ async function main() {
   const nodeReports = readReports(nodeOut, "the server runtime", suites.length);
 
   let differing = 0;
+  const rows = [];
   for (let index = 0; index < nodeReports.length; index += 1) {
     const node = nodeReports[index];
     const vm = vmReports[index];
@@ -340,7 +405,29 @@ async function main() {
       `${node.suite}: ${node.results.length} rows on the server runtime, ${vm.results.length} on the VM, ${differences.length} differences\n`,
     );
     for (const difference of differences) process.stdout.write(`  ${difference}\n`);
+    rows.push({
+      suite: node.suite,
+      node_rows: node.results.length,
+      vm_rows: vm.results.length,
+      differences: differences.length,
+    });
     if (differences.length > 0) differing += 1;
+  }
+  if (parsed.record !== null) {
+    const provenance = loadProvenance();
+    const vm = vmVersion(version);
+    const record = {
+      date: localDate(),
+      commit,
+      corpus_tag: provenance.tag,
+      corpus_hash: manifest.corpus_hash,
+      predicator: installedPredicator(),
+      vm_release: vm.release,
+      bytecode_version: vm.bytecode,
+      suites: rows,
+    };
+    writeFileSync(resolve(parsed.record), `${JSON.stringify(record, null, 2)}\n`, "utf8");
+    process.stdout.write(`the record: ${relative(repoRoot, resolve(parsed.record))}\n`);
   }
   if (differing > 0) {
     process.stderr.write(

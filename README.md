@@ -557,15 +557,19 @@ lint, a gate stage, checks `src/` for those constructs and passes.
 That is a check on the text. A check on a run - the conformance corpus driven
 through this package on the JavaScript engine React Native uses, and diffed
 against a run on the server runtime - is what `scripts/hermes-conformance.mjs`
-does. The engine proof was last run on 2026-10-04, over the corpus at
-`v2.11.0`, with the change that moved the corpus to that tag applied to
-commit `df87224` on `main` and with `@riddler/predicator` 0.5.0 installed, on
-the standalone Hermes VM, release 0.12.0, bytecode version 89: every suite
-agreed row for row with the same run on Node, with zero differences - scion
-119 rows, w3c 168 and statifier 34, every case of the vendored corpus, none
-left out. Its earlier runs, on 2026-10-01 at commit `15980e9` and on
-2026-10-02 at commit `5560a8c`, with the corpus at `v2.10.0`, also found
-zero differences. It runs again at the head of the next release.
+does. The engine proof was last run on 2026-10-04, at commit `3589315` on
+`main`, over the corpus at `v2.11.0`, with `@riddler/predicator` 0.5.0
+installed, on the standalone Hermes VM, release 0.12.0, bytecode version 89:
+every suite agreed row for row with the same run on Node, with zero
+differences - scion 119 rows, w3c 168 and statifier 34, every case of the
+vendored corpus, none left out. These are the values that run recorded in
+`conformance/engine-proof.json`, which the script writes when run with
+`--record`, and a test compares this paragraph with that record, so they are
+a dated record of one run, held to what the run wrote. Its earlier runs, on
+2026-10-01 at commit `15980e9` and on 2026-10-02 at commit `5560a8c`, with
+the corpus at `v2.10.0`, and earlier on 2026-10-04, with the change that
+moved the corpus to `v2.11.0` applied to commit `df87224`, also found zero
+differences. It runs again at the head of the next release.
 
 What the proof covers is narrower than "React Native". The standalone VM is
 an older release than the engine current React Native ships, so the bundle it

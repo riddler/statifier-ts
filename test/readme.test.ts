@@ -353,6 +353,85 @@ describe("the README's claims", () => {
   });
 });
 
+interface ProofRecord {
+  readonly date: string;
+  readonly commit: string;
+  readonly corpus_tag: string;
+  readonly predicator: string;
+  readonly vm_release: string;
+  readonly bytecode_version: number;
+  readonly suites: readonly {
+    readonly suite: string;
+    readonly node_rows: number;
+    readonly vm_rows: number;
+    readonly differences: number;
+  }[];
+}
+
+/** The record the engine proof wrote with `--record`, which the dated values are held to. */
+const PROOF: ProofRecord = JSON.parse(
+  readFileSync(join(ROOT, "conformance", "engine-proof.json"), "utf8"),
+);
+
+/** The last dated result in conformance/README.md's "The engine proof" section. */
+function lastProofResult(): string {
+  const text = readFileSync(join(ROOT, "conformance", "README.md"), "utf8");
+  const start = text.indexOf("\n## The engine proof\n");
+  if (start < 0) throw new Error('conformance/README.md has no "## The engine proof" section');
+  const next = text.indexOf("\n## ", start + 1);
+  const proof = text.slice(start, next < 0 ? undefined : next);
+  const results = proof.split("\n**The result, ");
+  if (results.length < 2) throw new Error("the engine proof section states no result");
+  return `**The result, ${results[results.length - 1]}`;
+}
+
+describe("the engine proof's dated values", () => {
+  // Sabotage: the bytecode version typed as 88, and the commit typed as
+  // another, in the Engines paragraph each turn this red. Each was run and
+  // reverted.
+  it("are, in the README's Engines paragraph, the values the recorded run wrote", () => {
+    const engines = prose(section("Engines"));
+    expect(engines).toContain(`last run on ${PROOF.date}, at commit \`${PROOF.commit}\` on`);
+    expect(engines).toContain(`over the corpus at \`${PROOF.corpus_tag}\``);
+    expect(engines).toContain(`\`@riddler/predicator\` ${PROOF.predicator} installed`);
+    expect(engines).toContain(
+      `release ${PROOF.vm_release}, bytecode version ${PROOF.bytecode_version}:`,
+    );
+    const rows = /scion (\d+) rows, w3c (\d+) and statifier (\d+)/.exec(engines);
+    const counts = new Map(PROOF.suites.map((suite) => [suite.suite, suite]));
+    for (const [index, name] of ["scion", "w3c", "statifier"].entries()) {
+      expect(Number(rows?.[index + 1])).toBe(counts.get(name)?.node_rows);
+      expect(counts.get(name)?.vm_rows).toBe(counts.get(name)?.node_rows);
+    }
+    expect(PROOF.suites.every((suite) => suite.differences === 0)).toBe(true);
+    expect(engines).toContain("with zero differences");
+  });
+
+  // Sabotage: a VM row count typed as 167 in the last result's table, and the
+  // release typed as 0.11.0 in its paragraph, each turn this red. Each was
+  // run and reverted.
+  it("are, in conformance/README.md's last result, the values the recorded run wrote", () => {
+    const result = lastProofResult();
+    const words = result.replace(/\s+/g, " ");
+    expect(words.startsWith(`**The result, ${PROOF.date},`)).toBe(true);
+    expect(words).toContain(`commit \`${PROOF.commit}\``);
+    expect(words).toContain(`\`@riddler/predicator\` ${PROOF.predicator} installed`);
+    expect(words).toContain(`the corpus at \`${PROOF.corpus_tag}\``);
+    expect(words).toContain(
+      `release ${PROOF.vm_release}, bytecode version ${PROOF.bytecode_version}`,
+    );
+    const table = [...result.matchAll(/^\| `(\w+)` \| (\d+) \| (\d+) \| (\d+) \|$/gm)].map(
+      (row) => ({
+        suite: row[1],
+        node_rows: Number(row[2]),
+        vm_rows: Number(row[3]),
+        differences: Number(row[4]),
+      }),
+    );
+    expect(table).toEqual(PROOF.suites);
+  });
+});
+
 describe("the README's links", () => {
   // Sabotage: a relative link to docs/ (not in `files`) turns this red.
   it("links by relative path only to a file the package ships", () => {
