@@ -573,3 +573,28 @@ could not deliver"), and the accepts case is driven (with ADR-0002's
 Amendment "the accepts check"), so all three are claimed, the ten under
 `statifier/diff/` among them. Decision 12's state before a first entry no
 longer applies: the registry has entries and four claims.
+
+## Note: the diff cases were left unclaimed by a ruling (2026-10-04)
+
+This Note decides nothing new. It names one sentence of the Note "the diff
+cases are driven" (2026-10-01) that reads inexactly against the Amendment it
+cites, and says what holds. It carries no Status line and removes no line.
+
+That Note says the diff row of the Amendment "the sends a host case expects"
+"read the four keys as a feature the harness does not run", and then quotes
+the reference's moduledoc as if the row had read the reference otherwise. The
+row did not misread the reference. Its middle column already says the
+reference's runner "compares none of them", citing the moduledoc of
+`host_case.ex` at `v2.9.0` (`f2365bb8`), which says this runner "compares
+none of them: it runs such a case like any other host case", as it does at
+`v2.10.0` (`c8894ae`). What kept the diff cases unclaimed was the row's third
+column, "fails the case before it is driven", and the paragraph beneath the
+table gives its ground: the accepts and diff rows leave those cases unclaimed
+with their reason in the gap list, "ruled by the operator, 2026-10-01; a later
+claim of them is additive".
+
+So the diff cases were left unclaimed by a ruling, not by a misreading. The
+last sentence of that Note's first paragraph names that ruling and its
+reversal, claiming the cases as the reference's runner does, ruled by the
+operator, 2026-10-01; that sentence stands. This Note reads no other line of
+that Note.
