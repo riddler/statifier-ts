@@ -20,6 +20,23 @@ Nothing is written under this heading. Unreleased work is the fragments in
 `changelog.d/`; a release prep assembles them into a version section below this
 one.
 
+## [0.3.1] 2026-10-05
+
+A documentation release. No file under `src/` changes, so a host meets the
+same calls, state and effects as 0.3.0; what changes is the README the
+registry shows and the guides it links.
+
+### Added
+
+- A how-to guide for driving an execution with the six calls, `docs/guides/drive-an-execution.md`.
+- A how-to guide for exporting and importing a position, `docs/guides/export-and-import-a-position.md`.
+- A how-to guide for the Basic HTTP processor, `docs/guides/use-the-basic-http-processor.md`.
+- An API reference built from the source's doc comments by `pnpm run docs` (typedoc) into `docs/api/`, which is not committed and not published.
+
+### Changed
+
+- The README opens as an introduction: what the package is, why it exists, how to install it, one library-loan example, a map of the documentation grouped under Learn, Do, Look up and Understand, and a compatibility note; the longer reference sections follow under "Reference, in full".
+
 ## [0.3.0] 2026-10-04
 
 A minor release that bounds one driver call, answers an undefined declaration

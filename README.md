@@ -25,7 +25,7 @@ and rendering stay the host's.
 Install it from the npm registry:
 
 ```bash
-pnpm add @riddler/statifier@^0.3.0
+pnpm add @riddler/statifier@^0.3.1
 ```
 
 The package has **one runtime dependency**,
