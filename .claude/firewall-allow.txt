@@ -1,0 +1,6 @@
+# Exact strings the planning-id scan may allow in this repository, one per
+# line; a line starting with "# " is a comment.
+#
+# pnpm-lock.yaml: the sha512 integrity value of brace-expansion@5.0.12. The
+# scan reads its base64 text as prose; no planning id is involved.
+sha512-YovQ3rzhaLMIrDjNDMkNS01tea93qhEhG5xy8f6+R0l+dw3Ki+5sCoIoI942iuLZTHWogWktgwVDhU09iNEimQ==

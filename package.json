@@ -49,9 +49,10 @@
   },
   "scripts": {
     "prepack": "node scripts/publish-guard.mjs",
-    "gate": "node --version && pnpm run typecheck && pnpm run lint && pnpm run neutrality && vitest run --coverage && pnpm run corpus:check && pnpm run registry && pnpm run position && pnpm run build && pnpm run resolution",
+    "gate": "node --version && pnpm run typecheck && pnpm run lint && pnpm run neutrality && vitest run --coverage && pnpm run corpus:check && pnpm run registry && pnpm run position && pnpm run build && pnpm run resolution && pnpm run docs",
     "gate:loop": "pnpm run typecheck && pnpm run lint && pnpm run test",
     "typecheck": "tsc --noEmit -p tsconfig.src.json && tsc --noEmit",
+    "docs": "typedoc",
     "lint": "biome check .",
     "format": "biome format --write .",
     "test": "vitest run",
@@ -74,6 +75,7 @@
     "@vitest/coverage-v8": "5.0.1",
     "tsup": "8.5.1",
     "tsx": "4.23.13",
+    "typedoc": "0.28.20",
     "typescript": "5.9.3",
     "vitest": "5.0.1"
   }
