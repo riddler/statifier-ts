@@ -92,12 +92,13 @@ isDone(returned.state); // => { ok: true, done: true, donedata: { renewals: 1 },
   - [Drive an execution with the six calls](https://github.com/riddler/statifier-ts/blob/main/docs/guides/drive-an-execution.md): compile a chart, start it, step and advance it, and read where it stands until it stops.
   - [Hand a send to your own processor](#the-effects): register a send type, and report a send that failed after it was handed.
   - [Export and import a position](https://github.com/riddler/statifier-ts/blob/main/docs/guides/export-and-import-a-position.md): carry where an execution stands into a new compile of its chart, and continue it there.
-  - [Send events over HTTP](#the-basic-http-processor): the Basic HTTP processor on its own entry point.
+  - [Use the Basic HTTP processor](https://github.com/riddler/statifier-ts/blob/main/docs/guides/use-the-basic-http-processor.md): post a chart's sends over HTTP, take a missed delivery back into the chart, and turn an inbound request into an event.
 - Look up
   - [The six calls](#the-six-calls): what each call takes, what it answers, and every refusal.
   - [The state](#the-state): the fields of the plain JSON state a call answers.
   - [The effects](#the-effects): every effect kind and what the host does with it.
   - [Position export and import](#position-export-and-import): what the export and the import answer, and every refusal.
+  - [The Basic HTTP processor](#the-basic-http-processor): what the processor posts, how it deduplicates, and what it reports.
   - The API reference: `pnpm run docs` builds it from the source's doc comments into `docs/api/`.
   - [The changelog](CHANGELOG.md): what changed in each version.
 - Understand
