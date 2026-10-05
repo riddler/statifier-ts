@@ -1,27 +1,24 @@
 # @riddler/statifier
 
-A conformant TypeScript sibling of the Statifier statechart engine.
+A conformant TypeScript sibling of the Statifier statechart engine, which
+runs SCXML statecharts. Give it a chart and an event - a library loan
+renewed, a copy returned - and it answers the chart's next configuration and
+what the host should do about it, as plain data. The reference
+implementation is [statifier-ex](https://github.com/riddler/statifier-ex),
+written in Elixir.
 
-Statifier runs SCXML statecharts. A chart is a document of states,
-transitions, timers and the data they read - a library loan that comes due
-and may be renewed, a patron registering at a branch - and an interpreter
-takes the chart's current configuration and an event and answers the next
-configuration together with what the host should do about it.
+## Why this package
 
-The reference implementation is
-[statifier-ex](https://github.com/riddler/statifier-ex), written in Elixir.
-This package is the interpreter core in TypeScript: the same algorithm, held
-to the same conformance corpus, so that a chart authored once runs the same
-way on a server, in a browser, or in a React Native app. What is shown of that
-today is under Conformance and Engines below. It takes a chart and an
-event and answers a configuration and a list of effects as plain data;
-persistence, a real clock, delivering what a chart sends, and rendering are
-the host's.
-
-Every TypeScript example on this page is run by the test suite
-(`test/readme.test.ts`), and a line ending in `// =>` is an assertion that
-the value on its left equals the value on its right. Every shell command is
-checked against the scripts `package.json` declares rather than run.
+A chart is authored once and should decide the same way wherever it runs,
+but an interpreter that runs only on a server leaves a browser or a React
+Native app two poor choices: a network round trip for every event, or a
+second implementation whose answers drift from the first. This package is
+the same algorithm as the reference, held case by case to the reference's
+conformance corpus, with no I/O, no clock and no storage of its own, so a
+host runs a chart in process wherever its code runs, and on every corpus
+case this package claims it answers as the reference does. The state it answers is plain JSON that a host stores and
+sends as it likes; persistence, a real clock, delivering what a chart sends,
+and rendering stay the host's.
 
 ## Install
 
@@ -37,29 +34,21 @@ The package has **one runtime dependency**,
 chart carries, as it does for the reference. `dependencies` in
 `package.json` names it and no other package.
 
-`engines.node` in `package.json` is `>=20`, and that is the floor a
-consumer's runtime has to clear. It is not the toolchain: what builds and
-gates this repository is the one node and the one pnpm `mise.toml` pins.
-
-## The six calls
+## Basic usage
 
 A host compiles a chart once and drives it with five more calls. The chart
-used below is a library loan: the copy goes out for fourteen days, may be
-renewed twice, falls overdue when the loan runs out, and stops when it comes
-back, answering how many renewals it took.
+below is a library loan: the copy goes out for fourteen days, may be renewed
+twice, falls overdue when the loan runs out, and stops when it comes back,
+answering how many renewals it took. Every TypeScript example on this page
+is run by the test suite (`test/readme.test.ts`), and a line ending in
+`// =>` is an assertion that the value on its left equals the value on its
+right; every shell command is checked against the scripts `package.json`
+declares rather than run.
 
 ```ts
-import {
-  advance,
-  compile,
-  configuration,
-  isDone,
-  start,
-  step,
-} from "@riddler/statifier";
+import { advance, compile, configuration, isDone, start, step } from "@riddler/statifier";
 
-const loanSource = `<scxml xmlns="http://www.w3.org/2005/07/scxml" version="1.0"
-    name="loan" initial="on_loan">
+const loanSource = `<scxml xmlns="http://www.w3.org/2005/07/scxml" version="1.0" initial="on_loan">
   <datamodel><data id="renewals" expr="0"/></datamodel>
   <state id="on_loan">
     <onentry><send id="due" event="loan.due" delay="14d"/></onentry>
@@ -70,46 +59,75 @@ const loanSource = `<scxml xmlns="http://www.w3.org/2005/07/scxml" version="1.0"
     <transition event="loan.due" target="overdue"/>
     <transition event="loan.returned" target="returned"/>
   </state>
-  <state id="overdue">
-    <transition event="loan.returned" target="returned"/>
-  </state>
-  <final id="returned">
-    <donedata><param name="renewals" expr="renewals"/></donedata>
-  </final>
+  <state id="overdue"><transition event="loan.returned" target="returned"/></state>
+  <final id="returned"><donedata><param name="renewals" expr="renewals"/></donedata></final>
 </scxml>`;
 
-// compile(xml, opts) answers a Chart, or every compile error.
 const compiled = compile(loanSource, { chartName: "loan", chartVersion: "3" });
 if (!compiled.ok) throw new Error("the loan chart does not compile");
 const loan = compiled.chart;
-loan.identity.name; // => "loan"
-loan.identity.version; // => "3"
 
-// start(chart, opts) binds the datamodel, enters the initial states and runs
-// to a stable configuration. The host mints the session id.
-const started = start(loan, { sessionId: "loan-copy-17" });
-if (!started.ok) throw new Error(started.reason);
-configuration(started.state); // => ["on_loan"]
-started.effects.map((effect) => effect.kind); // => ["datamodel_init", "datamodel_change", "send_delayed"]
-
-// step(chart, state, event, opts?) takes one external event.
-const renewed = step(loan, started.state, { name: "loan.renew" });
+// The host mints the session id; each call answers a state and its effects.
+const lent = start(loan, { sessionId: "loan-copy-17" });
+if (!lent.ok) throw new Error(lent.reason);
+lent.effects.map((effect) => effect.kind); // => ["datamodel_init", "datamodel_change", "send_delayed"]
+const renewed = step(loan, lent.state, { name: "loan.renew" });
 if (!renewed.ok) throw new Error(renewed.reason);
-renewed.effects.map((effect) => effect.kind); // => ["cancel", "datamodel_change", "send_delayed"]
 
-// advance(chart, state, ms, opts?) moves the virtual clock and fires every
-// delayed send due by then.
-const fourteenDays = 14 * 24 * 60 * 60 * 1000;
-const lapsed = advance(loan, renewed.state, fourteenDays);
+// advance moves the virtual clock and fires every delayed send due by then.
+const lapsed = advance(loan, renewed.state, 14 * 24 * 60 * 60 * 1000);
 if (!lapsed.ok) throw new Error(lapsed.reason);
 configuration(lapsed.state); // => ["overdue"]
 
-// isDone(state) answers whether the chart has stopped.
-isDone(lapsed.state); // => { ok: true, done: false }
 const returned = step(loan, lapsed.state, { name: "loan.returned" });
 if (!returned.ok) throw new Error(returned.reason);
 isDone(returned.state); // => { ok: true, done: true, donedata: { renewals: 1 }, configuration: ["returned"] }
 ```
+
+## Documentation
+
+- Learn
+  - [Basic usage](#basic-usage): a library loan lent, renewed, overdue and returned, with every call that moves a chart.
+- Do
+  - [Hand a send to your own processor](#the-effects): register a send type, and report a send that failed after it was handed.
+  - [Move a running chart to a fresh compile](#position-export-and-import): export where a chart stands and import it into a new compile.
+  - [Send events over HTTP](#the-basic-http-processor): the Basic HTTP processor on its own entry point.
+- Look up
+  - [The six calls](#the-six-calls): what each call takes, what it answers, and every refusal.
+  - [The state](#the-state): the fields of the plain JSON state a call answers.
+  - [The effects](#the-effects): every effect kind and what the host does with it.
+  - The API reference: `pnpm run docs` builds it from the source's doc comments into `docs/api/`.
+  - [The changelog](CHANGELOG.md): what changed in each version.
+- Understand
+  - [Conformance](#conformance): what conformant means here, the claim this version makes and the gap it leaves.
+  - [Engines](#engines): what is checked of engine neutrality, and what a run on React Native's engine has shown.
+  - [The conformance apparatus](https://github.com/riddler/statifier-ts/blob/main/conformance/README.md): how the corpus copy, the check, the runner and the ratchet work.
+  - [The decision records](https://github.com/riddler/statifier-ts/tree/main/docs/adr): why the contract is shaped the way it is.
+
+## Compatibility
+
+`engines.node` in `package.json` is `>=20`, and that is the floor a
+consumer's runtime has to clear. It is not the toolchain: what builds and
+gates this repository is the one node and the one pnpm `mise.toml` pins.
+
+Nothing under `src/` assumes a host environment, so the same build runs on a
+server runtime, in a browser and on React Native's JavaScript engine;
+[Engines](#engines) says what is checked of that and what a run on that
+engine has shown. The package ships ES module and CommonJS builds with their
+type declarations, and the Basic HTTP processor on an entry point of its own,
+`@riddler/statifier/basichttp`. Each version is held to the reference's
+conformance corpus at the tag [Conformance](#conformance) names.
+
+## Reference, in full
+
+The sections below are the package's reference: every call, the state, the
+effects, position export and import, the Basic HTTP processor, conformance
+and the engines it runs on.
+
+## The six calls
+
+The basic usage above compiles a chart once and drives it with the other
+calls; each one is listed here.
 
 | Call | What it does |
 |---|---|
@@ -189,9 +207,9 @@ const registrationChart = compile(registrationSource);
 if (!registrationChart.ok) throw new Error("the registration chart does not compile");
 const registration = registrationChart.chart;
 
-const wizard = start(registration, { sessionId: "patron-ada" });
-if (!wizard.ok) throw new Error(wizard.reason);
-const submitted = step(registration, wizard.state, {
+const registering = start(registration, { sessionId: "patron-ada" });
+if (!registering.ok) throw new Error(registering.reason);
+const submitted = step(registration, registering.state, {
   name: "details.submitted",
   data: { name: "Ada", branch: "Riverside" },
 });
@@ -584,10 +602,6 @@ front as on Node: they prove the processor's logic on the engine, not a
 network round trip on a device. The script's header and
 [`conformance/README.md`](https://github.com/riddler/statifier-ts/blob/main/conformance/README.md)
 say more.
-
-## Documentation
-
-`pnpm run docs` builds the API reference from the source's doc comments into `docs/api/`.
 
 ## Development
 
