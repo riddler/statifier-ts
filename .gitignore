@@ -32,3 +32,7 @@ reports/
 # or `pnpm pack`. It is a build artefact and must never be committed. The rule
 # names this package's tarball only, so no other archive is hidden.
 /riddler-statifier-*.tgz
+
+# The generated API reference, built by `pnpm run docs` (typedoc). It is a
+# build artefact and is never committed.
+/docs/api/

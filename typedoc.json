@@ -1,0 +1,15 @@
+{
+  "$schema": "https://typedoc.org/schema.json",
+  "entryPoints": ["src/index.ts", "src/basichttp/index.ts"],
+  "tsconfig": "tsconfig.src.json",
+  "readme": "README.md",
+  "out": "docs/api",
+  "treatWarningsAsErrors": true,
+  "intentionallyNotExported": [
+    "CompiledData",
+    "CompiledState",
+    "CompiledTransition",
+    "Invalid",
+    "CompiledProgram"
+  ]
+}

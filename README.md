@@ -585,6 +585,10 @@ network round trip on a device. The script's header and
 [`conformance/README.md`](https://github.com/riddler/statifier-ts/blob/main/conformance/README.md)
 say more.
 
+## Documentation
+
+`pnpm run docs` builds the API reference from the source's doc comments into `docs/api/`.
+
 ## Development
 
 ```bash
