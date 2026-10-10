@@ -10,7 +10,7 @@
 // library loan, a returned copy routed to the branch's hold queue, and a
 // hold that checks its place in the queue through the Basic HTTP processor.
 
-import { describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { CorpusCase } from "../../scripts/lib/corpus.mjs";
 import { loadSuites } from "../../scripts/lib/corpus.mjs";
 import { BASIC_HTTP_EVENT_PROCESSOR } from "../../src/basichttp/index.js";
@@ -26,6 +26,7 @@ import {
   runHostCase,
   runStatifierCase,
   type SendItem,
+  setExchangeRoundYield,
 } from "./statifier.js";
 
 const statifier = loadSuites().find((suite) => suite.suite === "statifier");
@@ -400,6 +401,17 @@ function holdCase(checks: number | null): CorpusCase {
 }
 
 describe("the exchange with the loopback front", () => {
+  // Each round of an exchange here yields to the timer queue, so a round
+  // count gone wrong fails on the test's own timeout rather than holding the
+  // run: the settles run on the job queue alone, and without the yield no
+  // timer, the timeout included, could end one.
+  beforeAll(() => {
+    setExchangeRoundYield(() => new Promise((resolve) => setTimeout(resolve, 0)));
+  });
+  afterAll(() => {
+    setExchangeRoundYield(null);
+  });
+
   // Sabotage: halving the bound turns this red. It was run and reverted.
   it("names its bound in the reason a case past it fails with", () => {
     expect(MAX_EXCHANGE_ROUNDS).toBe(100);
@@ -408,9 +420,9 @@ describe("the exchange with the loopback front", () => {
     );
   });
 
-  // Without the bound this test never answers: the exchange runs on the job
-  // queue alone, so no timer, the test's own timeout included, can end it.
-  // The test below is the one a dropped bound turns red on an assertion.
+  // Sabotage: dropping the bound turns this red on the test's own timeout
+  // rather than holding the run. It was run and reverted. The test below is
+  // the one a dropped bound turns red on an assertion.
   it("fails a chart that sends to itself through the processor on every delivery, rather than holding the run", async () => {
     expect(await runHostCase(holdCase(null))).toEqual({
       result: "fail",
@@ -428,6 +440,17 @@ describe("the exchange with the loopback front", () => {
       reason: EXCHANGE_NOT_SETTLED,
     });
     expect(await runHostCase(holdCase(2))).toEqual({ result: "pass" });
+  });
+
+  // Sabotage: dropping the exchange's await of the round yield turns this red.
+  // It was run and reverted.
+  it("lets a timer fire while an exchange runs, so a run that never settles meets the test's timeout", async () => {
+    let fired = false;
+    setTimeout(() => {
+      fired = true;
+    }, 0);
+    expect(await runHostCase(holdCase(2))).toEqual({ result: "pass" });
+    expect(fired).toBe(true);
   });
 });
 

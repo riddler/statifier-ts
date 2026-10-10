@@ -269,6 +269,19 @@ export const MAX_EXCHANGE_ROUNDS = 100;
 /** The reason a case fails with when one exchange passes `MAX_EXCHANGE_ROUNDS`. */
 export const EXCHANGE_NOT_SETTLED = `the exchange with the loopback front did not settle within ${MAX_EXCHANGE_ROUNDS} rounds`;
 
+// What each round of an exchange that brings something back awaits first,
+// or nothing while it is null. The settles run on the job queue alone, so a
+// round count gone wrong would hold the run with no timer able to end it,
+// the test's own timeout included; a test that would rather fail on that
+// timeout sets a yield to the timer queue here. It is the caller's, because
+// this module reaches nothing outside the language.
+let roundYield: (() => Promise<void>) | null = null;
+
+/** Sets what each round of an exchange that brings something back awaits first; null for nothing. */
+export function setExchangeRoundYield(yielder: (() => Promise<void>) | null): void {
+  roundYield = yielder;
+}
+
 // Reports each send the host marked failed and has not reported, in the
 // order it was handed. A report refused because the chart has stopped is
 // dropped, as the reference's session ignores a report to a finished sender.
@@ -293,8 +306,9 @@ function reportFailed(chart: Chart, state: State, host: Host): Observed {
 // stopped session takes neither; any other refusal fails the case. Repeats
 // until a settle brings nothing back, for at most `MAX_EXCHANGE_ROUNDS`
 // rounds that bring something back; a further round that brings something
-// back fails the case with `EXCHANGE_NOT_SETTLED`. With no wire, nothing is
-// exchanged.
+// back fails the case with `EXCHANGE_NOT_SETTLED`. Each round that brings
+// something back first awaits the round yield set when the exchange began,
+// if one was. With no wire, nothing is exchanged.
 async function exchange(
   chart: Chart,
   state: State,
@@ -302,11 +316,13 @@ async function exchange(
   wire: Wire | null,
 ): Promise<Observed> {
   if (wire === null) return state;
+  const yielder = roundYield;
   let current = state;
   for (let round = 1; ; round++) {
     await wire.settle();
     const arrivals = wire.take();
     if (arrivals.length === 0) return current;
+    if (yielder !== null) await yielder();
     if (round > MAX_EXCHANGE_ROUNDS) return { reason: EXCHANGE_NOT_SETTLED };
     for (const arrival of arrivals) {
       const answered =
