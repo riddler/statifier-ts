@@ -1,6 +1,6 @@
 # ADR-0004: The release workflow publishes on the tag push
 
-Status: proposed (2026-10-04)
+Status: accepted (2026-10-10, @riddler/statifier 0.3.1; proposed 2026-10-04)
 
 ## Context
 
@@ -119,3 +119,62 @@ manual dispatch - was decided by the conductor under a standing consent,
 - Nothing under `src/` changes and the package's behaviour does not change.
 - This record stays proposed until the workflow has published a version of
   the package.
+
+## Note: the acceptance of this record (2026-10-10)
+
+This Note records that this record moved from proposed to accepted, on its
+first publish through the workflow, as ruled by the operator, 2026-10-06. It
+decides nothing, so it carries no Status line, and it removes no line. The
+Consequences bullet "This record stays proposed until the workflow has
+published a version of the package" is met here: the workflow has published
+one. The version the Status line names and the evidence this Note gives were
+decided by the conductor under a standing consent, 2026-10-10.
+
+**The first publish through the workflow.** `@riddler/statifier` 0.3.1,
+from the tag `v0.3.1` on the commit `463eac0`, in the run
+https://github.com/riddler/statifier-ts/actions/runs/37309964297. npm shows
+0.3.1 with provenance attached and `gitHead` naming `463eac0`. No later
+version has been published through the workflow: 0.3.1 is the newest version
+on npm and that run is the workflow's only run.
+
+**The run's two attempts.** The first attempt passed every step up to and
+including "Check npm and node meet the trusted-publishing floor" - the
+ancestry check, the version check, the registry check and the full quality
+gate among them - and stopped at "Publish to npm": npm refused the run's
+identity because the trusted publisher was not yet configured for this
+package on npm (the Consequences bullet that says the maintainer sets it up
+outside this repository). The maintainer configured it, and the failed job
+was re-run once, on the same commit and tag, at the maintainer's direction.
+The second attempt published 0.3.1. The workflow itself retried nothing. The
+failure was a missing configuration rather than the registry or network error
+"A failed publish" names for its one hand re-run; the re-run followed the
+maintainer's fix, the gate was not the step that failed, and no tag was moved
+or pushed again, so no sentence of that paragraph reads false.
+
+**What was checked.** Every claim this record makes about this repository
+was re-verified on 2026-10-10 at `463eac0`, which is `main` on that day, by
+anchor. `.github/workflows/release.yml`: the trigger is a push of a tag
+matching `v*.*.*` and nothing else (no branch, no pull request, no
+`workflow_dispatch`); the job holds `contents: read` and `id-token: write`;
+the steps "Check the tagged commit is on the default branch" (with
+`git merge-base --is-ancestor` against the branch named by
+`github.event.repository.default_branch`), "Check the tag names the version
+in package.json" and "Check npm does not already show this version" all run
+before the toolchain step; the toolchain, cache, install and "Full quality
+gate" steps match `ci.yml`'s, the gate read from `gate.full` in
+`.claude/wurk.json`; "Check npm and node meet the trusted-publishing floor"
+upgrades npm only below its floor; "Publish to npm" runs
+`mise exec -- npm publish`; the last step prints the version's address; the
+checkout is full history where `ci.yml`'s is shallow. `package.json`:
+`repository.url` names this repository, `publishConfig.access` is `public`,
+and `prepack` runs `scripts/publish-guard.mjs`. `CLAUDE.md`'s bold
+`npm publish` row, its relay paragraph and its "Release preps" paragraph,
+and `.claude/wurk/release.md`'s "The publish line, the release workflow's",
+say that no agent or session runs `npm publish`, that the workflow publishes
+on the tag push, and that a failed workflow is re-run from its Actions page.
+Nothing in the repository compares `release.yml` with `ci.yml`. The Context's
+claims read at `136326e` were re-read there. No commit after `e5e5376`, the
+commit that added the workflow, changes `release.yml`; the commits after it
+that touch other files the record cites (`7550296` adds a `docs` stage to the
+gate script in `package.json`, `463eac0` moves the version) change none of
+the record's claims.
