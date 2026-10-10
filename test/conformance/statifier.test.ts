@@ -4,11 +4,14 @@
 // marks failed reported through the driver, the accepts case's check
 // compared before it is driven, the exchange with the loopback front
 // bounded, and a step's expected position compared with the reference's
-// rendering of the exported one.
+// rendering of the exported one, its sorts in the reference's code point
+// order.
 //
 // The cases are the vendored corpus's own; the charts written here are the
-// library loan, a returned copy routed to the branch's hold queue, and a
-// hold that checks its place in the queue through the Basic HTTP processor.
+// library loan, a returned copy routed to the branch's hold queue, a hold
+// that checks its place in the queue through the Basic HTTP processor, and a
+// branch whose shelves are named so that code unit order and code point
+// order disagree.
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { CorpusCase } from "../../scripts/lib/corpus.mjs";
@@ -512,6 +515,29 @@ const HOLD_DUE = `<scxml xmlns="http://www.w3.org/2005/07/scxml" version="1.0" d
   <state id="ready"/>
 </scxml>`;
 
+// Two characters whose UTF-16 code unit order and code point order disagree:
+// a character above U+FFFF (a stack of books) and one from U+E000 to U+FFFF
+// (a fullwidth letter A). By code unit the books come first; by code point,
+// the order the reference's byte sort gives, the letter does.
+const BOOKS = String.fromCodePoint(0x1f4da);
+const LETTER = String.fromCodePoint(0xff21);
+
+// A branch whose shelves are parallel regions, one named with each character,
+// and whose datamodel holds a due date per shelf: two values with no JSON form.
+const SHELVES = `<scxml xmlns="http://www.w3.org/2005/07/scxml" version="1.0" datamodel="predicator" initial="shelves">
+  <datamodel>
+    <data id="due_${BOOKS}" expr="#2026-10-21#"/>
+    <data id="due_${LETTER}" expr="#2026-10-22#"/>
+  </datamodel>
+  <parallel id="shelves">
+    <state id="shelf_${BOOKS}"/>
+    <state id="shelf_${LETTER}"/>
+  </parallel>
+</scxml>`;
+
+// The same branch with no datamodel, so its position renders.
+const SHELVES_RENDERED = SHELVES.replace(/<datamodel>[\s\S]*<\/datamodel>\n/, "");
+
 function holdDueCase(source: string): CorpusCase {
   return {
     id: "statifier/library/hold_due_on",
@@ -610,6 +636,29 @@ describe("a step's expected position", () => {
     });
   });
 
+  // Sabotage: writing a member whose value is null as "null" turns this red.
+  // It was run and reverted.
+  it("writes a member whose stated value is null as nothing, as the reference does", () => {
+    const state = started(chartOf(HOLD_DESK));
+    const rendered = renderPosition(state);
+    if (!rendered.ok) throw new Error(rendered.reason);
+    expect(comparePosition({ ...rendered.rendering, running: null }, state, 1, "hold.placed")).toBe(
+      "after step 1 (hold.placed), expect_position differs: running: expected nothing, but got true",
+    );
+  });
+
+  // Sabotage: sorting the differing members by UTF-16 code unit turns this
+  // red. It was run and reverted.
+  it("names the differing members in code point order, as the reference does", () => {
+    const state = started(chartOf(HOLD_DESK));
+    const rendered = renderPosition(state);
+    if (!rendered.ok) throw new Error(rendered.reason);
+    const expected = { ...rendered.rendering, [`shelf_${BOOKS}`]: 1, [`shelf_${LETTER}`]: 2 };
+    expect(comparePosition(expected, state, 1, "hold.placed")).toBe(
+      `after step 1 (hold.placed), expect_position differs: shelf_${LETTER}: expected 2, but got nothing; shelf_${BOOKS}: expected 1, but got nothing`,
+    );
+  });
+
   // Sabotage: dropping the id check, so the export's own refusal answers
   // after the drive, turns this red. It was run and reverted.
   it("fails a case whose document has a state without an id before it is driven, as the reference does", async () => {
@@ -673,6 +722,41 @@ describe("the rendering of a position", () => {
       { state: "open", index: 0 },
       { state: "open", index: 1 },
     ]);
+  });
+
+  // Sabotage: sorting the ids by UTF-16 code unit turns this red. It was run
+  // and reverted.
+  it("sorts each list of state ids by code point, as the reference sorts them", () => {
+    const rendered = renderPosition(started(chartOf(SHELVES_RENDERED)));
+    const expected = [`shelf_${LETTER}`, `shelf_${BOOKS}`, "shelves"];
+    expect(rendered.ok && rendered.rendering.configuration).toEqual(expected);
+    expect(rendered.ok && rendered.rendering.entered_states).toEqual(expected);
+  });
+
+  // Sabotage: sorting the invocations' states by UTF-16 code unit turns this
+  // red. It was run and reverted.
+  it("sorts the active invocations by their state's id in code point order", () => {
+    const state: State = {
+      ...started(chartOf(SHELVES_RENDERED)),
+      activeInvocations: [
+        { state: `shelf_${BOOKS}`, invokeIndex: 0, invokeId: "books.inv_1" },
+        { state: `shelf_${LETTER}`, invokeIndex: 0, invokeId: "letter.inv_2" },
+      ],
+    };
+    const rendered = renderPosition(state);
+    expect(rendered.ok && rendered.rendering.active_invocations).toEqual([
+      { state: `shelf_${LETTER}`, index: 0 },
+      { state: `shelf_${BOOKS}`, index: 0 },
+    ]);
+  });
+
+  // Sabotage: sorting the datamodel's names by UTF-16 code unit turns this
+  // red: the refusal names the other due date. It was run and reverted.
+  it("names the first variable with no JSON form in code point order, as the reference does", () => {
+    expect(renderPosition(started(chartOf(SHELVES)))).toEqual({
+      ok: false,
+      reason: `the datamodel's due_${LETTER} holds a date value, which has no JSON form here`,
+    });
   });
 
   it("answers the export's refusal as the reason, and the comparison names the step", () => {

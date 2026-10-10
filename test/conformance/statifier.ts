@@ -459,9 +459,19 @@ const LEFT_OUT_VARIABLES: ReadonlySet<string> = new Set([
   "_sessionid",
 ]);
 
-function byCodeUnit(a: string, b: string): number {
-  if (a < b) return -1;
-  return a > b ? 1 : 0;
+// Code point order, the order the reference sorts its strings in: it sorts
+// UTF-8 binaries byte by byte, and UTF-8 byte order is code point order. A
+// UTF-16 code unit comparison differs from it only between a character above
+// U+FFFF and one from U+E000 to U+FFFF; every sort in the rendering and the
+// comparison below is one the reference makes, so each uses this order.
+function byCodePoint(a: string, b: string): number {
+  const left = [...a];
+  const right = [...b];
+  for (let i = 0; i < Math.min(left.length, right.length); i += 1) {
+    const difference = (left[i]?.codePointAt(0) ?? 0) - (right[i]?.codePointAt(0) ?? 0);
+    if (difference !== 0) return difference;
+  }
+  return left.length - right.length;
 }
 
 // A datamodel value's JSON form, as the reference writes it: undefined as
@@ -492,7 +502,7 @@ function jsonOf(value: Value): Json | undefined {
     case "map": {
       const members: [string, Json][] = [];
       const map = value as { readonly [key: string]: Value };
-      for (const key of Object.keys(map).sort(byCodeUnit)) {
+      for (const key of Object.keys(map).sort(byCodePoint)) {
         const json = jsonOf(map[key] as Value);
         if (json === undefined) return undefined;
         members.push([key, json]);
@@ -521,7 +531,7 @@ export function renderPosition(state: State): RenderResult {
   }
   const { position } = exported;
   const datamodel: [string, Json][] = [];
-  for (const name of Object.keys(position.datamodel).sort(byCodeUnit)) {
+  for (const name of Object.keys(position.datamodel).sort(byCodePoint)) {
     if (LEFT_OUT_VARIABLES.has(name)) continue;
     const decoded = decodeTagged(position.datamodel[name] as string);
     if (!decoded.ok) {
@@ -536,7 +546,7 @@ export function renderPosition(state: State): RenderResult {
     }
     datamodel.push([name, json]);
   }
-  const ids = (set: readonly string[]): string[] => [...set].sort(byCodeUnit);
+  const ids = (set: readonly string[]): string[] => [...set].sort(byCodePoint);
   return {
     ok: true,
     rendering: {
@@ -548,7 +558,7 @@ export function renderPosition(state: State): RenderResult {
       ),
       active_invocations: position.activeInvocations
         .map((invocation) => ({ state: invocation.state, index: invocation.invokeIndex }))
-        .sort((a, b) => byCodeUnit(a.state, b.state) || a.index - b.index),
+        .sort((a, b) => byCodePoint(a.state, b.state) || a.index - b.index),
       running: position.running,
       datamodel: Object.fromEntries(datamodel),
     },
@@ -577,9 +587,12 @@ export function comparePosition(
   const wanted = (
     expected !== null && typeof expected === "object" && !Array.isArray(expected) ? expected : {}
   ) as Readonly<Record<string, unknown>>;
-  const encode = (value: unknown): string => (value === undefined ? "nothing" : canonical(value));
+  // A member the position leaves out, and one whose value is null, are both
+  // written as "nothing", as the reference writes the nil it reads for either.
+  const encode = (value: unknown): string =>
+    value === undefined || value === null ? "nothing" : canonical(value);
   const differing = [...new Set([...Object.keys(wanted), ...Object.keys(actual)])]
-    .sort(byCodeUnit)
+    .sort(byCodePoint)
     .filter((key) => canonical(wanted[key]) !== canonical(actual[key]))
     .map((key) => `${key}: expected ${encode(wanted[key])}, but got ${encode(actual[key])}`)
     .join("; ");
