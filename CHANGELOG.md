@@ -20,6 +20,25 @@ Nothing is written under this heading. Unreleased work is the fragments in
 `changelog.d/`; a release prep assembles them into a version section below this
 one.
 
+## [0.4.0] 2026-10-10
+
+A minor release that bounds one more kind of send in a driver call, posts a
+list or a map as JSON text from the Basic HTTP processor, and holds the
+package to the reference's conformance corpus at `v2.13.0`. What a host now
+meets: a driver call over a chart that sends itself `#_internal` events
+without end halts that session with `budget_exhausted` and returns, where it
+never returned; the Basic HTTP processor posts a list or a map parameter
+value, and a list `<content>` body, as JSON text when every value inside it
+has a JSON form, where it posted predicator's tagged-value text; and the
+`statifier` claim covers `library/loan_lost_after_timer` as `v2.13.0`
+changes it, held to the exported position that case now states.
+
+### Changed
+
+- A driver call over a chart that sends itself `#_internal` events without end now returns: a session that delivers more undelayed internal sends in one call than its `maxMacrostepRounds` halts with `budget_exhausted`, as it does for re-handed failures and undelayed self-sends (the state reads `halted: "budget_exhausted"`, the call answers one `budget_exhausted` effect with `ok: true`, and the send past the budget waits unrun on the internal queue); a call within the budget, and an `"infinity"` budget, answer as before.
+- The package is held to the reference's conformance corpus at `v2.13.0` (it was `v2.11.0`): one statifier case changed, `library/loan_lost_after_timer`, which now also states the exported position after the lost-item timer stops the chart, and it passes on that position; no case was added or removed, every claim of the scion, w3c and statifier suites still passes, and a consumer relying on the `statifier` claim can read it as parity with the reference's export on the members a stated position carries, for the four cases that state one and no other position.
+- The Basic HTTP processor posts a list or a map parameter value, and a list `<content>` body, as JSON text when every value inside it has a JSON form, as the reference does at `v2.13.0`: undefined inside it is written `null` (it was a tagged `{"$type":"undefined"}` object), a map's members stand in code point order of their keys, a control character's `\u` escape uses upper-case hex, and a map with a `$type` key is written (it was the empty string); a list or a map holding a date, a datetime or a duration is still posted as predicator's tagged-value text, so a receiver reading such a value should expect JSON for every other list and map.
+
 ## [0.3.1] 2026-10-05
 
 A documentation release. No file under `src/` changes, so a host meets the
