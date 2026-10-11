@@ -2755,3 +2755,65 @@ session the call halted, an internal send in the same batch included"
 there, and in `test/driver-failed-send.test.ts` "still takes a report, and
 its external events still wait", for a session a spent macrostep halted,
 which a report still runs.
+
+## Note: one driver call bounds the internal sends too (2026-10-10)
+
+The Note "one driver call is bounded by the round budget" (2026-10-04)
+says, under "What the bound does not reach.", that an event a session
+sends to `#_internal` runs the chart through `deliverInternal` with a
+round budget of its own, so a chart that sends itself an internal event
+on every one it takes runs on within the call. On `main` at `b1e7500`
+such a call never returned. The internal sends are now counted: bounded,
+ruled by the operator, 2026-10-06; the bound is this package's own, ruled
+by the operator, 2026-10-10. That the value is the spent-budget halt the
+re-send bound already answers was decided by the conductor under a
+standing consent, 2026-10-10. No option, no budget value and no member of
+`DriveRefusal` or of any other public type is added, so this is a Note
+rather than an Amendment. The paragraph "What the bound does not reach."
+is read as amended by this Note.
+
+**What is counted.** The bound Note's table gains a third row. Each
+session of the call counts it against its own `maxMacrostepRounds`, apart
+from the other two counts:
+
+| Counted | Where | Past the budget |
+|---|---|---|
+| each internal send an undelayed `<send>` to `#_internal` delivers | `route` in `src/driver.ts`, its internal case | the event joins the internal queue and the chart is not run over it (`spent`) |
+
+An internal send a fired timer delivers is not counted, as no fired
+timer's event is. A delay beside a written `#_internal` target does not
+compile, so only a target written as an expression reaches `fire` with
+one.
+
+**The halt.** It is the halt the bound Note describes under "The halt.":
+the state's `halted` reads `"budget_exhausted"`, the call answers the
+`budget_exhausted` effect once (`budgetExhausted` in `src/driver.ts`),
+with the unrun send among its `pendingInternalEvents`, and the call
+answers `ok: true`. `spent` in `src/driver.ts` builds it for an internal
+send past the budget and for a failure past it (`spentFailure`), and
+answers the effect only for a session not already halted.
+
+**What a host sees change.** Against `main` at `b1e7500`, under a budget
+`n`: a call in which a session delivers more than `n` internal sends
+halts with `budget_exhausted`, where it ran on. A call that delivers `n`
+or fewer answers as before.
+
+**This package's own bound.** It is this package's, as the re-send bound
+is, and claims no parity with the reference: at statifier-ex `v2.13.0`
+(`f0b1095`), `deliver_internal/5` in `lib/statifier/interpreter.ex` runs
+`main_event_loop/1`, which starts from the full `max_macrostep_rounds`
+on each delivery.
+
+**What the bound still does not reach.** An invocation the driver refuses
+(`invoke` in `src/driver.ts`: a type other than the SCXML type, or content
+that does not compile) raises its error through `deliverInternal`, and no
+count covers it. A chart that re-enters such a state on each error ran to
+the cap its datamodel counted to, with no halt, at a budget of 5.
+
+**Where it is pinned.** `test/driver-bounded-call.test.ts`, under "a call
+over a chart that sends itself internal events without end": "returns
+with the budget_exhausted halt once its internal sends spend the budget",
+"leaves a call whose internal sends stay within the budget as it was",
+"bounds the call that starts the chart too", "never counts an internal
+send a timer fires" and "keeps a call under the infinity budget
+unbounded".
