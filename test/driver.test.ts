@@ -865,15 +865,16 @@ describe("a macrostep that spends its budget", () => {
 });
 
 describe("the entry point", () => {
-  // Sabotage: removing `advance` from the entry point's exports turns this
-  // red.
-  it("exports the six calls", () => {
+  // Sabotage: removing `advance` or `reportSendFailed` from the entry
+  // point's exports turns this red.
+  it("exports the seven calls", () => {
     expect(typeof entry.compile).toBe("function");
     expect(typeof entry.start).toBe("function");
     expect(typeof entry.step).toBe("function");
     expect(typeof entry.advance).toBe("function");
     expect(typeof entry.configuration).toBe("function");
     expect(typeof entry.isDone).toBe("function");
+    expect(typeof entry.reportSendFailed).toBe("function");
   });
 
   // Checked by the typecheck stage, not at run time.

@@ -17,6 +17,7 @@ import {
   advance,
   type DriveEffect,
   type DriveResult,
+  reportSendFailed,
   type SendProcessor,
   type State,
   start,
@@ -174,6 +175,95 @@ describe("a call over a chart that sends again on every failed delivery", () => 
       "desk.check",
     ]);
     expect(exhausted(stepped.effects)).toHaveLength(1);
+  });
+
+  // Sabotage: opening a halted session as already spent in the later call
+  // (the per-call `spent` flag set from `halted` as the state is decoded)
+  // turns this red: neither failure runs and no notice is handed.
+  it("runs a failure the bound left unrun when a later call reports one", () => {
+    const desk = notices(6);
+    const options = { sendTypes: { "library:notice": desk.processor } };
+    const started = ok(start(NOTICE, { sessionId: "hold-ada", maxMacrostepRounds: 5, ...options }));
+    const stepped = ok(step(NOTICE, started.state, { name: "copy.available" }, options));
+    expect(desk.handed()).toBe(6);
+    expect(stepped.state.halted).toBe("budget_exhausted");
+    expect(stepped.state.internalQueue.map((event) => event.sendid)).toEqual(["notice"]);
+    // A later host event waits, and the unrun failure with it.
+    const waiting = ok(step(NOTICE, viaJson(stepped.state), { name: "patron.collected" }, options));
+    expect(desk.handed()).toBe(6);
+    expect(waiting.state.internalQueue.map((event) => event.sendid)).toEqual(["notice"]);
+    expect(waiting.state.externalQueue.map((event) => event.name)).toEqual(["patron.collected"]);
+    const send = stepped.effects.find((effect) => effect.kind === "send");
+    if (send?.kind !== "send") throw new Error("no notice was handed");
+    const reported = ok(reportSendFailed(NOTICE, viaJson(waiting.state), { send }, options));
+    // The unrun failure runs first, then the reported one; each re-enters
+    // `notifying`, whose notice the processor now takes.
+    expect(desk.handed()).toBe(8);
+    expect(reported.state.internalQueue).toEqual([]);
+    expect(reported.state.configuration).toEqual(["notifying"]);
+    expect(reported.state.halted).toBe("budget_exhausted");
+    expect(exhausted(reported.effects)).toEqual([]);
+    expect(reported.state.externalQueue.map((event) => event.name)).toEqual(["patron.collected"]);
+  });
+
+  // Sabotage: judging whether the session is already halted by this call's
+  // own flag (`spentFailure` reading `spent` rather than `halted`) turns
+  // this red: the later call answers a second halt.
+  it("bounds a later call again, with no second halt", () => {
+    const desk = notices(CAP);
+    const options = { sendTypes: { "library:notice": desk.processor } };
+    const started = ok(start(NOTICE, { sessionId: "hold-ada", maxMacrostepRounds: 5, ...options }));
+    const stepped = ok(step(NOTICE, started.state, { name: "copy.available" }, options));
+    expect(desk.handed()).toBe(6);
+    const send = stepped.effects.find((effect) => effect.kind === "send");
+    if (send?.kind !== "send") throw new Error("no notice was handed");
+    const reported = ok(reportSendFailed(NOTICE, viaJson(stepped.state), { send }, options));
+    // The unrun failure and the reported one run, each sending the notice
+    // again: seven more handed, five of their failures raised and run
+    // against the later call's own count, the last two queued.
+    expect(desk.handed()).toBe(13);
+    expect(reported.state.halted).toBe("budget_exhausted");
+    expect(exhausted(reported.effects)).toEqual([]);
+    expect(reported.state.internalQueue.map((event) => event.sendid)).toEqual(["notice", "notice"]);
+  });
+
+  // Sabotage: opening a halted session as already spent in the later call
+  // (the per-call `spent` flag set from `halted` as the state is decoded)
+  // turns this red: the fired reminder's failure joins the queue behind the
+  // unrun one and neither runs.
+  it("runs a failure the bound left unrun when a later advance fires a send it cannot deliver", () => {
+    // The branch also schedules a reminder to a desk session this driver
+    // does not run, so the reminder fires as `error.communication`.
+    const reminding = chartOf(`<scxml ${SCXML} initial="awaiting_copy" name="notice">
+      <state id="awaiting_copy">
+        <transition event="copy.available" target="notifying">
+          <send id="reminder" target="#_scxml_branch-desk" event="hold.reminder" delay="1s"/>
+        </transition>
+      </state>
+      <state id="notifying">
+        <onentry><send id="notice" type="library:notice" target="patron:ada" event="hold.ready"/></onentry>
+        <transition event="error.communication" target="notifying">
+          <log label="failed" expr="_event.sendid"/>
+        </transition>
+      </state>
+    </scxml>`);
+    const desk = notices(6);
+    const options = { sendTypes: { "library:notice": desk.processor } };
+    const started = ok(
+      start(reminding, { sessionId: "hold-ada", maxMacrostepRounds: 5, ...options }),
+    );
+    const stepped = ok(step(reminding, started.state, { name: "copy.available" }, options));
+    expect(stepped.state.halted).toBe("budget_exhausted");
+    expect(stepped.state.internalQueue.map((event) => event.sendid)).toEqual(["notice"]);
+    const advanced = ok(advance(reminding, viaJson(stepped.state), 1000, options));
+    const failed = advanced.effects.flatMap((effect) =>
+      effect.kind === "log" ? [effect.value] : [],
+    );
+    expect(failed).toEqual(["notice", "reminder"]);
+    expect(desk.handed()).toBe(8);
+    expect(advanced.state.internalQueue).toEqual([]);
+    expect(advanced.state.halted).toBe("budget_exhausted");
+    expect(exhausted(advanced.effects)).toEqual([]);
   });
 
   // Sabotage: bounding an "infinity" budget as a number (the check made to
