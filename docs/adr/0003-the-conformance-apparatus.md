@@ -766,3 +766,26 @@ float and an integer agree. The runner's cites of the reference's
 `PositionExpectation.named/1` and `run/2` in
 `lib/mix/statifier/corpus/host_case.ex` move to `v2.13.0`, where that code
 is as it was at `v2.11.0`.
+
+## Note: the loopback Amendment's origintype sentence is superseded (2026-10-10)
+
+This Note names one sentence of the Amendment "the Basic HTTP cases are
+driven through a loopback front" (2026-10-01) that no longer holds on `main`,
+and the entry that superseded it. It decides nothing new. It carries no Status
+line and removes no line.
+
+**The sentence.** That Amendment's **Limits.** paragraph says "The event
+`decodeRequest` answers carries no `origintype`, where the reference's decoder
+sets the processor's URI".
+
+**What superseded it.** ADR-0002's Amendment "an inbound event's origintype,
+and a held send of a stopped session" (2026-10-04) reverses it, and names
+this sentence as superseded by the change that adds it. On `main` at
+`84b689a`, `decodeRequest` in `src/basichttp/decode.ts` sets `origintype` to
+`BASIC_HTTP_EVENT_PROCESSOR`, and `step` in `src/driver.ts` queues a host
+event's `origintype` on the external event when it is a string, so a chart
+reads the processor's URI as `_event.origintype` on a decoded event.
+
+**What still holds.** The rest of the sentence: none of the vendored cases
+the loopback drives reads the field, so no claim in
+`conformance/registry.json` moved with the change, as that Amendment says.

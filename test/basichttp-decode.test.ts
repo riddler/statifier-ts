@@ -189,4 +189,14 @@ describe("a decoded event as the chart reads it", () => {
       copy: "book-17",
     });
   });
+
+  // Sabotage: queuing any origintype that is not undefined, rather than only
+  // one that is a string, turns this red.
+  it("reads _event.origintype as undefined for a host event that names one that is not a string", () => {
+    const event = { name: "hold.ready", data: { copy: "book-17" }, origintype: 7 };
+    expect(stepped(event as unknown as HostEvent)).toEqual({
+      origintype: Undefined,
+      copy: "book-17",
+    });
+  });
 });
