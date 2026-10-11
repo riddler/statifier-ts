@@ -2663,3 +2663,49 @@ it was added (`347f638`), before the Amendment was written, so this Note
 reads the sentence against unchanged code and decides nothing new. It is
 also what the reference does at `v2.11.0`: its `perform/2` for a cancel
 reaches every timer held under the send id.
+
+## Note: the cost of making a run again after a failure is accepted (2026-10-10)
+
+This Note records that the cost the bound Note of 2026-10-04 names under
+"The cost." is accepted as it stands; it changes no behaviour. Read against
+`main` at `84b689a`. The cost is accepted, not reduced, as decided by the
+conductor under a standing consent, 2026-10-10.
+
+**The cost stays quadratic in the failures.** A driver call whose runs meet
+n failures makes its run n + 1 times, and each run starts from the call's
+own arguments (`drive` in `src/driver.ts`). So over a chart that sends again
+on every failure, the call's work grows with the square of the failures it
+meets, and under a finite round budget with the square of that budget.
+
+**Why it stays.** The Note "what the Machine's stability reaches, and what
+else holds on `main`" (2026-10-01), under "When a processor is called",
+states that a processor's `deliver` and `cancel` are called only once the
+call's run has ended and its state has encoded. So the send a run makes
+after a failure becomes known only to a run that has been made past that
+failure, and has ended, and has encoded: n failures take n + 1 such runs
+(`drive` and `madeUntilFailure` in `src/driver.ts`). A replay linear in the
+failures would need a run that resumes at the failing send rather than
+starting again, or it would make calls before the run that reached them
+has encoded, which changes what a refused run made again hands its
+processors. Neither is taken.
+
+**The timing.** One `step` of the bounded-call test's notice chart (each
+failed notice re-enters the state that sends it again), with a processor
+that answers a failure for every send, timed around the call alone on the
+node `mise.toml` pins, at `84b689a`:
+
+| `maxMacrostepRounds` | Sends handed | Time |
+|---|---|---|
+| 300 | 301 | 159 ms |
+| 1000 | 1001 | 1461 ms |
+| 3000 | 3001 | 19756 ms |
+
+Each call halts with `budget_exhausted`. The times are one machine's and
+are given for their ratio, about the square of the budget's, not as a
+bound a host can rely on.
+
+**What holds.** Each send is still handed to its processor once: a call an
+earlier run made is answered from what it answered then (`holding` in
+`src/driver.ts`). In the table above each call hands one send more than
+its budget: the failures of the first sends are raised and run up to the
+budget, and the last failure joins the internal queue unrun.
