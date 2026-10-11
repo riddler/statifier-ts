@@ -150,18 +150,20 @@
 // reference halts its session: further external events are queued and not
 // taken, and pending timers still fire.
 //
-// One driver call spends the same budget twice more, per session, so that a
-// call always returns where the reference's session would keep running:
-// against the failures its processors answer that the call raises, and
+// One driver call spends the same budget three times more, per session, so
+// that a call always returns where the reference's session would keep
+// running: against the failures its processors answer that the call raises,
 // against the events the session takes that an undelayed send queued in
-// this call, to the session itself or from a child to its parent. A fired
-// timer's event is never counted. A session that would raise one failure
-// more than its budget queues that failure on its internal queue unrun,
-// and a session that would take one counted event more than its budget
-// leaves it queued; either halts the session with the `budget_exhausted`
+// this call, to the session itself or from a child to its parent, and
+// against the events an undelayed send delivers onto the session's own
+// internal queue. A fired timer's event is never counted. A session that
+// would raise one failure, or deliver one internal send, more than its
+// budget queues that event on its internal queue unrun, and a session that
+// would take one counted event more than its budget leaves it queued; any
+// of the three halts the session with the `budget_exhausted`
 // effect, and a session halted this way runs its chart no further in the
 // call: an event raised onto its internal queue afterwards waits there
-// unrun. An `infinity` budget bounds neither.
+// unrun. An `infinity` budget bounds none of the three.
 
 import {
   PDateTime,
@@ -339,8 +341,8 @@ export interface State {
   readonly heldSends: Readonly<Record<string, readonly string[]>>;
   /**
    * Set when a macrostep spent its round budget, or a call its count of
-   * raised failures or of taken events an undelayed send queued: external
-   * events then wait.
+   * raised failures, of taken events an undelayed send queued, or of
+   * internal sends: external events then wait.
    */
   readonly halted: "budget_exhausted" | null;
   /** Set once the chart has stopped. */
@@ -491,9 +493,9 @@ export interface StartOptions extends DriveOptions {
   /** The datamodel's initial values, under the system variables. */
   readonly datamodel?: Readonly<Record<string, Value>>;
   /**
-   * The rounds one macrostep may spend, and the failures a session raises
-   * and the events an undelayed send queued that it takes in one call;
-   * 10000 when absent.
+   * The rounds one macrostep may spend, and the failures a session raises,
+   * the events an undelayed send queued that it takes, and the internal
+   * sends it delivers in one call; 10000 when absent.
    */
   readonly maxMacrostepRounds?: RoundBudget;
 }
@@ -837,6 +839,8 @@ interface Live {
   spent: boolean;
   /** The failures its processors answered that this session has raised in this call. */
   raised: number;
+  /** The undelayed internal sends this session has delivered in this call. */
+  sentInternal: number;
   /**
    * The processors this session hands registered sends to: the host's, and a
    * child's too when the call passes `inheritSendTypes`; none otherwise.
@@ -959,6 +963,7 @@ function launch(spec: Launch, register?: (live: Live) => void): Live {
     counted: new Set(),
     spent: false,
     raised: 0,
+    sentInternal: 0,
     processors: spec.processors,
     inherit: spec.inherit,
     out: spec.out,
@@ -1388,8 +1393,8 @@ function stopped(live: Live, done: Done): void {
 }
 
 // An immediate built-in send, routed now. What an undelayed send queues for
-// the session itself or its parent is counted against the round budget; a
-// fired timer's is not.
+// the session itself or its parent, or delivers onto its internal queue, is
+// counted against the round budget; a fired timer's is not.
 function route(
   live: Live,
   send: Send | SendDelayed,
@@ -1406,11 +1411,19 @@ function route(
         return [];
       }
       return communicationError(live, send);
-    case "internal":
-      return deliverInternal(live, "internal", send.event, contentOrigin(send), {
+    case "internal": {
+      const fields: { readonly data: Value; readonly sendid: string | undefined } = {
         data: send.data,
         sendid: authorSendId(send),
-      });
+      };
+      const deliver = () =>
+        deliverInternal(live, "internal", send.event, contentOrigin(send), fields);
+      if (!undelayed) return deliver();
+      live.sentInternal += 1;
+      return within(live.sentInternal, live.core.maxMacrostepRounds)
+        ? deliver()
+        : spent(live, deliver);
+    }
     case "parent":
       if (live.parent === null || live.invokedAs === null) return communicationError(live, send);
       {
@@ -1471,10 +1484,17 @@ function sendFailure(live: Live, send: SendOrigin): readonly InterpreterEffect[]
 // chart not run: the session halts for this call's round budget, answering
 // the spent-budget effect when it was not halted already.
 function spentFailure(live: Live, send: SendOrigin): readonly InterpreterEffect[] {
+  return spent(live, () => sendFailure(live, send));
+}
+
+// An event past this call's round budget, delivered onto the internal queue
+// with the chart not run: the session halts for the budget, answering the
+// spent-budget effect when it was not halted already.
+function spent(live: Live, deliver: () => unknown): readonly InterpreterEffect[] {
   if (!live.core.running) return [];
   const halted = live.halted !== null;
   live.spent = true;
-  sendFailure(live, send);
+  deliver();
   if (halted) return [];
   live.halted = "budget_exhausted";
   return [budgetExhausted(live)];
@@ -2185,6 +2205,7 @@ function decodeState(decoder: Decoder, chart: Chart, state: State, place: Place)
     counted: new Set(),
     spent: false,
     raised: 0,
+    sentInternal: 0,
     processors: place.processors,
     inherit: place.inherit,
     out: place.out,

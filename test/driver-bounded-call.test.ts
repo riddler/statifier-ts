@@ -403,3 +403,112 @@ describe("a parent and child that answer each other without end", () => {
     expect(exhausted(stepped.effects)).toHaveLength(1);
   });
 });
+
+// Each `shelve` re-shelves one copy and sends the cart `shelve` again on its
+// internal queue, until the cap the datamodel counts to: a cap the bound
+// does not reach first ends the call with no halt.
+function internalCart(cap: number): Chart {
+  return chartOf(`<scxml ${SCXML} initial="returns" name="cart">
+    <datamodel><data id="shelved" expr="0"/></datamodel>
+    <state id="returns">
+      <transition event="shelve" cond="shelved &lt; ${cap}">
+        <assign location="shelved" expr="shelved + 1"/>
+        <send target="#_internal" event="shelve"/>
+      </transition>
+    </state>
+  </scxml>`);
+}
+
+// An audit of the branch's shelves: entering `auditing` checks one shelf and
+// sends the next check on the internal queue, which re-enters `auditing`.
+const AUDIT = chartOf(`<scxml ${SCXML} initial="auditing" name="audit">
+  <datamodel><data id="audited" expr="0"/></datamodel>
+  <state id="auditing">
+    <onentry>
+      <assign location="audited" expr="audited + 1"/>
+      <send target="#_internal" event="shelf.next"/>
+    </onentry>
+    <transition event="shelf.next" cond="audited &lt; ${CAP}" target="auditing"/>
+  </state>
+</scxml>`);
+
+describe("a call over a chart that sends itself internal events without end", () => {
+  // Sabotage: delivering every internal send whatever the count (the budget
+  // check in `route`'s internal case removed) turns this red: the cart is
+  // shelved to the cap and the call answers no halt.
+  it("returns with the budget_exhausted halt once its internal sends spend the budget", () => {
+    const cart = internalCart(CAP);
+    const started = ok(start(cart, { sessionId: "cart-1", maxMacrostepRounds: 5 }));
+    const stepped = ok(step(cart, started.state, { name: "shelve" }));
+    expect(stepped.state.halted).toBe("budget_exhausted");
+    // Six copies shelved: one on the host's event, which is not counted,
+    // and one on each of the five internal sends delivered; the sixth send
+    // waits on the internal queue unrun.
+    expect(stepped.state.datamodel.shelved).toBe("6");
+    expect(stepped.state.configuration).toEqual(["returns"]);
+    expect(stepped.state.internalQueue.map((event) => [event.name, event.type])).toEqual([
+      ["shelve", "internal"],
+    ]);
+    const [halt, ...more] = exhausted(stepped.effects);
+    expect(more).toEqual([]);
+    expect(halt?.budget).toBe(5);
+    expect(halt?.pendingInternalEvents.map((event) => event.name)).toEqual(["shelve"]);
+    expect(stepped.effects[stepped.effects.length - 1]?.kind).toBe("budget_exhausted");
+    expect(viaJson(stepped.state)).toEqual(stepped.state);
+  });
+
+  // Sabotage: counting the internal sends against one less than the budget
+  // turns this red: the fifth send waits unrun and the call halts.
+  it("leaves a call whose internal sends stay within the budget as it was", () => {
+    const cart = internalCart(5);
+    const started = ok(start(cart, { sessionId: "cart-1", maxMacrostepRounds: 5 }));
+    const stepped = ok(step(cart, started.state, { name: "shelve" }));
+    expect(stepped.state.halted).toBeNull();
+    expect(stepped.state.datamodel.shelved).toBe("5");
+    expect(stepped.state.internalQueue).toEqual([]);
+    expect(exhausted(stepped.effects)).toEqual([]);
+  });
+
+  // Sabotage: delivering every internal send whatever the count turns this
+  // red: `start` audits to the cap and answers no halt.
+  it("bounds the call that starts the chart too", () => {
+    const started = ok(start(AUDIT, { sessionId: "audit-1", maxMacrostepRounds: 5 }));
+    expect(started.state.halted).toBe("budget_exhausted");
+    // The entry audits once, and once more on each of the five sends delivered.
+    expect(started.state.datamodel.audited).toBe("6");
+    expect(started.state.internalQueue.map((event) => event.name)).toEqual(["shelf.next"]);
+    expect(exhausted(started.effects)).toHaveLength(1);
+  });
+
+  // Sabotage: counting a fired timer's internal send (`route`'s internal
+  // case counting whatever `undelayed` says) turns this red: the sixth check
+  // halts the shelf.
+  it("never counts an internal send a timer fires", () => {
+    // A delay beside a written `#_internal` target does not compile, so the
+    // shelf names its target by an expression.
+    const chart = chartOf(`<scxml ${SCXML} initial="shelving" name="shelf">
+      <datamodel><data id="checks" expr="0"/></datamodel>
+      <state id="shelving">
+        <onentry><send targetexpr="'#_internal'" event="shelf.check" delay="1s"/></onentry>
+        <transition event="shelf.check">
+          <assign location="checks" expr="checks + 1"/>
+          <send targetexpr="'#_internal'" event="shelf.check" delay="1s"/>
+        </transition>
+      </state>
+    </scxml>`);
+    const started = ok(start(chart, { sessionId: "shelf-1", maxMacrostepRounds: 5 }));
+    const advanced = ok(advance(chart, started.state, 12_000));
+    expect(advanced.state.halted).toBeNull();
+    expect(advanced.state.datamodel.checks).toBe("12");
+  });
+
+  // Sabotage: counting internal sends under an "infinity" budget (the check
+  // made to read it as zero) turns this red.
+  it("keeps a call under the infinity budget unbounded", () => {
+    const cart = internalCart(20);
+    const started = ok(start(cart, { sessionId: "cart-1", maxMacrostepRounds: "infinity" }));
+    const stepped = ok(step(cart, started.state, { name: "shelve" }));
+    expect(stepped.state.halted).toBeNull();
+    expect(stepped.state.datamodel.shelved).toBe("20");
+  });
+});
