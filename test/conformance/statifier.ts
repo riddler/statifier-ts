@@ -89,7 +89,7 @@
 // harness fails it (`named/1`). Such a case is driven here even when it
 // carries no `host` object, as a host that registers nothing, as the
 // reference's runner hands it to its host-case harness
-// (`run_case/1` in `runner.ex` at v2.11.0): the scion runner's drive reads no
+// (`run_case/1` in `runner.ex` at v2.13.0): the scion runner's drive reads no
 // position between its steps.
 //
 // Like the runner, this reaches nothing outside the language.
@@ -607,7 +607,7 @@ export function expectsPosition(testCase: CorpusCase): boolean {
 /**
  * Null when every state of `chart` but the root carries an id, else the
  * reason, naming the count of states without one (`PositionExpectation.named/1`
- * at v2.11.0): a case that expects a position needs every state named,
+ * at v2.13.0): a case that expects a position needs every state named,
  * because the export refuses a position holding a state it cannot name.
  */
 export function unnamedStates(chart: Chart): string | null {
@@ -630,7 +630,7 @@ function strings(value: unknown): string[] {
 
 /**
  * Runs one host case, in the reference's order (`run/2` in `host_case.ex` at
- * v2.11.0): the source compiled, the accepts check compared, every state
+ * v2.13.0): the source compiled, the accepts check compared, every state
  * checked for an id when a step expects a position, the Event I/O Processors
  * the host names registered with a loopback front, then the drive, each
  * step's position compared once its configuration agrees when the step

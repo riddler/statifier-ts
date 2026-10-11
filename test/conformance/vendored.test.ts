@@ -18,9 +18,9 @@ const manifest = loadManifest();
 
 // The tag the copy was taken at and what it pins. A refresh to another tag
 // rewrites the provenance record, and this test with it, in the same change.
-const TAG = "v2.11.0";
-const SHA = "bbc4c0ee23255b40ba74a724f3b63499bcd91df4";
-const CORPUS_HASH = "sha256:0477273e8ce0b9305683f32c7d2e8aa47f324f4d8f0529737e22da8ba3b41aba";
+const TAG = "v2.13.0";
+const SHA = "f0b1095f60925b89f36c771206868a733e09a5df";
+const CORPUS_HASH = "sha256:324ad1bc630382dc168111c3a56ae37689ba96c85b20af288cdf22f28ad668a4";
 
 describe("the provenance record", () => {
   it("is the one line the recipe writes: repo, tag, sha, corpus_hash", () => {
