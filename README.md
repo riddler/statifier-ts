@@ -513,7 +513,7 @@ turns an inbound POST into the event its front passes to `step`.
 
 The conformance corpus is the reference's, and it is the spec: a case this
 package answers differently from the corpus is this package's bug. The corpus
-is copied byte for byte from the reference at tag `v2.11.0`, recorded in the
+is copied byte for byte from the reference at tag `v2.13.0`, recorded in the
 provenance file `conformance/statifier.vendored.json`, and never edited by
 hand. Its registry, `conformance/registry.json`, lists the cases this package
 claims to pass - written only by a run that observed the pass, and never

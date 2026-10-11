@@ -70,7 +70,7 @@
           },
           "expect_position": {
             "type": "object",
-            "description": "Optional, on a statifier case only (ADR-0076): the position the chart holds once this step's configuration agrees, as the string-id export of it, with the fields an implementation need not share left out. Every member is required. A case that carries one on any step has an id on every state of its document. Each array of state ids is sorted ascending, and the runner compares every member exactly, order included.",
+            "description": "Optional, on a statifier case only (ADR-0076): the position the chart holds once this step's configuration agrees, as the string-id export of it, with the fields an implementation need not share left out. Every member is required. A case that carries one on any step has an id on every state of its document. The corpus writes each array of state ids sorted ascending (this schema does not check the order), and the runner compares every member exactly, order included.",
             "properties": {
               "configuration": {
                 "type": "array",
@@ -92,7 +92,12 @@
               },
               "history_values": {
                 "type": "object",
-                "description": "Each history state that has recorded a value, by id, with the ids it recorded as an array sorted ascending; a history state that has recorded nothing has no member."
+                "description": "Each history state that has recorded a value, by id, with the ids it recorded as an array of unique, non-empty state ids; a history state that has recorded nothing has no member. The corpus writes each array sorted ascending; this schema does not check the order.",
+                "additionalProperties": {
+                  "type": "array",
+                  "items": { "type": "string", "minLength": 1 },
+                  "uniqueItems": true
+                }
               },
               "active_invocations": {
                 "type": "array",
@@ -121,7 +126,7 @@
               },
               "datamodel": {
                 "type": "object",
-                "description": "Every datamodel variable by name, with its value as JSON, the system variables _event, _ioprocessors, _name and _sessionid left out. A variable with no value is null."
+                "description": "Every datamodel variable by name, with its value as JSON, the system variables _event, _ioprocessors and _sessionid left out, and _name left out unless the document's scxml element carries a name attribute. A variable with no value is null."
               }
             },
             "required": [

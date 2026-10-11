@@ -396,7 +396,8 @@ The ten cases under `statifier/diff/`, the diff cases, are claimed: the run
 drives each as the reference's runner does and passes it on its
 configurations and its sends.
 
-The three cases that state a position,
+The four cases that state a position,
+`statifier/library/loan_lost_after_timer`,
 `statifier/library/loan_position_counts_renewals`,
 `statifier/library/loan_position_records_history` and
 `statifier/library/patron_position_in_every_region`, are claimed: the run

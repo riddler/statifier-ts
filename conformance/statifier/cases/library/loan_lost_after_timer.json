@@ -1,5 +1,5 @@
 {
-  "description": "The due date passes and then the lost-item timer fires, each injected as a step: the loan moves through overdue to the lost final state, and no copy.available is sent because the copy never came back.",
+  "description": "The due date passes and then the lost-item timer fires, each injected as a step: the loan moves through overdue to the lost final state, and no copy.available is sent because the copy never came back. Reaching lost stops the chart, so the position after the lost-item timer has running false and an empty configuration, the chart having exited every state as it stopped; lost is still waiting for an invoke pass, because none runs once the chart has stopped, and the shallow history h recorded overdue when the loan left active.",
   "initial_configuration": [
     "on_loan"
   ],
@@ -18,7 +18,33 @@
       },
       "configuration": [
         "lost"
-      ]
+      ],
+      "expect_position": {
+        "configuration": [],
+        "entered_states": [
+          "active",
+          "lost",
+          "on_loan",
+          "overdue"
+        ],
+        "states_to_invoke": [
+          "lost"
+        ],
+        "history_values": {
+          "h": [
+            "overdue"
+          ]
+        },
+        "active_invocations": [],
+        "running": false,
+        "datamodel": {
+          "copy_id": "c-1",
+          "holds_pending": false,
+          "max_renewals": 2,
+          "patron_standing": "good",
+          "renewals": 0
+        }
+      }
     }
   ],
   "host": {

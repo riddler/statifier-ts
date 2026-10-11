@@ -725,3 +725,44 @@ of a stated position term for term, so an integral float in the chart's
 datamodel and an integer in the stated position disagree there. Here the
 stated position is read as JSON text into JavaScript numbers, so the two
 agree. None of the three cases states a float.
+
+## Note: the copy moves to v2.13.0 (2026-10-10)
+
+This Note records the copy's move to the reference's `v2.13.0` tag and what
+the move changed. It carries no Status line and removes no line.
+
+**What moved.** The copy is the reference's `conformance/` at `v2.13.0`
+(`f0b1095`), moved there by `pnpm corpus:refresh` and recorded in
+`conformance/statifier.vendored.json` with the corpus hash
+`sha256:324ad1bc630382dc168111c3a56ae37689ba96c85b20af288cdf22f28ad668a4`.
+No case was added or removed. One case changed:
+`statifier/library/loan_lost_after_timer` now states the exported position
+on its last step, after the lost-item timer stops the chart. The copy's
+`schema/case.json` rewords `expect_position` and its `datamodel` member, and
+gives `history_values` an item schema: each recorded list is an array of
+unique, non-empty ids.
+
+**What the run found.** `pnpm conformance` over the new copy passes every
+case `conformance/registry.json` claims, the changed case included, its
+stated position compared by `comparePosition` in
+`test/conformance/statifier.ts` (read at `84b689a`). `pnpm ratchet` added no
+entry and rewrote only the registry's `corpus_hash`. The parity claim of the
+Note of 2026-10-04 now reaches four cases: the changed case and the three
+that Note names.
+
+**Two reference changes not ported.** At `v2.13.0` the reference's
+`Mix.Statifier.Corpus.PositionExpectation.render/1` keeps `_name` in the
+rendered datamodel when the document's `<scxml>` element carries a `name`
+attribute, and its `compare/3` compares the members as JSON values, numbers
+by value (`lib/mix/statifier/corpus/position_expectation.ex` at `v2.13.0`).
+`renderPosition` and `comparePosition` still follow the reference at
+`v2.11.0`, and their cites stay there. Neither change reaches a case of the
+copy: no document of the four cases carries a `name` attribute, and a stated
+number is already read here as a JavaScript number. The paragraph "A
+difference from the reference" in the Note of 2026-10-04 describes the
+reference at `v2.11.0`; at `v2.13.0` the reference also lets an integral
+float and an integer agree. The runner's cites of the reference's
+`run_case/1` in `lib/mix/statifier/corpus/runner.ex`,
+`PositionExpectation.named/1` and `run/2` in
+`lib/mix/statifier/corpus/host_case.ex` move to `v2.13.0`, where that code
+is as it was at `v2.11.0`.

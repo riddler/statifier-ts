@@ -48,6 +48,22 @@ vendors it from a statifier-ex tag, byte for byte, with `LICENSES/` and every
 case's `upstream` field, and writes its own registry against it. The recipe
 and the registry contract are [`RATCHET.md`](RATCHET.md).
 
+## A case in the corpus that is not claimed
+
+`w3c/test552` is in `corpus/w3c.json`, and its generated test module,
+`test/scxml_tests/mandatory/data/test552_test.exs`, runs with the rest of
+the `w3c` suite when that suite is included, but statifier-ex does not pass
+it: it is absent from `test/passing_tests.json` and so from
+`registry.json`. That is deliberate, not a gap the ratchet is waiting to
+close. The case reaches `pass` only when a `<data src>` is fetched at the
+time its `binding` names (in this document, at initialization), and the
+engine never fetches a datamodel source
+([ADR-0024](../docs/adr/0024-data-src-is-never-fetched.md)): a `<data>` with
+an `src` raises `error.execution` and leaves its id unbound, so the chart
+reaches `fail`. The case is not listed in `exclusions.json`, because an
+exclusion leaves a document out of the corpus and this one stays in it;
+ADR-0024 names it the acceptance test for any later change to that decision.
+
 ## The library world
 
 The cases under `conformance/cases/library/` share one small domain, so that
@@ -206,7 +222,8 @@ members, and `schema/case.json` requires all of them:
 
 - `configuration`: every active state's id, the compound and parallel
   ancestors of the active leaves included and the `<scxml>` root left
-  out;
+  out; empty after the step that stops the chart, which exits every
+  state;
 - `entered_states`: every state entered at least once;
 - `states_to_invoke`: the states whose invocations wait for the invoke
   pass: empty after a step that leaves the chart running, and after the
@@ -214,25 +231,32 @@ members, and `schema/case.json` requires all of them:
   and not exited by a transition since: no invoke pass runs once the chart
   has stopped, and exiting the chart removes none of them;
 - `history_values`: each history state that has recorded a value, by
-  id, with the ids it recorded;
+  id, with the ids it recorded as an array of unique, non-empty ids;
 - `active_invocations`: each running invocation as the id of the state
   that owns its `<invoke>` and the `<invoke>`'s index among that state's
   own, without the invocation's id;
 - `running`: false once the chart has reached a top-level final state;
-- `datamodel`: every variable with its value, `_event`, `_ioprocessors`,
-  `_name` and `_sessionid` left out, an unset value written `null`.
+- `datamodel`: every variable with its value, `_event`, `_ioprocessors`
+  and `_sessionid` left out, and `_name` left out too unless the
+  document's `<scxml>` carries a `name` attribute; an unset value written
+  `null`.
 
 Every array of state ids is sorted, and the runner compares each member
-exactly. The export's counters, the chart's identity, its status, its
+as a JSON value: numbers by value (a float `2.0` agrees with a `2`),
+arrays in order, objects member by member, and anything else exactly. The
+export's counters, the chart's identity, its status, its
 step stamps and its options are not stated, because another
 implementation need not produce the same values for them. A case that
 states a position on any step gives every state in its document an id,
 and the runner refuses one that does not. A `scion` or `w3c` case never
 carries the member.
 
-Three library cases carry it: `patron_position_in_every_region` after a
+Four library cases carry it: `patron_position_in_every_region` after a
 fine and a checkout request, with the parallel `patron` state and its
 three regions in the configuration; `loan_position_records_history`
 after a dispute and its resolution, with `due_soon` recorded under the
-history `h`; and `loan_position_counts_renewals` after each of two
-renewals, with `renewals` at 1 and then 2.
+history `h`; `loan_position_counts_renewals` after each of two
+renewals, with `renewals` at 1 and then 2; and `loan_lost_after_timer`
+after the lost-item timer stops the chart, with `running` false, an
+empty configuration, `lost` still in `states_to_invoke`, and `overdue`
+recorded under `h`.
