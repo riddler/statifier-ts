@@ -2820,7 +2820,7 @@ unbounded".
 
 ## Amendment: a list or a map value is written as JSON text (2026-10-10)
 
-Status: proposed (2026-10-10)
+Status: accepted (2026-10-10; proposed 2026-10-10)
 
 The Basic HTTP processor Amendment's table "Further divergences from the
 reference, each declared" has the row "A list, a map, a date, a datetime or
@@ -2913,3 +2913,75 @@ also records a body read as UTF-8 text whatever its type, and this
 Amendment does not take that up. No claim in `conformance/registry.json`
 moves: every case the conformance runner drives answers as it did on `main`
 at `b1e7500`.
+
+## Note: the acceptance of the JSON text Amendment of 2026-10-10 (2026-10-10)
+
+This Note records that the Amendment "a list or a map value is written as
+JSON text" (2026-10-10) above moved from proposed to accepted. The conductor
+moved it under the flip standard of the campaign consent the operator
+adopted, 2026-10-10. It decides nothing, so it carries no Status line, and
+it removes no line; the Amendment's status text is the one passage that
+changed in place. The Amendment's body names no status of its own.
+
+**It shipped in `@riddler/statifier` 0.4.0.** That version is on npm,
+published by the release workflow on the push of the tag `v0.4.0`, which
+names the commit `76f3e4a`
+(https://github.com/riddler/statifier-ts/actions/runs/38111375470), and the
+Amendment's changes are in the tag: `a3caa6e` carries the code, its tests,
+the generator and the Amendment itself. `main` was that tagged commit when
+this Note was written. Every claim about this package was re-checked at
+`76f3e4a` and located by anchor; every claim about the reference was read
+at statifier-ex `v2.13.0` (`f0b1095`).
+
+**What this package writes.** `encodeValue` in `src/basichttp/encoding.ts`
+writes a list or a map as the text `jsonText` answers, and otherwise as
+predicator's tagged-value text, or the empty string where `encodeTagged`
+refuses it; `requestFor` in `src/basichttp/processor.ts` calls `encodeValue`
+for each form parameter's value and for a `text/plain` body. `jsonText`
+writes each row of the Amendment's table as the row says: undefined and
+null as `null`, an integer in the safe range in decimal, a float through
+`floatText`, a string through `jsonString` with the escapes the row names
+(upper-case hex), a list's members in order, and a map's members sorted by
+`byCodePoint` at every size. It answers no JSON form for each value the
+Amendment's list names: a date, a datetime and a duration (none is a plain
+map), a string or a map key that `wellFormed` refuses, a plain number that
+is not a safe integer, an object whose prototype is neither the plain
+object's nor none, and a value nested past 256 levels or visited at more
+than a million places. Those two limits are the `DEPTH_LIMIT` and
+`PLACE_BUDGET` at which `encodeTagged` in `@riddler/predicator` 0.5.0
+refuses, and it refuses a value that holds itself as well. A non-finite
+float needs no row: predicator's `Float` refuses a non-finite number when it
+is made. `jsonText`'s documentation lists the values with no JSON form.
+
+**The reference.** At `v2.13.0`, `encode/1` in
+`lib/statifier/send/basic_http.ex` writes a list or a map as the JSON text
+of what `json/1` answers, and as its `inspect/1` text when `json/1` answers
+`:error`; `json/1` answers `:undefined` as `nil`, and `:error` for a string
+or a key that is not UTF-8, a key that is not a string, and every term it
+has no clause for. `post/2` there form-encodes a map that is not a struct
+and sends every other value but `:undefined` as a `text/plain` body through
+`encode/1`, so a list `<content>` body is JSON text. Its ADR-0075 carries the
+Amendment of 2026-10-02 under the title the Amendment quotes, and that
+record's Note of 2026-10-04 on key order, numbers and characters states the
+32-key size past which a map's members follow the iterator's order and that
+an integer is written in full whatever its size, the two cases the
+Amendment declares. The repository's `mise.toml` at the tag pins Elixir
+1.18.3 on OTP 27, as `test/basichttp-json.test.ts` says its rows were
+printed on.
+
+**The rows and the changed answer.** The rows the Amendment reads as
+amended stand in this record as it quotes them: the row on a list, a map, a
+date, a datetime or a duration in the processor Amendment's table "Further
+divergences from the reference, each declared", and the rows on a list or a
+map value and on a map of more than 32 entries in the Note of 2026-10-04 on
+the table counts. `test/basichttp-json.test.ts` holds the reference's rows,
+which its header says `test/basichttp-json.reference.exs` printed through
+the reference's public `deliver/3`, and the rows that keep the tagged-value
+text. At `b1e7500`, `encodeValue` handed every list and map to
+`encodeTagged`, which writes undefined as `{"$type":"undefined"}`, keeps a
+map's own key order (`Object.entries`), escapes a control character as
+`JSON.stringify` does, in lower-case hex, and refuses a map with a `$type`
+key: the four differences the Amendment names. `src/basichttp/decode.ts`
+and `conformance/registry.json` are unchanged between `b1e7500` and
+`76f3e4a`. The 0.4.0 section of `CHANGELOG.md` names the changed answer
+under Changed.
