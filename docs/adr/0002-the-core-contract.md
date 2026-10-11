@@ -2709,3 +2709,49 @@ earlier run made is answered from what it answered then (`holding` in
 `src/driver.ts`). In the table above each call hands one send more than
 its budget: the failures of the first sends are raised and run up to the
 budget, and the last failure joins the internal queue unrun.
+
+## Note: what a later call does with a failure the bound left unrun (2026-10-10)
+
+The Note "one driver call is bounded by the round budget" (2026-10-04)
+says, under "The halt.", that a session a call halted runs its chart no
+further in that call and stays halted. It does not say what a later call
+does with a failure the bound queued unrun. This Note says it; it changes
+no behaviour. Read against `main` at `337b759`.
+
+**The failure waits on the internal queue.** It is in the state the call
+answers, on `internalQueue`, and in the `budget_exhausted` effect's
+`pendingInternalEvents`. The session's `halted` stays
+`"budget_exhausted"`: no later call clears it (`decodeState` in
+`src/driver.ts` reads it from the state).
+
+**A later call that raises nothing leaves it waiting.** A later `step`
+puts its host event on the external queue, and `drain` takes nothing from
+a halted session, so the host event and the unrun failure both wait.
+
+**A later call that raises an event onto the internal queue runs it.** The
+per-call fields `taken`, `counted`, `spent` and `raised` start afresh in
+each call (`decodeState`), so the later call has not halted the session
+itself, and `deliverInternal` puts the new event behind the unrun failure
+and runs the chart over the queue, the unrun failure first. A failure
+reported through `reportSendFailed` is such an event, and so is a fired
+timer's send that the driver cannot reach and answers with
+`error.communication` (`communicationError`), in a later `advance`.
+
+**The later call is bounded again.** It counts what the bound Note's table
+counts, against the session's `maxMacrostepRounds` from zero, as any call
+does; the reported failure itself is not counted. A failure a processor
+answers past the budget in that call joins the internal queue unrun, as in
+the call that halted the session, and the call answers no second
+`budget_exhausted` effect: `spentFailure` answers it only for a session
+not already halted.
+
+**Where it is pinned.** `test/driver-bounded-call.test.ts`: "runs a
+failure the bound left unrun when a later call reports one" (a later
+`step` leaves the failure waiting, a later report runs it and then the
+reported one), "bounds a later call again, with no second halt", and
+"runs a failure the bound left unrun when a later advance fires a send it
+cannot deliver". The pair beside them stands: "runs nothing more in a
+session the call halted, an internal send in the same batch included"
+there, and in `test/driver-failed-send.test.ts` "still takes a report, and
+its external events still wait", for a session a spent macrostep halted,
+which a report still runs.
