@@ -11,7 +11,8 @@
 // private `form/1` (`URI.encode_query(pairs, :www_form)`), `escape/1`
 // (`URI.encode/2` keeping RFC 3986's unreserved set), `encode/1` (a parameter
 // value written as text), and the `URI.query_decoder/2` and `URI.decode/1`
-// calls its `decode/1` makes.
+// calls its `decode/1` makes. A list or a map is written as the reference's
+// `encode/1` and `json/1` write one at v2.13.0: as JSON text.
 
 import { isFloat, typeName, Undefined, type Value } from "@riddler/predicator";
 import { encodeTagged } from "@riddler/predicator/tagged";
@@ -88,10 +89,11 @@ export function escapeField(text: string): string {
  * A parameter value written as text, by the reference's `encode/1` rungs: a
  * string as it is, null as `null`, undefined as the empty string, an integer
  * in decimal, a float as the reference's runtime writes one, a boolean as its
- * literal. A list, a map, a date, a datetime and a duration have no rung
- * there - the reference writes them in its own language's inspect form and
- * leaves their encoding undecided - and are written here as predicator's
- * tagged-value text.
+ * literal. A list or a map is written as JSON text when every value inside it
+ * has a JSON form (`jsonText`), undefined inside it as `null`. A list or a map
+ * holding a value with none, a date, a datetime and a duration are written as
+ * predicator's tagged-value text, where the reference writes its own
+ * language's inspect form, which is not a text another runtime reads.
  */
 export function encodeValue(value: Value): string {
   if (typeof value === "string") return value;
@@ -102,8 +104,114 @@ export function encodeValue(value: Value): string {
   if (typeof value === "number") {
     return Number.isInteger(value) && Math.abs(value) < 1e21 ? String(value) : floatText(value);
   }
+  const json = jsonText(value);
+  if (json !== null) return json;
   const tagged = encodeTagged(value);
   return tagged.ok ? tagged.text : "";
+}
+
+// The most a value nests, and the most places a value is visited at, before
+// it is written as predicator's tagged-value text, whose encoder refuses past
+// the same two limits.
+const DEPTH_LIMIT = 256;
+const PLACE_BUDGET = 1_000_000;
+
+/**
+ * A list or a map as JSON text, as the reference's `encode/1` and `json/1`
+ * write one, or null when it is neither or a value inside it has no JSON
+ * form. Undefined inside is `null`; an integer is written in decimal and a
+ * float as `floatText` writes one; a map's members stand in code point order
+ * of their keys, the order the reference's runtime lists a small map's string
+ * keys in; a string is quoted as the reference's runtime quotes one. A date, a
+ * datetime, a duration, a string holding a lone surrogate (which has no UTF-8
+ * form), a number that is not a float and not an integer in the safe range,
+ * and an object that is not a plain map have no JSON form, and neither has a
+ * value nested past the depth limit (as a value holding itself is) or visited
+ * past the place budget. A list or a map holding any of these is written as
+ * before: as predicator's tagged-value text, or as the empty string where
+ * that text's encoder refuses it.
+ */
+function jsonText(value: Value): string | null {
+  if (!Array.isArray(value) && typeName(value) !== "map") return null;
+  const places = { visited: 0 };
+
+  function write(member: unknown, depth: number): string | null {
+    places.visited += 1;
+    if (places.visited > PLACE_BUDGET) return null;
+    if (member === null || member === Undefined) return "null";
+    if (typeof member === "boolean") return member ? "true" : "false";
+    if (typeof member === "string") return wellFormed(member) ? jsonString(member) : null;
+    if (isFloat(member)) {
+      return Number.isFinite(member.valueOf()) ? floatText(member.valueOf()) : null;
+    }
+    if (typeof member === "number") {
+      if (!Number.isSafeInteger(member)) return null;
+      return Object.is(member, -0) ? "-0" : String(member);
+    }
+    if (typeof member !== "object" || depth > DEPTH_LIMIT) return null;
+    const list = Array.isArray(member);
+    if (!list && !plain(member)) return null;
+    const parts: string[] = [];
+    if (list) {
+      for (const item of member) {
+        const text = write(item, depth + 1);
+        if (text === null) return null;
+        parts.push(text);
+      }
+    } else {
+      const map = member as { readonly [key: string]: unknown };
+      for (const key of Object.keys(map).sort(byCodePoint)) {
+        const text = write(map[key], depth + 1);
+        if (text === null || !wellFormed(key)) return null;
+        parts.push(`${jsonString(key)}:${text}`);
+      }
+    }
+    return list ? `[${parts.join(",")}]` : `{${parts.join(",")}}`;
+  }
+
+  return write(value, 1);
+}
+
+// An object whose prototype is the plain object's or none: a map as
+// predicator holds one, never a class instance.
+function plain(value: object): boolean {
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
+}
+
+// A string as JSON text, as the reference's runtime writes one: `"` and `\`
+// escaped, the five control characters with a short escape written so, every
+// other control character below U+0020 as `\u` and four upper-case hex
+// digits, and everything else, U+007F and U+2028 included, as it is.
+function jsonString(text: string): string {
+  let out = '"';
+  for (const character of text) {
+    const code = character.codePointAt(0) as number;
+    if (character === '"') out += '\\"';
+    else if (character === "\\") out += "\\\\";
+    else if (code === 0x08) out += "\\b";
+    else if (code === 0x09) out += "\\t";
+    else if (code === 0x0a) out += "\\n";
+    else if (code === 0x0c) out += "\\f";
+    else if (code === 0x0d) out += "\\r";
+    else if (code < 0x20) out += `\\u00${HEX[code >> 4]}${HEX[code & 0x0f]}`;
+    else out += character;
+  }
+  return `${out}"`;
+}
+
+/**
+ * Code point order, the order the reference's runtime lists a small map's
+ * string keys in: UTF-8 byte order is code point order.
+ */
+export function byCodePoint(a: string, b: string): number {
+  const left = [...a];
+  const right = [...b];
+  for (let i = 0; i < Math.min(left.length, right.length); i += 1) {
+    const difference = (left[i]?.codePointAt(0) ?? 0) - (right[i]?.codePointAt(0) ?? 0);
+    if (difference !== 0) return difference;
+  }
+  return left.length - right.length;
 }
 
 // The magnitude from which the reference writes every float in scientific

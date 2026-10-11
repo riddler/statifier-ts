@@ -1,0 +1,3 @@
+### Changed
+
+- The Basic HTTP processor posts a list or a map parameter value, and a list `<content>` body, as JSON text when every value inside it has a JSON form, as the reference does at `v2.13.0`: undefined inside it is written `null` (it was a tagged `{"$type":"undefined"}` object), a map's members stand in code point order of their keys, a control character's `\u` escape uses upper-case hex, and a map with a `$type` key is written (it was the empty string); a list or a map holding a date, a datetime or a duration is still posted as predicator's tagged-value text, so a receiver reading such a value should expect JSON for every other list and map.

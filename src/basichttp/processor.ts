@@ -22,7 +22,7 @@ import type { Cancel, Send, SendDelayed } from "../core/send.js";
 import type { Owner } from "../datamodel.js";
 import type { FailedSend, ProcessorContext, SendProcessor, SendProcessors } from "../driver.js";
 import type { HttpAnswer, HttpRequest, HttpTransport } from "../http-transport.js";
-import { encodeForm, encodeValue, escapeField, isMap } from "./encoding.js";
+import { byCodePoint, encodeForm, encodeValue, escapeField, isMap } from "./encoding.js";
 import { fetchTransport } from "./fetch-transport.js";
 
 /** The processor's type URI, SCXML appendix C.2's. */
@@ -277,16 +277,4 @@ function ownerText(owner: Owner): string {
 function withQuery(url: string, pairs: readonly (readonly [string, string])[]): string {
   if (pairs.length === 0) return url;
   return `${url}${url.includes("?") ? "&" : "?"}${encodeForm(pairs)}`;
-}
-
-// Code point order, the order the reference's runtime lists a small map's
-// string keys in: UTF-8 byte order is code point order.
-function byCodePoint(a: string, b: string): number {
-  const left = [...a];
-  const right = [...b];
-  for (let i = 0; i < Math.min(left.length, right.length); i += 1) {
-    const difference = (left[i]?.codePointAt(0) ?? 0) - (right[i]?.codePointAt(0) ?? 0);
-    if (difference !== 0) return difference;
-  }
-  return left.length - right.length;
 }
