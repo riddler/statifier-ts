@@ -365,6 +365,38 @@ describe("a delayed send", () => {
     expect(d.requests.map((r) => r.headers[1]?.[1].split("/")[0])).toEqual(["branch-8"]);
   });
 
+  const TWO_REMINDERS = chartOf(`<scxml ${SCXML} initial="notifying">
+    <state id="notifying">
+      <onentry>
+        <send id="reminder" event="hold.reminder" type="basichttp"
+              target="https://library.example/desk-1" delay="2s"/>
+        <send id="reminder" event="hold.last_call" type="basichttp"
+              target="https://library.example/desk-1" delay="3s"/>
+      </onentry>
+      <transition event="patron.collected" target="collected">
+        <cancel sendid="reminder"/>
+      </transition>
+    </state>
+    <state id="collected"/>
+  </scxml>`);
+
+  // Sabotage: clearing only the first, or only the last, of the timers held
+  // under the send id turns this red.
+  it("held twice under one send id, is dropped both times by one cancel of it", async () => {
+    vi.useFakeTimers();
+    const d = desk();
+    const sendTypes = sendTypesFor(d);
+    const first = ok(start(TWO_REMINDERS, { sessionId: "branch-7", sendTypes }));
+    ok(start(TWO_REMINDERS, { sessionId: "branch-8", sendTypes }));
+    ok(step(TWO_REMINDERS, first.state, { name: "patron.collected" }, { sendTypes }));
+    await vi.advanceTimersByTimeAsync(3000);
+
+    expect(d.requests.map((r) => [r.headers[1]?.[1].split("/")[0], r.body])).toEqual([
+      ["branch-8", "_scxmleventname=hold.reminder"],
+      ["branch-8", "_scxmleventname=hold.last_call"],
+    ]);
+  });
+
   it("is reported when there is no timer to hold it", async () => {
     vi.stubGlobal("setTimeout", undefined);
     const d = desk();
