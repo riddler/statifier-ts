@@ -2817,3 +2817,99 @@ with the budget_exhausted halt once its internal sends spend the budget",
 "bounds the call that starts the chart too", "never counts an internal
 send a timer fires" and "keeps a call under the infinity budget
 unbounded".
+
+## Amendment: a list or a map value is written as JSON text (2026-10-10)
+
+Status: proposed (2026-10-10)
+
+The Basic HTTP processor Amendment's table "Further divergences from the
+reference, each declared" has the row "A list, a map, a date, a datetime or
+a duration as a parameter value", and the Note "the Basic HTTP processor's
+table counts, four more divergences, and a held send after a restart"
+(2026-10-04) has the row "A list or a map as a parameter value, or a list as
+a `<content>` body". This Amendment answers both for a list or a map.
+Following the reference was ruled by the operator, 2026-10-06; keeping the
+tagged-value text for a list or a map holding a date, a datetime or a
+duration was ruled by the operator, 2026-10-10. It is an Amendment, not a
+Note, because it changes what a send posts.
+
+**The reference.** `encode/1` and `json/1` in
+`lib/statifier/send/basic_http.ex` at statifier-ex `v2.13.0` (`f0b1095`),
+under its ADR-0075 Amendment of 2026-10-02 "a list or a map value is written
+as JSON text, and a body is read as UTF-8 text whatever its type" and that
+record's Note of 2026-10-04 on the JSON text's key order, numbers and
+characters: a list or a map parameter value, and a list `<content>` body, is
+JSON text when every value inside it has a JSON form, `:undefined` inside it
+as JSON `null`, and otherwise the whole value's `inspect/1` text.
+
+**What this package writes.** A list or a map every value inside which has
+a JSON form here is written as JSON text (`jsonText` in
+`src/basichttp/encoding.ts`), both as a form parameter's value and, for a
+list, as the `text/plain` body (`encodeValue` in the same file, which
+`requestFor` in `src/basichttp/processor.ts` calls for both). A value inside
+it is written as follows:
+
+| The value inside | Written as |
+|---|---|
+| undefined | `null` |
+| null, a boolean | its literal |
+| an integer in the safe range | in decimal |
+| a float | as `floatText` writes one, the reference runtime's shortest form |
+| a string | quoted; `"` and `\` escaped; backspace, tab, newline, form feed and carriage return as their short escapes; every other character below U+0020 as `\u` and four upper-case hex digits; every other character as it is |
+| a list | its members in order |
+| a map | its members in code point order of their keys |
+
+**Where the text written before stands.** A list or a map is written as
+predicator's tagged-value text, as every list and map was written before
+this Amendment, or as the empty string where that text's encoder refuses
+it, when a value inside it has no JSON form here:
+
+- a date, a datetime or a duration. The reference writes the whole value's
+  `inspect/1` text there, which is not ported: it is not a text another
+  runtime reads;
+- a string, or a map key, holding a lone surrogate, which has no UTF-8 form,
+  as the reference's `json/1` gives a string that is not UTF-8 no JSON form;
+- a number that is not a float and not an integer in the safe range;
+- an object that is not a plain map;
+- a value that holds itself, nests past 256 levels, or is visited at more
+  than a million places, the limits at which the tagged-value text's encoder
+  refuses as well.
+
+The last four were decided by the conductor under a standing consent,
+2026-10-10. `jsonText`'s own documentation lists them.
+
+**The two rows, read as amended.** The Amendment's row "A list, a map, a
+date, a datetime or a duration as a parameter value" stands for a date, a
+datetime and a duration, and for a list or a map holding one; a list or a
+map every value inside which has a JSON form is written as the reference
+writes it. The Note's row "A list or a map as a parameter value, or a list
+as a `<content>` body" is reversed for a list or a map with a JSON form, and
+stands for one holding a date, a datetime or a duration. Beside them, two
+cases are declared:
+
+| Case | Reference at `v2.13.0` | This package | Basis |
+|---|---|---|---|
+| A map of more than 32 entries inside a list or a map | its members in the order its runtime's map iterator yields them, which is not sorted | code point order at every size (`jsonText`) | as the Note's row "A map of more than 32 entries as a send's data": that order is the reference runtime's own |
+| An integer outside the safe range inside a list or a map | written in full | the whole value as before: the tagged-value text's encoder refuses it, so the empty string | this package's number does not hold such an integer exactly |
+
+**Pinned.** `test/basichttp-json.test.ts` holds a table of the reference's
+own outputs, printed by its generator `test/basichttp-json.reference.exs`
+through the reference's public `deliver/3` in a scratch export of
+statifier-ex `v2.13.0` on the Elixir and OTP its `mise.toml` pins, and the
+rows that keep the text written before.
+
+**The changed answer.** A list or a map parameter value, and a list
+`<content>` body, every value inside which has a JSON form is posted as JSON
+text. For such a value it differs from the tagged-value text posted before
+only where the value holds undefined (`null` now, `{"$type":"undefined"}`
+before), a map whose keys stood in another order than code point order
+(before, the keys that read as array indexes came first, in ascending
+order, then the others in the order they were made), a character below
+U+0020 written with a `\u` escape (upper-case hex now, lower-case before),
+or a map with the key `$type`, which the tagged-value text reserves (JSON
+text now, the empty string before). The decoder (`decodeRequest` in
+`src/basichttp/decode.ts`) is not changed: the reference's same Amendment
+also records a body read as UTF-8 text whatever its type, and this
+Amendment does not take that up. No claim in `conformance/registry.json`
+moves: every case the conformance runner drives answers as it did on `main`
+at `b1e7500`.

@@ -185,7 +185,7 @@ describe("the form body encoder, against the reference's encodings", () => {
     expect(encodeForm([])).toBe("");
   });
 
-  it("writes a list and a map as predicator's tagged-value text", () => {
+  it("writes a list and a map as JSON text", () => {
     expect(encodeValue([1, float(2)])).toBe("[1,2.0]");
     expect(encodeValue({ copy: "book-17" })).toBe('{"copy":"book-17"}');
   });
